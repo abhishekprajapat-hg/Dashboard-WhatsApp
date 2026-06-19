@@ -55,3 +55,59 @@ Default seeded login:
 
 - Email: `admin@test.com`
 - Password: `123456`
+
+## Google Sheet Lead Sync
+
+Create a Google Sheet with this header row:
+
+```text
+Timestamp | Name | Phone | Email | Message | Source | Status | Stage | Conversation ID | Contact ID | Provider Message ID
+```
+
+Open **Extensions > Apps Script**, paste this script, deploy it as a **Web app**, and set access to **Anyone**. Add the deployed URL to `server/.env` as `GOOGLE_SHEET_WEBHOOK_URL`.
+
+```js
+const SHEET_NAME = "Leads";
+const SECRET = "change-this-secret";
+
+function doPost(e) {
+  const payload = JSON.parse(e.postData.contents || "{}");
+  if (SECRET && payload.secret !== SECRET) {
+    return ContentService.createTextOutput("Unauthorized").setMimeType(ContentService.MimeType.TEXT);
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow([
+      "Timestamp",
+      "Name",
+      "Phone",
+      "Email",
+      "Message",
+      "Source",
+      "Status",
+      "Stage",
+      "Conversation ID",
+      "Contact ID",
+      "Provider Message ID",
+    ]);
+  }
+
+  sheet.appendRow([
+    payload.timestamp || new Date().toISOString(),
+    payload.name || "",
+    payload.phone || "",
+    payload.email || "",
+    payload.message || "",
+    payload.source || "WhatsApp",
+    payload.status || "lead",
+    payload.stage || "new_lead",
+    payload.conversationId || "",
+    payload.contactId || "",
+    payload.providerMessageId || "",
+  ]);
+
+  return ContentService.createTextOutput("OK").setMimeType(ContentService.MimeType.TEXT);
+}
+```

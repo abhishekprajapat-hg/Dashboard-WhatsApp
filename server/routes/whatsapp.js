@@ -13,6 +13,7 @@ import {
 import { requireAuth } from "../middleware/auth.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
+import { syncLeadToGoogleSheet } from "../services/googleSheets.js";
 import { fetchWhatsAppTemplates, normalizeWebhookPayload } from "../services/whatsappProvider.js";
 
 export const whatsappRouter = Router();
@@ -231,6 +232,11 @@ whatsappWebhookRouter.post("/", async (req, res) => {
       conversation.lastMessageId = message._id;
       conversation.lastMessageAt = message.receivedAt || new Date();
       await ensureConversationInCrm({ contact, conversation, source: "whatsapp_inbound" });
+      try {
+        await syncLeadToGoogleSheet({ contact, conversation, message });
+      } catch (sheetError) {
+        event.error = `Google Sheet sync failed: ${sheetError.message}`;
+      }
       const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
       for (const membership of memberships) {
         const key = membership.userId.toString();
@@ -265,4 +271,6 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
   res.sendStatus(200);
 });
+
+
 
