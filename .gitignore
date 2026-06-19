@@ -1,0 +1,31 @@
+﻿# dependencies
+node_modules/
+
+# env/secrets
+.env
+.env.local
+.env.*.local
+client/.env
+server/.env
+
+# builds
+client/dist/
+dist/
+build/
+
+# logs/runtime
+*.log
+*.err.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local database/runtime data
+.mongo-data/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

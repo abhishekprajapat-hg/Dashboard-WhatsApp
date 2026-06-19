@@ -1,0 +1,349 @@
+﻿import { Router } from "express";
+import mongoose from "mongoose";
+import { conversations } from "../data/demoData.js";
+import { Contact, Conversation, Message } from "../models/index.js";
+import { WhatsAppAccount } from "../models/index.js";
+import { publishConversationChanged } from "../realtime/events.js";
+import { ensureConversationInCrm } from "../services/crm.js";
+import { sendWhatsAppText } from "../services/whatsappProvider.js";
+import { serializeConversation, serializeMessage } from "../utils/serializers.js";
+
+export const conversationsRouter = Router();
+
+conversationsRouter.get("/", async (req, res) => {
+  if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
+    const status = String(req.query.status || "").toLowerCase();
+    const search = String(req.query.search || "").trim();
+    const filter = { workspaceId: req.user.workspaceId };
+
+    if (status) {
+      filter.status = status === "waiting" ? "pending" : status;
+    }
+
+    let dbConversations = await Conversation.find(filter)
+      .populate({ path: "contactId", populate: { path: "tagIds" } })
+      .populate("assignedToUserId", "name")
+      .populate("tagIds")
+      .populate("lastMessageId")
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .limit(50);
+
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      dbConversations = dbConversations.filter((conversation) => {
+        const contact = conversation.contactId || {};
+        const preview = conversation.lastMessageId?.body || "";
+        return [contact.name, contact.phone, preview].some((value = "") => value.toLowerCase().includes(lowerSearch));
+      });
+    }
+
+    const data = await Promise.all(
+      dbConversations.map(async (conversation) => {
+        const messages = await Message.find({ conversationId: conversation._id })
+          .sort({ createdAt: 1 })
+          .limit(100);
+        return serializeConversation(conversation, messages, { userId: req.user.sub });
+      })
+    );
+
+    return res.json({ data, total: data.length });
+  }
+
+  const status = String(req.query.status || "").toLowerCase();
+  const search = String(req.query.search || "").toLowerCase();
+  let results = conversations;
+
+  if (status) {
+    results = results.filter((conversation) => conversation.status === status);
+  }
+
+  if (search) {
+    results = results.filter((conversation) =>
+      [conversation.name, conversation.phone, conversation.preview].some((value) => value.toLowerCase().includes(search))
+    );
+  }
+
+  res.json({ data: results, total: results.length });
+});
+
+conversationsRouter.get("/unread-count", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
+    return res.json({ unread: 0 });
+  }
+
+  const conversations = await Conversation.find({ workspaceId: req.user.workspaceId }).select("unreadCountByUser");
+  const unread = conversations.reduce(
+    (total, conversation) => total + Number(conversation.unreadCountByUser?.get?.(req.user.sub) || 0),
+    0
+  );
+
+  res.json({ unread });
+});
+
+conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.contactId)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
+  }
+
+  const contact = await Contact.findOne({ _id: req.params.contactId, workspaceId: req.user.workspaceId });
+
+  if (!contact) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
+  }
+
+  let conversation = await Conversation.findOne({
+    contactId: contact._id,
+    workspaceId: req.user.workspaceId,
+    status: { $ne: "archived" },
+  })
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId")
+    .sort({ lastMessageAt: -1, updatedAt: -1 });
+
+  if (!conversation) {
+    conversation = await Conversation.create({
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      contactId: contact._id,
+      status: "open",
+      lastMessageAt: new Date(),
+    });
+
+    contact.lastMessageAt = conversation.lastMessageAt;
+    await contact.save();
+
+    conversation = await Conversation.findById(conversation._id)
+      .populate({ path: "contactId", populate: { path: "tagIds" } })
+      .populate("assignedToUserId", "name")
+      .populate("tagIds")
+      .populate("lastMessageId");
+  }
+
+  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
+});
+
+conversationsRouter.patch("/:id/read", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  conversation.unreadCountByUser?.set?.(req.user.sub, 0);
+  conversation.markModified("unreadCountByUser");
+  await conversation.save();
+
+  res.json({ unread: 0 });
+});
+
+conversationsRouter.post("/", async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required to create conversations." });
+  }
+
+  const { contactId, content = "Conversation started" } = req.body || {};
+
+  if (!mongoose.Types.ObjectId.isValid(contactId)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid contact is required." });
+  }
+
+  const contact = await Contact.findOne({ _id: contactId, workspaceId: req.user.workspaceId });
+
+  if (!contact) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
+  }
+
+  const conversation = await Conversation.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    contactId: contact._id,
+    status: "open",
+    lastMessageAt: new Date(),
+  });
+
+  const message = await Message.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    conversationId: conversation._id,
+    contactId: contact._id,
+    direction: "outbound",
+    type: "text",
+    body: content,
+    status: "sent",
+    sentByUserId: req.user.sub,
+    sentAt: new Date(),
+  });
+
+    conversation.lastMessageId = message._id;
+    await conversation.save();
+
+  contact.lastMessageAt = message.sentAt;
+  await contact.save();
+
+  const hydrated = await Conversation.findById(conversation._id)
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId");
+
+  await publishConversationChanged(conversation._id);
+  res.status(201).json({ data: serializeConversation(hydrated, [message], { userId: req.user.sub }) });
+});
+
+conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId })
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId");
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  await ensureConversationInCrm({
+    contact: conversation.contactId,
+    conversation,
+    source: "manual_inbox_action",
+  });
+
+  const [hydrated, messages] = await Promise.all([
+    Conversation.findById(conversation._id)
+      .populate({ path: "contactId", populate: { path: "tagIds" } })
+      .populate("assignedToUserId", "name")
+      .populate("tagIds")
+      .populate("lastMessageId"),
+    Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100),
+  ]);
+
+  await publishConversationChanged(conversation._id);
+  res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
+});
+conversationsRouter.post("/:id/messages", async (req, res) => {
+  if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
+    const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+    }
+
+    const { content } = req.body || {};
+
+    if (!content?.trim()) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
+    }
+
+    const [account, contact] = await Promise.all([
+      WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: { $in: ["connected", "needs_attention"] } }).sort({ createdAt: -1 }),
+      Contact.findById(conversation.contactId),
+    ]);
+    let providerResult;
+
+    try {
+      providerResult = await sendWhatsAppText({
+        account,
+        to: contact?.phone,
+        body: content.trim(),
+      });
+    } catch (error) {
+      if (account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
+        account.status = "needs_attention";
+        account.webhookStatus = "healthy";
+        await account.save();
+      }
+
+      const failedMessage = await Message.create({
+        organizationId: req.user.organizationId,
+        workspaceId: req.user.workspaceId,
+        conversationId: conversation._id,
+        contactId: conversation.contactId,
+        whatsappAccountId: conversation.whatsappAccountId || account?._id,
+        direction: "outbound",
+        type: "text",
+        body: content.trim(),
+        providerMessageId: `failed_${Date.now()}`,
+        status: "failed",
+        sentByUserId: req.user.sub,
+        sentAt: new Date(),
+        metadata: {
+          providerMode: "meta",
+          error: error.message,
+          meta: error.meta,
+        },
+      });
+
+      conversation.lastMessageId = failedMessage._id;
+      conversation.lastMessageAt = failedMessage.sentAt;
+      await conversation.save();
+      await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: failedMessage.sentAt });
+      await publishConversationChanged(conversation._id);
+
+      return res.status(error.status || 502).json({
+        error: "WHATSAPP_SEND_FAILED",
+        message: error.message || "WhatsApp message could not be sent.",
+        accountStatus: account?.status || "missing",
+      });
+    }
+
+    const message = await Message.create({
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      conversationId: conversation._id,
+      contactId: conversation.contactId,
+      whatsappAccountId: conversation.whatsappAccountId || account?._id,
+      direction: "outbound",
+      type: "text",
+      body: content.trim(),
+      providerMessageId: providerResult.providerMessageId,
+      status: providerResult.status,
+      sentByUserId: req.user.sub,
+      sentAt: new Date(),
+      metadata: { providerMode: providerResult.mode },
+    });
+
+    conversation.lastMessageId = message._id;
+    conversation.lastMessageAt = message.sentAt;
+    await conversation.save();
+    await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: message.sentAt });
+
+    await publishConversationChanged(conversation._id);
+    return res.status(201).json({ data: serializeMessage(message) });
+  }
+
+  const conversation = conversations.find((item) => item.id === req.params.id);
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const { content } = req.body || {};
+
+  if (!content?.trim()) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
+  }
+
+  const message = {
+    id: `msg_${Date.now()}`,
+    content: content.trim(),
+    from: "agent",
+    time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    status: "sent",
+  };
+
+  conversation.messages.push(message);
+  conversation.preview = message.content;
+  conversation.unread = 0;
+
+  res.status(201).json({ data: message });
+});
+

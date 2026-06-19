@@ -1,0 +1,19 @@
+{
+    "name":  "whatscrm-server",
+    "private":  true,
+    "version":  "0.1.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "node index.js",
+                    "start":  "node index.js",
+                    "seed":  "node scripts/seed.js",
+                    "check":  "node scripts/check-syntax.js",
+                    "connect:whatsapp":  "node scripts/connect-whatsapp.js"
+                },
+    "dependencies":  {
+                         "dotenv":  "17.2.3",
+                         "express":  "5.1.0",
+                         "jsonwebtoken":  "9.0.2",
+                         "mongoose":  "8.19.1"
+                     }
+}
