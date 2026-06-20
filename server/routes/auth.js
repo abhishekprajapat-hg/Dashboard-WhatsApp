@@ -79,7 +79,7 @@ authRouter.post("/login", async (req, res) => {
     }
 
     user.lastLoginAt = new Date();
-    await user.save();
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: user.lastLoginAt } });
 
     const session = await buildSessionForUser(user);
     if (!session) {
@@ -105,3 +105,4 @@ authRouter.post("/login", async (req, res) => {
 
   res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password." });
 });
+
