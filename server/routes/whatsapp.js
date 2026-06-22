@@ -118,6 +118,60 @@ whatsappRouter.get("/templates", async (req, res) => {
   res.json({ data: templates.map(serializeTemplate), total: templates.length });
 });
 
+whatsappRouter.post("/templates", async (req, res) => {
+  const { accountId, name = "", language = "en", category = "UTILITY", body = "" } = req.body || {};
+
+  if (!name.trim()) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Template name is required." });
+  }
+
+  const accountFilter = {
+    workspaceId: req.user.workspaceId,
+    status: { $in: ["connected", "needs_attention"] },
+  };
+  if (accountId && mongoose.Types.ObjectId.isValid(accountId)) {
+    accountFilter._id = accountId;
+  }
+
+  const account = await WhatsAppAccount.findOne(accountFilter).sort({ createdAt: -1 });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Connected WhatsApp account not found." });
+  }
+
+  const components = body.trim()
+    ? [
+        {
+          type: "BODY",
+          text: body.trim(),
+        },
+      ]
+    : [];
+
+  const template = await Template.findOneAndUpdate(
+    {
+      workspaceId: req.user.workspaceId,
+      whatsappAccountId: account._id,
+      name: name.trim(),
+      language: language.trim() || "en",
+    },
+    {
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      whatsappAccountId: account._id,
+      providerTemplateId: name.trim(),
+      name: name.trim(),
+      language: language.trim() || "en",
+      category: category.trim() || "UTILITY",
+      components,
+      status: "approved",
+      lastSyncedAt: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  res.status(201).json({ data: serializeTemplate(template) });
+});
+
 whatsappRouter.post("/accounts/:id/sync-templates", async (req, res) => {
   const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 

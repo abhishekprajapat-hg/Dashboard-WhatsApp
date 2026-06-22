@@ -212,6 +212,19 @@ export function getWhatsAppTemplates<T>() {
   return request<T>("/whatsapp/templates");
 }
 
+export function createWhatsAppTemplate<T>(template: {
+  accountId?: string;
+  name: string;
+  language?: string;
+  category?: string;
+  body?: string;
+}) {
+  return request<T>("/whatsapp/templates", {
+    method: "POST",
+    body: JSON.stringify(template),
+  });
+}
+
 export function getCampaigns<T>() {
   return request<T>("/campaigns");
 }

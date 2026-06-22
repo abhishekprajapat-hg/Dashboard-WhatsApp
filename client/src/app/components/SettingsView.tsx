@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   createWhatsAppAccount,
+  createWhatsAppTemplate,
   deleteWhatsAppAccount,
   getCurrentWorkspace,
   getSettings,
@@ -91,6 +92,15 @@ export function SettingsView() {
     businessAccountId: "",
     accessToken: "",
   });
+  const [templateForm, setTemplateForm] = useState({
+    accountId: "",
+    name: "",
+    language: "en",
+    category: "UTILITY",
+    body: "",
+  });
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateNotice, setTemplateNotice] = useState("");
 
   async function loadSettings() {
     const response = await getSettings<SettingsPayload>();
@@ -139,8 +149,33 @@ export function SettingsView() {
   }
 
   async function handleSyncTemplates(id: string) {
-    await syncWhatsAppTemplates(id);
-    await loadSettings();
+    try {
+      await syncWhatsAppTemplates(id);
+      await loadSettings();
+      setTemplateNotice("Templates synced.");
+    } catch (error) {
+      setTemplateNotice(error instanceof Error ? error.message : "Template sync failed. Add approved templates manually.");
+      await loadSettings().catch(() => undefined);
+    }
+  }
+
+  async function handleCreateTemplate(event: React.FormEvent) {
+    event.preventDefault();
+    setTemplateSaving(true);
+    setTemplateNotice("");
+    try {
+      await createWhatsAppTemplate<{ data: Template }>({
+        ...templateForm,
+        accountId: templateForm.accountId || settings.whatsappAccounts[0]?.id,
+      });
+      setTemplateForm((current) => ({ ...current, name: "", body: "" }));
+      setTemplateNotice("Template added. You can use it in Inbox now.");
+      await loadSettings();
+    } catch (error) {
+      setTemplateNotice(error instanceof Error ? error.message : "Template could not be added.");
+    } finally {
+      setTemplateSaving(false);
+    }
   }
 
   return (
@@ -304,6 +339,51 @@ export function SettingsView() {
                 <h3 className="text-sm font-medium text-foreground">Templates</h3>
                 <span className="text-xs text-muted-foreground">{settings.templates.length} total</span>
               </div>
+              <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 md:grid-cols-4 gap-3 border-b border-border p-4">
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label>Approved template name</Label>
+                  <Input
+                    value={templateForm.name}
+                    onChange={(event) => setTemplateForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="hello_world"
+                    required
+                    className="h-8 bg-secondary border-transparent focus:border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Language</Label>
+                  <Input
+                    value={templateForm.language}
+                    onChange={(event) => setTemplateForm((current) => ({ ...current, language: event.target.value }))}
+                    placeholder="en"
+                    className="h-8 bg-secondary border-transparent focus:border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Category</Label>
+                  <Input
+                    value={templateForm.category}
+                    onChange={(event) => setTemplateForm((current) => ({ ...current, category: event.target.value }))}
+                    placeholder="UTILITY"
+                    className="h-8 bg-secondary border-transparent focus:border-border"
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-4">
+                  <Label>Body text with variables</Label>
+                  <Input
+                    value={templateForm.body}
+                    onChange={(event) => setTemplateForm((current) => ({ ...current, body: event.target.value }))}
+                    placeholder="Hi {{1}}, thanks for contacting us."
+                    className="h-8 bg-secondary border-transparent focus:border-border"
+                  />
+                </div>
+                <div className="md:col-span-4 flex items-center gap-3">
+                  <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={templateSaving || settings.whatsappAccounts.length === 0}>
+                    {templateSaving ? "Adding..." : "Add approved template"}
+                  </Button>
+                  {templateNotice && <span className="text-xs text-muted-foreground">{templateNotice}</span>}
+                </div>
+              </form>
               <div className="divide-y divide-border">
                 {settings.templates.map((template) => (
                   <div key={template.id} className="px-4 py-3 flex items-center justify-between">
