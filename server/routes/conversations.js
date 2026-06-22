@@ -1,7 +1,7 @@
 ﻿import { Router } from "express";
 import mongoose from "mongoose";
 import { conversations } from "../data/demoData.js";
-import { Contact, Conversation, Message } from "../models/index.js";
+import { Contact, Conversation, Membership, Message } from "../models/index.js";
 import { WhatsAppAccount } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
@@ -229,6 +229,56 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
   await publishConversationChanged(conversation._id);
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
+
+conversationsRouter.patch("/:id/assignment", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const { userId = "" } = req.body || {};
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  if (!userId) {
+    conversation.assignedToUserId = undefined;
+  } else {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid team member is required." });
+    }
+
+    const membership = await Membership.findOne({ workspaceId: req.user.workspaceId, userId, status: "active" });
+    if (!membership) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Team member is not active in this workspace." });
+    }
+
+    conversation.assignedToUserId = userId;
+  }
+
+  conversation.metadata = {
+    ...(conversation.metadata || {}),
+    assignment: {
+      assignedByUserId: req.user.sub,
+      assignedAt: new Date(),
+      assignedToUserId: userId || null,
+    },
+  };
+  await conversation.save();
+
+  const [hydrated, messages] = await Promise.all([
+    Conversation.findById(conversation._id)
+      .populate({ path: "contactId", populate: { path: "tagIds" } })
+      .populate("assignedToUserId", "name")
+      .populate("tagIds")
+      .populate("lastMessageId"),
+    Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100),
+  ]);
+
+  await publishConversationChanged(conversation._id);
+  res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
+});
+
 conversationsRouter.post("/:id/messages", async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });

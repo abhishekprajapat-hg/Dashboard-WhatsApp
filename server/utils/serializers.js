@@ -75,6 +75,7 @@ export function serializeConversation(conversation, messages = [], { userId } = 
     unread,
     status: conversation.status === "pending" ? "waiting" : conversation.status,
     agent: conversation.assignedToUserId?.name,
+    agentId: conversation.assignedToUserId?._id?.toString?.() || "",
     tags,
     source: contact.source || "WhatsApp",
     lifecycleStatus: contact.lifecycleStatus || "lead",

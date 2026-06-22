@@ -107,7 +107,7 @@ export default function App() {
 
         <div className="flex-1 flex overflow-hidden">
           {activeView === "dashboard" && <DashboardView userName={session.user.name} />}
-          {activeView === "inbox" && <InboxView openContactId={contactChatTarget} onUnreadCountChange={setUnreadCount} />}
+          {activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} onUnreadCountChange={setUnreadCount} />}
           {activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} />}
           {activeView === "automation" && <AutomationView />}
           {activeView === "campaigns" && <CampaignsView />}

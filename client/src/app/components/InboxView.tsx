@@ -19,7 +19,7 @@ import {
   Plus,
   Smile,
 } from "lucide-react";
-import { addConversationToCrm, getConversationByContact, getConversations, getEventStreamUrl, getUnreadCount, markConversationRead, sendConversationMessage } from "../lib/api";
+import { addConversationToCrm, assignConversation, getConversationByContact, getConversations, getEventStreamUrl, getTeamMembers, getUnreadCount, markConversationRead, sendConversationMessage } from "../lib/api";
 import { demoConversations } from "../lib/demoData";
 
 interface Message {
@@ -39,12 +39,21 @@ interface Conversation {
   unread: number;
   status: "open" | "waiting" | "resolved" | "bot";
   agent?: string;
+  agentId?: string;
   tags: string[];
   source?: string;
   lifecycleStatus?: string;
   crmStage?: string;
   crmAddedAt?: string;
   messages: Message[];
+}
+
+interface TeamMember {
+  id: string;
+  userId: string;
+  name: string;
+  role: "admin" | "manager" | "agent";
+  status: string;
 }
 
 const fallbackConversations = demoConversations as Conversation[];
@@ -87,10 +96,11 @@ function mergeConversation(items: Conversation[], incoming: Conversation) {
 
 interface InboxViewProps {
   openContactId?: string | null;
+  currentUserId?: string;
   onUnreadCountChange?: (count: number) => void;
 }
 
-export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps) {
+export function InboxView({ openContactId, currentUserId, onUnreadCountChange }: InboxViewProps) {
   const [activeTab, setActiveTab] = useState("All");
   const [conversations, setConversations] = useState<Conversation[]>(fallbackConversations);
   const [selectedId, setSelectedId] = useState(fallbackConversations[0]?.id || "");
@@ -99,6 +109,8 @@ export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps
   const [sendError, setSendError] = useState("");
   const [crmSaving, setCrmSaving] = useState(false);
   const [crmNotice, setCrmNotice] = useState("");
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     getConversations<{ data: Conversation[]; total: number }>()
@@ -107,6 +119,10 @@ export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps
         setSelectedId((current) => current || response.data[0]?.id || "");
       })
       .catch(() => setConversations(fallbackConversations));
+
+    getTeamMembers<{ data: TeamMember[]; total: number }>()
+      .then((response) => setMembers(response.data.filter((member) => member.userId)))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -158,7 +174,7 @@ export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps
       (activeTab === "Open" && conversation.status === "open") ||
       (activeTab === "Waiting" && conversation.status === "waiting") ||
       (activeTab === "Resolved" && conversation.status === "resolved") ||
-      (activeTab === "Mine" && conversation.agent === "Admin");
+      (activeTab === "Mine" && conversation.agentId === currentUserId);
     const matchSearch =
       !search ||
       conversation.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -206,6 +222,18 @@ export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps
       );
     }
   }
+  async function handleAssign(userId: string) {
+    if (!selected) return;
+    setAssigning(true);
+    try {
+      const response = await assignConversation<{ data: Conversation }>(selected.id, userId);
+      setConversations((items) => mergeConversation(items, response.data));
+      setSelectedId(response.data.id);
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   async function handleAddToCrm() {
     if (!selected) return;
 
@@ -326,11 +354,18 @@ export function InboxView({ openContactId, onUnreadCountChange }: InboxViewProps
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {selected.agent && (
-              <span className="text-xs text-muted-foreground mr-2">
-                Assigned to <span className="text-foreground">{selected.agent}</span>
-              </span>
-            )}
+            <select
+              value={selected.agentId || ""}
+              onChange={(event) => handleAssign(event.target.value)}
+              disabled={assigning}
+              className="h-7 max-w-40 rounded-md border border-border bg-secondary px-2 text-xs text-foreground outline-none"
+              title="Assign conversation"
+            >
+              <option value="">Unassigned</option>
+              {members.map((member) => (
+                <option key={member.userId} value={member.userId}>{member.name}</option>
+              ))}
+            </select>
             <Button
               size="sm"
               variant={selectedIsInCrm ? "outline" : "default"}

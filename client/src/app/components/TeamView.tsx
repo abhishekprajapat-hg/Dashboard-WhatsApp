@@ -10,7 +10,7 @@ interface TeamMember {
   id: string;
   name: string;
   email: string;
-  role: "super_admin" | "admin" | "agent";
+  role: "super_admin" | "admin" | "manager" | "agent";
   status: "online" | "offline" | "busy" | "away";
   assignedConversations: number;
   resolvedToday: number;
@@ -22,12 +22,14 @@ interface TeamMember {
 const roleStyle: Record<string, string> = {
   super_admin: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   admin: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  manager: "bg-primary/20 text-primary border-primary/30",
   agent: "bg-secondary text-muted-foreground border-border",
 };
 
 const roleLabel: Record<string, string> = {
   super_admin: "Super Admin",
   admin: "Admin",
+  manager: "Manager",
   agent: "Agent",
 };
 
@@ -121,6 +123,7 @@ export function TeamView() {
             <Input value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Password" className="h-8 text-xs bg-secondary border-transparent" />
             <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} className="h-8 text-xs bg-secondary border border-border rounded-md px-2 text-foreground">
               <option value="agent">Agent</option>
+              <option value="manager">Manager</option>
               <option value="admin">Admin</option>
             </select>
             <div className="flex gap-2">
@@ -188,7 +191,7 @@ export function TeamView() {
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <button onClick={() => handleRole(member, member.role === "admin" ? "agent" : "admin")}>
+                  <button onClick={() => handleRole(member, member.role === "admin" ? "manager" : member.role === "manager" ? "agent" : "admin")}>
                     <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${roleStyle[member.role]}`}>
                       {roleLabel[member.role]}
                     </Badge>
@@ -224,3 +227,4 @@ export function TeamView() {
     </div>
   );
 }
+

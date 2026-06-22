@@ -1,6 +1,6 @@
 import { Router } from "express";
 import mongoose from "mongoose";
-import { Membership, Role, User } from "../models/index.js";
+import { Conversation, Membership, Role, User } from "../models/index.js";
 import { hashPassword } from "../utils/password.js";
 import { relativeTime } from "../utils/serializers.js";
 
@@ -15,7 +15,46 @@ function initials(name) {
     .toUpperCase();
 }
 
-function serializeMember(membership) {
+function normalizeRoleKey(role = "agent") {
+  if (role === "admin" || role === "workspace_admin") return "workspace_admin";
+  if (role === "manager") return "manager";
+  return "agent";
+}
+
+function roleKeyToClient(key = "agent") {
+  if (key === "workspace_admin") return "admin";
+  if (key === "manager") return "manager";
+  return "agent";
+}
+
+async function ensureRole({ organizationId, workspaceId, key }) {
+  const normalized = normalizeRoleKey(key);
+  const roleMap = {
+    workspace_admin: {
+      name: "Workspace Admin",
+      description: "Full access to workspace settings, team, inbox, campaigns, and automations.",
+      permissions: ["*"],
+    },
+    manager: {
+      name: "Manager",
+      description: "Can monitor team performance, assign conversations, and manage inbox operations.",
+      permissions: ["inbox:read", "inbox:write", "contacts:read", "contacts:write", "team:read", "reports:read", "assignment:write"],
+    },
+    agent: {
+      name: "Agent",
+      description: "Inbox and contact access for daily support work.",
+      permissions: ["inbox:read", "inbox:write", "contacts:read", "contacts:write"],
+    },
+  };
+  const next = roleMap[normalized];
+  return Role.findOneAndUpdate(
+    { workspaceId, key: normalized },
+    { organizationId, workspaceId, key: normalized, ...next, isSystemRole: true },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+}
+
+function serializeMember(membership, metrics = {}) {
   const user = membership.userId || {};
   const role = membership.roleId || {};
 
@@ -24,10 +63,10 @@ function serializeMember(membership) {
     userId: user._id?.toString(),
     name: user.name || "Invited user",
     email: user.email || "",
-    role: role.key === "workspace_admin" ? "admin" : role.key || "agent",
+    role: roleKeyToClient(role.key),
     status: user.status === "active" ? "online" : "offline",
-    assignedConversations: 0,
-    resolvedToday: 0,
+    assignedConversations: metrics.assignedConversations || 0,
+    resolvedToday: metrics.resolvedToday || 0,
     joinedAt: membership.joinedAt ? membership.joinedAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Invited",
     lastActive: user.lastLoginAt ? relativeTime(user.lastLoginAt) : "Never",
     avatar: initials(user.name || user.email || "U"),
@@ -44,7 +83,30 @@ teamRouter.get("/", async (req, res) => {
     .populate("roleId")
     .sort({ createdAt: 1 });
 
-  res.json({ data: memberships.map(serializeMember), total: memberships.length });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const userIds = memberships.map((membership) => membership.userId?._id).filter(Boolean);
+  const [assignedCounts, resolvedCounts] = await Promise.all([
+    Conversation.aggregate([
+      { $match: { workspaceId: new mongoose.Types.ObjectId(req.user.workspaceId), assignedToUserId: { $in: userIds }, status: { $ne: "archived" } } },
+      { $group: { _id: "$assignedToUserId", count: { $sum: 1 } } },
+    ]),
+    Conversation.aggregate([
+      { $match: { workspaceId: new mongoose.Types.ObjectId(req.user.workspaceId), assignedToUserId: { $in: userIds }, status: "resolved", updatedAt: { $gte: today } } },
+      { $group: { _id: "$assignedToUserId", count: { $sum: 1 } } },
+    ]),
+  ]);
+  const assignedMap = new Map(assignedCounts.map((item) => [item._id.toString(), item.count]));
+  const resolvedMap = new Map(resolvedCounts.map((item) => [item._id.toString(), item.count]));
+  const data = memberships.map((membership) => {
+    const key = membership.userId?._id?.toString?.() || "";
+    return serializeMember(membership, {
+      assignedConversations: assignedMap.get(key) || 0,
+      resolvedToday: resolvedMap.get(key) || 0,
+    });
+  });
+
+  res.json({ data, total: memberships.length });
 });
 
 teamRouter.post("/", async (req, res) => {
@@ -57,11 +119,11 @@ teamRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Email is required." });
   }
 
-  const roleDoc = await Role.findOne({
+  const roleDoc = await ensureRole({
+    organizationId: req.user.organizationId,
     workspaceId: req.user.workspaceId,
-    key: role === "admin" ? "workspace_admin" : "agent",
+    key: role,
   });
-  if (!roleDoc) return res.status(400).json({ error: "ROLE_NOT_FOUND", message: "Role is not available." });
 
   const user = await User.findOneAndUpdate(
     { email: email.toLowerCase().trim() },
@@ -105,9 +167,10 @@ teamRouter.patch("/:id", async (req, res) => {
   if (req.body?.role) {
     const roleDoc = await Role.findOne({
       workspaceId: req.user.workspaceId,
-      key: req.body.role === "admin" ? "workspace_admin" : "agent",
+      key: normalizeRoleKey(req.body.role),
     });
     if (roleDoc) membership.roleId = roleDoc._id;
+    else membership.roleId = (await ensureRole({ organizationId: req.user.organizationId, workspaceId: req.user.workspaceId, key: req.body.role }))._id;
   }
 
   await membership.save();
@@ -125,3 +188,4 @@ teamRouter.delete("/:id", async (req, res) => {
   if (!membership) return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
   res.sendStatus(204);
 });
+

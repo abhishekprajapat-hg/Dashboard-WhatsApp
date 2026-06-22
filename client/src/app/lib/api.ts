@@ -1,4 +1,4 @@
-﻿export interface AuthSession {
+export interface AuthSession {
   token: string;
   user: {
     id: string;
@@ -141,6 +141,13 @@ export function sendConversationMessage<T>(conversationId: string, content: stri
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content }),
+  });
+}
+
+export function assignConversation<T>(conversationId: string, userId: string) {
+  return request<T>(`/conversations/${conversationId}/assignment`, {
+    method: "PATCH",
+    body: JSON.stringify({ userId }),
   });
 }
 
@@ -287,4 +294,5 @@ export function updateCurrentWorkspace<T>(workspace: { name?: string; timezone?:
     body: JSON.stringify(workspace),
   });
 }
+
 
