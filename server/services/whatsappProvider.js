@@ -81,6 +81,109 @@ export async function sendWhatsAppText({ account, to, body }) {
   };
 }
 
+function countPlaceholders(text = "") {
+  const matches = String(text).match(/{{\s*\d+\s*}}/g);
+  return matches ? matches.length : 0;
+}
+
+function textParameters(values = [], count = 0) {
+  return Array.from({ length: count }, (_, index) => ({
+    type: "text",
+    text: String(values[index] ?? "-"),
+  }));
+}
+
+function buildTemplateComponents(template, parameters = []) {
+  const components = [];
+  let parameterIndex = 0;
+
+  for (const component of template.components || []) {
+    const type = String(component.type || "").toUpperCase();
+    if (!["HEADER", "BODY"].includes(type)) continue;
+
+    const count = countPlaceholders(component.text || "");
+    if (!count) continue;
+
+    const values = parameters.slice(parameterIndex, parameterIndex + count);
+    parameterIndex += count;
+    components.push({
+      type: type.toLowerCase(),
+      parameters: textParameters(values, count),
+    });
+  }
+
+  return components;
+}
+
+export async function sendWhatsAppTemplate({ account, to, template, parameters = [] }) {
+  if (!account || !template) {
+    return {
+      providerMessageId: `local_template_${Date.now()}`,
+      status: "sent",
+      mode: "local",
+    };
+  }
+
+  const accessToken = decodeAccessToken(account);
+
+  if (isLocalToken(accessToken)) {
+    return {
+      providerMessageId: `local_template_${account._id}_${Date.now()}`,
+      status: "sent",
+      mode: "local",
+      to,
+      template: template.name,
+    };
+  }
+
+  const recipient = normalizeRecipient(to);
+  if (!recipient) {
+    const error = new Error("Recipient phone number is missing.");
+    error.code = "INVALID_RECIPIENT";
+    throw error;
+  }
+
+  const templatePayload = {
+    name: template.name,
+    language: { code: template.language || "en" },
+  };
+  const components = buildTemplateComponents(template, parameters);
+  if (components.length) templatePayload.components = components;
+
+  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "template",
+      template: templatePayload,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || "Meta WhatsApp template send failed.";
+    const error = new Error(message);
+    error.meta = payload;
+    error.code = payload?.error?.code || "META_TEMPLATE_SEND_FAILED";
+    error.status = response.status;
+    throw error;
+  }
+
+  return {
+    providerMessageId: payload?.messages?.[0]?.id || `meta_template_${Date.now()}`,
+    status: "sent",
+    mode: "meta",
+    to: recipient,
+    template: template.name,
+  };
+}
 export async function fetchWhatsAppTemplates(account) {
   const accessToken = decodeAccessToken(account);
 

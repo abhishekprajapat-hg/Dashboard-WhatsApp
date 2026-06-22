@@ -145,6 +145,13 @@ export function sendConversationMessage<T>(conversationId: string, content: stri
   });
 }
 
+export function sendConversationTemplate<T>(conversationId: string, templateId: string, parameters: string[] = []) {
+  return request<T>(`/conversations/${conversationId}/template`, {
+    method: "POST",
+    body: JSON.stringify({ templateId, parameters }),
+  });
+}
+
 export function assignConversation<T>(conversationId: string, userId: string) {
   return request<T>(`/conversations/${conversationId}/assignment`, {
     method: "PATCH",
@@ -199,6 +206,10 @@ export function syncWhatsAppTemplates<T>(id: string) {
   return request<T>(`/whatsapp/accounts/${id}/sync-templates`, {
     method: "POST",
   });
+}
+
+export function getWhatsAppTemplates<T>() {
+  return request<T>("/whatsapp/templates");
 }
 
 export function getCampaigns<T>() {

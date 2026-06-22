@@ -1,12 +1,12 @@
 ﻿import { Router } from "express";
 import mongoose from "mongoose";
 import { conversations } from "../data/demoData.js";
-import { Contact, Conversation, Membership, Message } from "../models/index.js";
+import { Contact, Conversation, Membership, Message, Template } from "../models/index.js";
 import { WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
-import { sendWhatsAppText } from "../services/whatsappProvider.js";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 
 export const conversationsRouter = Router();
@@ -281,6 +281,129 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
 
   await publishConversationChanged(conversation._id);
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
+});
+
+conversationsRouter.post("/:id/template", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const { templateId, parameters = [] } = req.body || {};
+
+  if (!mongoose.Types.ObjectId.isValid(templateId)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid template is required." });
+  }
+
+  const [conversation, template] = await Promise.all([
+    Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }),
+    Template.findOne({ _id: templateId, workspaceId: req.user.workspaceId, status: "approved" }),
+  ]);
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  if (!template) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Approved template not found." });
+  }
+
+  const [account, contact] = await Promise.all([
+    WhatsAppAccount.findOne({
+      _id: template.whatsappAccountId,
+      workspaceId: req.user.workspaceId,
+      status: { $in: ["connected", "needs_attention"] },
+    }),
+    Contact.findById(conversation.contactId),
+  ]);
+
+  if (!account || !contact?.phone) {
+    return res.status(400).json({
+      error: "WHATSAPP_TEMPLATE_UNAVAILABLE",
+      message: "Connected WhatsApp account and contact phone are required.",
+    });
+  }
+
+  let providerResult;
+
+  try {
+    providerResult = await sendWhatsAppTemplate({
+      account,
+      to: contact.phone,
+      template,
+      parameters: Array.isArray(parameters) ? parameters : [],
+    });
+  } catch (error) {
+    if (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message)) {
+      account.status = "needs_attention";
+      account.webhookStatus = "healthy";
+      await account.save();
+    }
+
+    const failedMessage = await Message.create({
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      conversationId: conversation._id,
+      contactId: conversation.contactId,
+      whatsappAccountId: account._id,
+      direction: "outbound",
+      type: "template",
+      body: `Template failed: ${template.name}`,
+      providerMessageId: `failed_template_${Date.now()}`,
+      status: "failed",
+      sentByUserId: req.user.sub,
+      sentAt: new Date(),
+      metadata: {
+        providerMode: "meta",
+        templateId: template._id,
+        templateName: template.name,
+        parameters,
+        error: error.message,
+        meta: error.meta,
+      },
+    });
+
+    conversation.lastMessageId = failedMessage._id;
+    conversation.lastMessageAt = failedMessage.sentAt;
+    await conversation.save();
+    await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: failedMessage.sentAt });
+    await publishConversationChanged(conversation._id);
+
+    return res.status(error.status || 502).json({
+      error: "WHATSAPP_TEMPLATE_FAILED",
+      message: error.message || "WhatsApp template could not be sent.",
+      accountStatus: account.status,
+    });
+  }
+
+  const message = await Message.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    conversationId: conversation._id,
+    contactId: conversation.contactId,
+    whatsappAccountId: account._id,
+    direction: "outbound",
+    type: "template",
+    body: `Template sent: ${template.name}`,
+    providerMessageId: providerResult.providerMessageId,
+    status: providerResult.status,
+    sentByUserId: req.user.sub,
+    sentAt: new Date(),
+    metadata: {
+      providerMode: providerResult.mode,
+      templateId: template._id,
+      templateName: template.name,
+      parameters,
+    },
+  });
+
+  conversation.whatsappAccountId = account._id;
+  conversation.lastMessageId = message._id;
+  conversation.lastMessageAt = message.sentAt;
+  await conversation.save();
+  await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: message.sentAt });
+
+  await publishConversationChanged(conversation._id);
+  res.status(201).json({ data: serializeMessage(message) });
 });
 
 conversationsRouter.post("/:id/messages", async (req, res) => {

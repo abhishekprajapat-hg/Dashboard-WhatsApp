@@ -19,7 +19,19 @@ import {
   Plus,
   Smile,
 } from "lucide-react";
-import { addConversationToCrm, assignConversation, getConversationByContact, getConversations, getEventStreamUrl, getTeamMembers, getUnreadCount, markConversationRead, sendConversationMessage } from "../lib/api";
+import {
+  addConversationToCrm,
+  assignConversation,
+  getConversationByContact,
+  getConversations,
+  getEventStreamUrl,
+  getTeamMembers,
+  getUnreadCount,
+  getWhatsAppTemplates,
+  markConversationRead,
+  sendConversationMessage,
+  sendConversationTemplate,
+} from "../lib/api";
 import { demoConversations } from "../lib/demoData";
 
 interface Message {
@@ -54,6 +66,14 @@ interface TeamMember {
   name: string;
   role: "admin" | "manager" | "agent";
   status: string;
+}
+
+interface WhatsAppTemplate {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: "approved" | "pending" | "rejected";
 }
 
 const fallbackConversations = demoConversations as Conversation[];
@@ -111,6 +131,10 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const [crmNotice, setCrmNotice] = useState("");
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [assigning, setAssigning] = useState(false);
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateParameters, setTemplateParameters] = useState("");
+  const [templateSending, setTemplateSending] = useState(false);
 
   useEffect(() => {
     getConversations<{ data: Conversation[]; total: number }>()
@@ -122,6 +146,10 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
 
     getTeamMembers<{ data: TeamMember[]; total: number }>()
       .then((response) => setMembers(response.data.filter((member) => member.userId)))
+      .catch(() => undefined);
+
+    getWhatsAppTemplates<{ data: WhatsAppTemplate[]; total: number }>()
+      .then((response) => setTemplates(response.data.filter((template) => template.status === "approved")))
       .catch(() => undefined);
   }, []);
 
@@ -248,6 +276,39 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
       setCrmNotice(error instanceof Error ? error.message : "Lead could not be saved to CRM.");
     } finally {
       setCrmSaving(false);
+    }
+  }
+
+  async function handleSendTemplate() {
+    if (!selected || !selectedTemplateId) return;
+
+    const template = templates.find((item) => item.id === selectedTemplateId);
+    const parameters = templateParameters
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    setTemplateSending(true);
+    setSendError("");
+
+    try {
+      const response = await sendConversationTemplate<{ data: Message }>(selected.id, selectedTemplateId, parameters);
+      setConversations((items) =>
+        items.map((conversation) =>
+          conversation.id === selected.id
+            ? {
+                ...conversation,
+                preview: response.data.content || `Template sent: ${template?.name || "template"}`,
+                messages: [...conversation.messages, response.data],
+              }
+            : conversation
+        )
+      );
+      setTemplateParameters("");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Template could not be sent.");
+    } finally {
+      setTemplateSending(false);
     }
   }
 
@@ -439,9 +500,38 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             <button className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded">
               Note
             </button>
-            <button className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded flex items-center gap-1">
-              Template <ChevronDown size={10} />
-            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="relative min-w-36 max-w-56 flex-1">
+                <select
+                  value={selectedTemplateId}
+                  onChange={(event) => setSelectedTemplateId(event.target.value)}
+                  className="h-7 w-full appearance-none rounded border border-border bg-background px-2 pr-6 text-[11px] text-foreground outline-none"
+                >
+                  <option value="">Template</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} ({template.language})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={10} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              <Input
+                value={templateParameters}
+                onChange={(event) => setTemplateParameters(event.target.value)}
+                placeholder="Variables comma-separated"
+                className="h-7 max-w-56 border-border bg-background text-[11px]"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={handleSendTemplate}
+                disabled={!selectedTemplateId || templateSending}
+              >
+                {templateSending ? "Sending" : "Send template"}
+              </Button>
+            </div>
           </div>
           <div className="flex items-end gap-2">
             <div className="flex-1 bg-secondary rounded-lg px-3 py-2">
