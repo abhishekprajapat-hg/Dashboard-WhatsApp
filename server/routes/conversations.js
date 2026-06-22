@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { conversations } from "../data/demoData.js";
 import { Contact, Conversation, Membership, Message } from "../models/index.js";
 import { WhatsAppAccount } from "../models/index.js";
+import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
 import { sendWhatsAppText } from "../services/whatsappProvider.js";
@@ -15,6 +16,9 @@ conversationsRouter.get("/", async (req, res) => {
     const status = String(req.query.status || "").toLowerCase();
     const search = String(req.query.search || "").trim();
     const filter = { workspaceId: req.user.workspaceId };
+    if (!hasPermission(req.user, "team:read")) {
+      filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+    }
 
     if (status) {
       filter.status = status === "waiting" ? "pending" : status;
@@ -230,7 +234,7 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.patch("/:id/assignment", async (req, res) => {
+conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }

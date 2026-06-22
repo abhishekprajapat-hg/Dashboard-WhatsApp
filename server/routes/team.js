@@ -1,6 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { Conversation, Membership, Role, User } from "../models/index.js";
+import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { hashPassword } from "../utils/password.js";
 import { relativeTime } from "../utils/serializers.js";
 
@@ -73,7 +74,7 @@ function serializeMember(membership, metrics = {}) {
   };
 }
 
-teamRouter.get("/", async (req, res) => {
+teamRouter.get("/", requirePermission("team:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0 });
   }
@@ -109,7 +110,7 @@ teamRouter.get("/", async (req, res) => {
   res.json({ data, total: memberships.length });
 });
 
-teamRouter.post("/", async (req, res) => {
+teamRouter.post("/", requirePermission("team:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -156,7 +157,7 @@ teamRouter.post("/", async (req, res) => {
   res.status(201).json({ data: serializeMember(membership) });
 });
 
-teamRouter.patch("/:id", async (req, res) => {
+teamRouter.patch("/:id", requirePermission("team:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
   }
@@ -179,7 +180,7 @@ teamRouter.patch("/:id", async (req, res) => {
   res.json({ data: serializeMember(membership) });
 });
 
-teamRouter.delete("/:id", async (req, res) => {
+teamRouter.delete("/:id", requirePermission("team:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
   }

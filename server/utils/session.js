@@ -9,6 +9,7 @@ export function signSession({ user, workspace, role }) {
       workspaceId: workspace._id.toString(),
       organizationId: workspace.organizationId.toString(),
       role: role.name,
+      roleKey: role.key,
       permissions: role.permissions,
     },
     config.jwtSecret,
@@ -22,6 +23,7 @@ export function serializeUser(user, role) {
     name: user.name,
     email: user.email,
     role: role.name,
+    roleKey: role.key,
   };
 }
 

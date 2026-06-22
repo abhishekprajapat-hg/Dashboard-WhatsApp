@@ -132,6 +132,48 @@ export function DashboardView({ userName }: DashboardViewProps) {
         </Card>
       </div>
 
+
+      {summary.teamWorkload.length > 0 && (
+        <Card className="bg-card border-border">
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <div>
+              <h3 className="text-foreground text-sm font-medium">Team Monitoring</h3>
+              <p className="text-xs text-muted-foreground">Live workload by assigned conversations</p>
+            </div>
+            <Badge variant="outline" className="border-border text-muted-foreground">
+              {summary.teamWorkload.reduce((total, member) => total + member.open, 0)} open assigned
+            </Badge>
+          </div>
+          <div className="divide-y divide-border">
+            {summary.teamWorkload.map((member) => (
+              <div key={member.userId} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-foreground truncate">{member.name}</span>
+                    <Badge variant="outline" className="h-4 px-1.5 py-0 text-[10px] border-border text-muted-foreground capitalize">
+                      {member.role}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Last active {member.lastActive}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-foreground">{member.open}</div>
+                  <div className="text-[10px] text-muted-foreground">Open</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-foreground">{member.assigned}</div>
+                  <div className="text-[10px] text-muted-foreground">Assigned</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-primary">{member.resolvedToday}</div>
+                  <div className="text-[10px] text-muted-foreground">Resolved</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Card className="bg-card border-border">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="text-foreground text-sm font-medium">Recent Conversations</h3>

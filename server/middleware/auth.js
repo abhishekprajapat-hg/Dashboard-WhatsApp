@@ -1,6 +1,20 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 
+export function hasPermission(user, permission) {
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  return permissions.includes("*") || permissions.includes(permission);
+}
+
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!hasPermission(req.user, permission)) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "You do not have permission to perform this action." });
+    }
+    next();
+  };
+}
+
 export function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";

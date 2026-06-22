@@ -34,6 +34,7 @@ export const demoDashboard = {
   agentPerformance: [
     { name: "Admin", resolved: 0, avg: 0 },
   ],
+  teamWorkload: [],
   recentConversations: [],
   health: {
     whatsapp: "disconnected",

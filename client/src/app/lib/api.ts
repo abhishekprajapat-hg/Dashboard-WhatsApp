@@ -5,6 +5,7 @@ export interface AuthSession {
     name: string;
     email: string;
     role: string;
+    roleKey?: string;
   };
   workspace: {
     id: string;
