@@ -1,4 +1,4 @@
-﻿const sheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || "";
+const sheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || "";
 const sheetWebhookSecret = process.env.GOOGLE_SHEET_WEBHOOK_SECRET || "";
 
 function toIso(value) {
@@ -28,7 +28,7 @@ export async function syncLeadToGoogleSheet({ contact, conversation, message }) 
     phone: contact.phone,
     email: contact.email || "",
     message: message?.body || "",
-    source: contact.source || "WhatsApp",
+    source: contact.customFields?.leadSource === "meta_ad" ? "Meta Ad" : contact.source || "WhatsApp",
     status: contact.lifecycleStatus || "lead",
     stage: contact.customFields?.crm?.stage || "new_lead",
     conversationId: conversation._id?.toString?.() || String(conversation._id || ""),
@@ -63,3 +63,4 @@ export async function syncLeadToGoogleSheet({ contact, conversation, message }) 
 
   return { skipped: false };
 }
+

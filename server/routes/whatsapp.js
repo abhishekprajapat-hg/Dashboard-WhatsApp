@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import {
@@ -32,6 +32,10 @@ function serializeAccount(account) {
     status: account.status,
     lastSyncedAt: account.lastSyncedAt,
   };
+}
+
+function isMetaAdReferral(referral) {
+  return String(referral?.source_type || "").toLowerCase() === "ad";
 }
 
 function serializeTemplate(template) {
@@ -184,6 +188,7 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
   try {
     if (normalized.type === "message" && account) {
+      const isAdLead = isMetaAdReferral(normalized.referral);
       const contact = await Contact.findOneAndUpdate(
         { workspaceId: account.workspaceId, phone: normalized.from },
         {
@@ -191,7 +196,13 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           workspaceId: account.workspaceId,
           name: normalized.from,
           phone: normalized.from,
-          source: "WhatsApp",
+          source: isAdLead ? "Meta Ad" : "WhatsApp",
+          ...(isAdLead
+            ? {
+                "customFields.metaAdReferral": normalized.referral,
+                "customFields.leadSource": "meta_ad",
+              }
+            : {}),
           lifecycleStatus: "lead",
           lastMessageAt: new Date(),
         },
@@ -225,17 +236,20 @@ whatsappWebhookRouter.post("/", async (req, res) => {
           providerMessageId: normalized.providerMessageId,
           status: "delivered",
           receivedAt: new Date(),
+          metadata: normalized.referral ? { referral: normalized.referral } : {},
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
       conversation.lastMessageId = message._id;
       conversation.lastMessageAt = message.receivedAt || new Date();
-      await ensureConversationInCrm({ contact, conversation, source: "whatsapp_inbound" });
-      try {
-        await syncLeadToGoogleSheet({ contact, conversation, message });
-      } catch (sheetError) {
-        event.error = `Google Sheet sync failed: ${sheetError.message}`;
+      await ensureConversationInCrm({ contact, conversation, source: isAdLead ? "meta_ad" : "whatsapp_inbound" });
+      if (isAdLead) {
+        try {
+          await syncLeadToGoogleSheet({ contact, conversation, message });
+        } catch (sheetError) {
+          event.error = `Google Sheet sync failed: ${sheetError.message}`;
+        }
       }
       const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
       for (const membership of memberships) {
@@ -271,6 +285,8 @@ whatsappWebhookRouter.post("/", async (req, res) => {
 
   res.sendStatus(200);
 });
+
+
 
 
 

@@ -132,6 +132,7 @@ export function normalizeWebhookPayload(payload) {
       from: message.from,
       body: message.text?.body || "",
       providerMessageId: message.id,
+      referral: message.referral || null,
       raw: payload,
     };
   }
@@ -153,3 +154,4 @@ export function normalizeWebhookPayload(payload) {
     raw: payload,
   };
 }
+
