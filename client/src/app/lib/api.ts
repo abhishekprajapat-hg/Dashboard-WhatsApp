@@ -265,6 +265,7 @@ export function createAutomationFlow<T>(flow: {
   trigger?: string;
   category?: string;
   status?: string;
+  actionMessage?: string;
 }) {
   return request<T>("/automation", {
     method: "POST",

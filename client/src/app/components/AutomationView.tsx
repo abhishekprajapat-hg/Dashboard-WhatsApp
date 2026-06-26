@@ -43,6 +43,7 @@ export function AutomationView() {
     trigger: "New conversation",
     category: "Support",
     status: "draft",
+    actionMessage: "Thanks for reaching out. Our team will reply shortly.",
   });
 
   async function loadFlows() {
@@ -78,9 +79,17 @@ export function AutomationView() {
         trigger: form.trigger,
         category: form.category,
         status: form.status,
+        actionMessage: form.actionMessage.trim() || "Thanks for reaching out. Our team will reply shortly.",
       });
       setFlowList((items) => [response.data, ...items]);
-      setForm({ name: "", description: "", trigger: "New conversation", category: "Support", status: "draft" });
+      setForm({
+        name: "",
+        description: "",
+        trigger: "New conversation",
+        category: "Support",
+        status: "draft",
+        actionMessage: "Thanks for reaching out. Our team will reply shortly.",
+      });
       setShowCreate(false);
     } finally {
       setSaving(false);
@@ -94,6 +103,7 @@ export function AutomationView() {
       trigger: flow.trigger,
       category: flow.category,
       status: "draft",
+      actionMessage: flow.description || "Thanks for reaching out. Our team will reply shortly.",
     });
     setFlowList((items) => [response.data, ...items]);
   }
@@ -136,6 +146,7 @@ export function AutomationView() {
             <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
             <Button type="button" variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => setShowCreate(false)}>Cancel</Button>
           </div>
+          <input value={form.actionMessage} onChange={(event) => setForm((current) => ({ ...current, actionMessage: event.target.value }))} placeholder="Auto-reply message" className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground md:col-span-6" />
         </form>
       )}
 

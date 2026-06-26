@@ -8,6 +8,7 @@ const webhookEventSchema = new mongoose.Schema(
     eventType: { type: String, required: true },
     idempotencyKey: { type: String, required: true, unique: true },
     payload: { type: mongoose.Schema.Types.Mixed, default: {} },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: { type: String, enum: ["received", "processed", "failed"], default: "received", index: true },
     processedAt: Date,
     error: String,

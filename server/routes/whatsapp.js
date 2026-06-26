@@ -14,6 +14,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheet } from "../services/googleSheets.js";
+import { runInboundAutomations } from "../services/automationRunner.js";
 import { fetchWhatsAppTemplates, normalizeWebhookPayload } from "../services/whatsappProvider.js";
 
 export const whatsappRouter = Router();
@@ -263,6 +264,12 @@ whatsappWebhookRouter.post("/", async (req, res) => {
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
+      const existingConversation = await Conversation.findOne({
+        workspaceId: account.workspaceId,
+        contactId: contact._id,
+        status: { $ne: "resolved" },
+      });
+
       const conversation = await Conversation.findOneAndUpdate(
         { workspaceId: account.workspaceId, contactId: contact._id, status: { $ne: "resolved" } },
         {
@@ -314,6 +321,19 @@ whatsappWebhookRouter.post("/", async (req, res) => {
       conversation.markModified("unreadCountByUser");
       await conversation.save();
       await publishConversationChanged(conversation._id);
+      const automationResults = await runInboundAutomations({
+        account,
+        contact,
+        conversation,
+        inboundMessage: message,
+        isNewConversation: !existingConversation,
+      });
+      if (automationResults.length) {
+        event.metadata = {
+          ...(event.metadata || {}),
+          automationResults,
+        };
+      }
     }
 
     if (normalized.type === "status" && account) {

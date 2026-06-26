@@ -61,6 +61,7 @@ automationRouter.post("/", async (req, res) => {
     trigger = "New conversation",
     category = "General",
     status = "draft",
+    actionMessage = "Thanks for reaching out. Our team will reply shortly.",
   } = req.body || {};
 
   if (!name?.trim()) {
@@ -76,9 +77,13 @@ automationRouter.post("/", async (req, res) => {
       label: trigger,
       description,
       category,
+      replyBody: actionMessage,
       runs: 0,
     },
-    nodes: [{ id: "trigger", type: "trigger" }, { id: "reply", type: "send_message" }],
+    nodes: [
+      { id: "trigger", type: "trigger" },
+      { id: "reply", type: "send_message", config: { body: actionMessage } },
+    ],
     edges: [{ source: "trigger", target: "reply" }],
     status: toDbStatus(status),
     publishedAt: status === "active" ? new Date() : undefined,
