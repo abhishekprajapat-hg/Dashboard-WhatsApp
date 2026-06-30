@@ -11,6 +11,26 @@ import { serializeConversation, serializeMessage } from "../utils/serializers.js
 
 export const conversationsRouter = Router();
 
+function cleanAttachments(attachments = []) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .filter((attachment) => attachment?.url)
+    .slice(0, 5)
+    .map((attachment) => ({
+      name: String(attachment.name || "Attachment").slice(0, 160),
+      url: String(attachment.url),
+      type: String(attachment.type || "document"),
+      mimeType: attachment.mimeType ? String(attachment.mimeType) : undefined,
+      size: Number(attachment.size || 0),
+    }));
+}
+
+function messageTypeForAttachments(attachments = []) {
+  const type = attachments[0]?.type;
+  if (["image", "video", "audio", "document"].includes(type)) return type;
+  return "text";
+}
+
 conversationsRouter.get("/", async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const status = String(req.query.status || "").toLowerCase();
@@ -472,8 +492,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
     }
 
     const { content, attachments = [], replyToMessageId = "" } = req.body || {};
+    const mediaAttachments = cleanAttachments(attachments);
 
-    if (!content?.trim() && (!Array.isArray(attachments) || attachments.length === 0)) {
+    if (!content?.trim() && mediaAttachments.length === 0) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
     }
 
@@ -488,6 +509,7 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
         account,
         to: contact?.phone,
         body: content.trim() || "Attachment",
+        attachments: mediaAttachments,
       });
     } catch (error) {
       if (account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
@@ -503,9 +525,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
         contactId: conversation.contactId,
         whatsappAccountId: conversation.whatsappAccountId || account?._id,
         direction: "outbound",
-        type: "text",
+        type: messageTypeForAttachments(mediaAttachments),
         body: content.trim() || "Attachment",
-        attachments: Array.isArray(attachments) ? attachments : [],
+        attachments: mediaAttachments,
         providerMessageId: `failed_${Date.now()}`,
         status: "failed",
         sentByUserId: req.user.sub,
@@ -538,9 +560,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       contactId: conversation.contactId,
       whatsappAccountId: conversation.whatsappAccountId || account?._id,
       direction: "outbound",
-      type: "text",
+      type: messageTypeForAttachments(mediaAttachments),
       body: content.trim() || "Attachment",
-      attachments: Array.isArray(attachments) ? attachments : [],
+      attachments: mediaAttachments,
       providerMessageId: providerResult.providerMessageId,
       status: providerResult.status,
       sentByUserId: req.user.sub,

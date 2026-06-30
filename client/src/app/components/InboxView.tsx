@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
@@ -7,7 +7,10 @@ import {
   CheckCheck,
   CheckCircle2,
   ChevronDown,
+  File,
+  FileAudio,
   FileText,
+  Image,
   Link,
   MessageCircle,
   Mic,
@@ -37,6 +40,7 @@ import {
   sendConversationMessage,
   sendConversationNote,
   sendConversationTemplate,
+  uploadMedia,
   updateConversationStatus,
 } from "../lib/api";
 import { demoConversations } from "../lib/demoData";
@@ -48,7 +52,7 @@ interface Message {
   type?: "text" | "template" | "note" | "image" | "document" | "audio" | "video" | "location" | "system";
   time: string;
   status?: "sent" | "delivered" | "read" | "failed";
-  attachments?: { name: string; url: string; type?: string }[];
+  attachments?: Attachment[];
   replyToMessageId?: string;
   internal?: boolean;
 }
@@ -85,6 +89,20 @@ interface WhatsAppTemplate {
   language: string;
   category: string;
   status: "approved" | "pending" | "rejected";
+}
+
+interface Attachment {
+  name: string;
+  url: string;
+  type?: string;
+  mimeType?: string;
+  size?: number;
+}
+
+interface PendingMedia {
+  file: File;
+  previewUrl: string;
+  kind: "image" | "video" | "audio" | "document";
 }
 
 interface InboxViewProps {
@@ -152,7 +170,13 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [attachmentUrl, setAttachmentUrl] = useState("");
   const [attachmentDraft, setAttachmentDraft] = useState("");
+  const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [showAttachmentInput, setShowAttachmentInput] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
   const [sendError, setSendError] = useState("");
   const [crmSaving, setCrmSaving] = useState(false);
   const [crmNotice, setCrmNotice] = useState("");
@@ -242,13 +266,84 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
       messageSearch ? message.content.toLowerCase().includes(messageSearch.toLowerCase()) : true
     ) || [];
 
+  function mediaKind(file: File): PendingMedia["kind"] {
+    if (file.type.startsWith("image/")) return "image";
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "document";
+  }
+
+  function addMediaFiles(files: File[]) {
+    if (!files.length) return;
+    const nextItems = files.map((file) => ({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      kind: mediaKind(file),
+    }));
+    setPendingMedia((current) => {
+      const combined = [...current, ...nextItems].slice(0, 5);
+      nextItems.forEach((item) => {
+        if (!combined.includes(item)) URL.revokeObjectURL(item.previewUrl);
+      });
+      return combined;
+    });
+    setSelectedMediaIndex((current) => Math.min(current, Math.max(0, pendingMedia.length + nextItems.length - 1)));
+    setShowAttachmentInput(false);
+  }
+
+  function removePendingMedia(index: number) {
+    setPendingMedia((current) => {
+      const item = current[index];
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      const next = current.filter((_, itemIndex) => itemIndex !== index);
+      setSelectedMediaIndex((selectedIndex) => Math.min(selectedIndex, Math.max(0, next.length - 1)));
+      return next;
+    });
+  }
+
+  function clearPendingMedia() {
+    pendingMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setPendingMedia([]);
+    setSelectedMediaIndex(0);
+  }
+
+  function formatBytes(size = 0) {
+    if (!size) return "";
+    if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  async function buildAttachments() {
+    const uploaded: Attachment[] = [];
+    for (const item of pendingMedia) {
+      const response = await uploadMedia<{ data: Attachment }>(item.file);
+      uploaded.push(response.data);
+    }
+
+    const cleanAttachmentUrl = attachmentUrl.trim();
+    if (cleanAttachmentUrl) {
+      uploaded.push({
+        name: cleanAttachmentUrl.split("/").filter(Boolean).pop() || "Attachment",
+        url: cleanAttachmentUrl,
+        type: "link",
+      });
+    }
+    return uploaded;
+  }
+
   async function handleSendMessage() {
     const content = inputText.trim();
-    const cleanAttachmentUrl = attachmentUrl.trim();
-    const attachments = cleanAttachmentUrl
-      ? [{ name: cleanAttachmentUrl.split("/").filter(Boolean).pop() || "Attachment", url: cleanAttachmentUrl, type: "link" }]
-      : [];
-    if ((!content && attachments.length === 0) || !selected) return;
+    if ((!content && pendingMedia.length === 0 && !attachmentUrl.trim()) || !selected || uploadingMedia) return;
+
+    let attachments: Attachment[] = [];
+    try {
+      setUploadingMedia(true);
+      attachments = await buildAttachments();
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Media could not be uploaded.");
+      setUploadingMedia(false);
+      return;
+    }
 
     const optimisticMessage: Message = {
       id: `local_${Date.now()}`,
@@ -265,6 +360,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
     setInputText("");
     setAttachmentUrl("");
     setAttachmentDraft("");
+    clearPendingMedia();
     setShowAttachmentInput(false);
     setReplyTo(null);
     setSendError("");
@@ -296,6 +392,8 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             : conversation
         )
       );
+    } finally {
+      setUploadingMedia(false);
     }
   }
 
@@ -419,7 +517,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
               className="pl-9 h-8 text-xs bg-[#202c33] border-transparent text-[#e9edef] placeholder:text-[#8696a0] focus:border-[#00a884]"
             />
           </div>
-          <div className="flex gap-1 overflow-x-auto">
+          <div className="no-scrollbar flex gap-1 overflow-x-auto">
             {tabs.map((tab) => (
               <button
                 key={tab}
@@ -434,7 +532,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="no-scrollbar flex-1 overflow-y-auto">
           {filtered.map((conversation) => (
             <button
               key={conversation.id}
@@ -541,7 +639,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0b141a] bg-[radial-gradient(circle_at_top_left,rgba(0,168,132,0.08),transparent_32%),linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:auto,28px_28px]">
+        <div className="no-scrollbar flex-1 overflow-y-auto p-4 space-y-2 bg-[#0b141a] bg-[radial-gradient(circle_at_top_left,rgba(0,168,132,0.08),transparent_32%),linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:auto,28px_28px]">
           <div className="text-center mb-4">
             <span className="text-[11px] text-[#8696a0] bg-[#182229] px-3 py-1 rounded-full">
               Today - {selected.messages[0]?.time}
@@ -567,11 +665,30 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                 {message.internal && <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-yellow-300">Internal note</div>}
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 {message.attachments && message.attachments.length > 0 && (
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-2">
                     {message.attachments.map((attachment) => (
-                      <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="block rounded bg-black/15 px-2 py-1 text-xs text-[#9fead8] hover:underline">
-                        {attachment.name}
-                      </a>
+                      <div key={attachment.url} className="overflow-hidden rounded bg-black/15">
+                        {attachment.type === "image" && (
+                          <a href={attachment.url} target="_blank" rel="noreferrer">
+                            <img src={attachment.url} alt={attachment.name} className="max-h-64 w-full object-cover" />
+                          </a>
+                        )}
+                        {attachment.type === "video" && (
+                          <video src={attachment.url} controls className="max-h-64 w-full bg-black" />
+                        )}
+                        {attachment.type === "audio" && (
+                          <div className="p-2">
+                            <audio src={attachment.url} controls className="w-full" />
+                          </div>
+                        )}
+                        {!["image", "video", "audio"].includes(attachment.type || "") && (
+                          <a href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-2 py-2 text-xs text-[#9fead8] hover:underline">
+                            <FileText size={14} />
+                            <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                            {attachment.size ? <span className="text-[#aebac1]">{formatBytes(attachment.size)}</span> : null}
+                          </a>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -636,16 +753,60 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           </div>
 
           {showAttachmentInput && (
-            <div className="rounded border border-[#2a3942] bg-[#111b21] p-2">
-              <div className="mb-2 flex items-center gap-2 text-xs text-[#aebac1]">
-                <Link size={13} className="text-[#00a884]" />
-                <span>Add an attachment URL</span>
+            <div className="rounded-lg border border-[#2a3942] bg-[#111b21] p-3 shadow-xl">
+              <input
+                ref={photoInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                className="hidden"
+                onChange={(event) => {
+                  addMediaFiles(Array.from(event.target.files || []));
+                  event.currentTarget.value = "";
+                }}
+              />
+              <input
+                ref={documentInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(event) => {
+                  addMediaFiles(Array.from(event.target.files || []));
+                  event.currentTarget.value = "";
+                }}
+              />
+              <input
+                ref={audioInputRef}
+                type="file"
+                multiple
+                accept="audio/*"
+                className="hidden"
+                onChange={(event) => {
+                  addMediaFiles(Array.from(event.target.files || []));
+                  event.currentTarget.value = "";
+                }}
+              />
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  { label: "Photos & videos", icon: <Image size={17} />, tone: "bg-[#8b5cf6]/15 text-[#c4b5fd]", action: () => photoInputRef.current?.click() },
+                  { label: "Camera", icon: <Video size={17} />, tone: "bg-[#ef4444]/15 text-[#fca5a5]", action: () => photoInputRef.current?.click() },
+                  { label: "Document", icon: <File size={17} />, tone: "bg-[#3b82f6]/15 text-[#93c5fd]", action: () => documentInputRef.current?.click() },
+                  { label: "Audio", icon: <FileAudio size={17} />, tone: "bg-[#f59e0b]/15 text-[#fcd34d]", action: () => audioInputRef.current?.click() },
+                ].map((item) => (
+                  <button key={item.label} className="flex items-center gap-2 rounded-md bg-[#202c33] px-3 py-2 text-left text-xs text-[#e9edef] hover:bg-[#2a3942]" onClick={item.action}>
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${item.tone}`}>{item.icon}</span>
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </button>
+                ))}
               </div>
-              <div className="flex gap-2">
+
+              <div className="mt-3 flex gap-2">
                 <Input
                   value={attachmentDraft}
                   onChange={(event) => setAttachmentDraft(event.target.value)}
-                  placeholder="https://example.com/document.pdf"
+                  placeholder="Paste media/document URL"
                   className="h-8 border-[#2a3942] bg-[#202c33] text-xs text-[#e9edef] placeholder:text-[#8696a0]"
                 />
                 <Button
@@ -665,6 +826,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                   className="h-8 shrink-0 border-[#2a3942] px-3 text-xs text-[#e9edef]"
                   onClick={() => {
                     setAttachmentDraft("");
+                    clearPendingMedia();
                     setShowAttachmentInput(false);
                   }}
                 >
@@ -674,13 +836,76 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             </div>
           )}
 
-          {(replyTo || attachmentUrl) && (
+          {pendingMedia.length > 0 && (
+            <div className="rounded-lg border border-[#2a3942] bg-[#111b21] p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-xs font-medium text-[#e9edef]">{pendingMedia.length} selected</div>
+                <button className="rounded-full p-1 text-[#aebac1] hover:bg-[#2a3942] hover:text-[#e9edef]" onClick={clearPendingMedia}>
+                  <X size={14} />
+                </button>
+              </div>
+              {pendingMedia[selectedMediaIndex] && (
+                <div className="mb-3 overflow-hidden rounded-md bg-[#0b141a]">
+                  {pendingMedia[selectedMediaIndex].kind === "image" && (
+                    <img src={pendingMedia[selectedMediaIndex].previewUrl} alt={pendingMedia[selectedMediaIndex].file.name} className="max-h-72 w-full object-contain" />
+                  )}
+                  {pendingMedia[selectedMediaIndex].kind === "video" && (
+                    <video src={pendingMedia[selectedMediaIndex].previewUrl} controls className="max-h-72 w-full bg-black" />
+                  )}
+                  {pendingMedia[selectedMediaIndex].kind === "audio" && (
+                    <div className="flex min-h-28 items-center justify-center p-4">
+                      <audio src={pendingMedia[selectedMediaIndex].previewUrl} controls className="w-full" />
+                    </div>
+                  )}
+                  {pendingMedia[selectedMediaIndex].kind === "document" && (
+                    <div className="flex min-h-28 items-center justify-center gap-3 p-4 text-[#e9edef]">
+                      <FileText size={24} className="text-[#00a884]" />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm">{pendingMedia[selectedMediaIndex].file.name}</div>
+                        <div className="text-xs text-[#8696a0]">{formatBytes(pendingMedia[selectedMediaIndex].file.size)}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+                {pendingMedia.map((item, index) => (
+                  <button
+                    key={`${item.file.name}_${item.previewUrl}`}
+                    className={`group relative h-14 w-14 shrink-0 overflow-hidden rounded-md border ${selectedMediaIndex === index ? "border-[#00a884]" : "border-[#2a3942]"}`}
+                    onClick={() => setSelectedMediaIndex(index)}
+                  >
+                    {item.kind === "image" && <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />}
+                    {item.kind === "video" && <video src={item.previewUrl} className="h-full w-full object-cover" />}
+                    {item.kind === "audio" && <div className="flex h-full w-full items-center justify-center bg-[#202c33] text-[#fcd34d]"><FileAudio size={18} /></div>}
+                    {item.kind === "document" && <div className="flex h-full w-full items-center justify-center bg-[#202c33] text-[#93c5fd]"><FileText size={18} /></div>}
+                    <span
+                      className="absolute right-0.5 top-0.5 hidden rounded-full bg-black/70 p-0.5 text-white group-hover:block"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removePendingMedia(index);
+                      }}
+                    >
+                      <X size={11} />
+                    </span>
+                  </button>
+                ))}
+                <button className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-dashed border-[#3b4a54] text-[#aebac1] hover:border-[#00a884] hover:text-[#00a884]" onClick={() => photoInputRef.current?.click()}>
+                  <Plus size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(replyTo || attachmentUrl || pendingMedia.length > 0) && (
             <div className="flex items-center justify-between gap-2 rounded border border-[#2a3942] bg-[#111b21] px-3 py-2 text-xs text-[#aebac1]">
               <span className="flex min-w-0 items-center gap-2 truncate">
-                {attachmentUrl ? <FileText size={13} className="shrink-0 text-[#00a884]" /> : null}
-                <span className="truncate">{replyTo ? `Replying to: ${replyTo.content}` : `Attachment: ${attachmentUrl}`}</span>
+                {(attachmentUrl || pendingMedia.length > 0) ? <FileText size={13} className="shrink-0 text-[#00a884]" /> : null}
+                <span className="truncate">
+                  {replyTo ? `Replying to: ${replyTo.content}` : pendingMedia.length > 0 ? `${pendingMedia.length} media file${pendingMedia.length > 1 ? "s" : ""} selected` : `Attachment: ${attachmentUrl}`}
+                </span>
               </span>
-              <button className="shrink-0 text-[#e9edef]" onClick={() => { setReplyTo(null); setAttachmentUrl(""); setAttachmentDraft(""); }}>
+              <button className="shrink-0 text-[#e9edef]" onClick={() => { setReplyTo(null); setAttachmentUrl(""); setAttachmentDraft(""); clearPendingMedia(); }}>
                 Clear
               </button>
             </div>
@@ -695,7 +920,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                 setAttachmentDraft(attachmentUrl);
                 setShowAttachmentInput((value) => !value);
               }}
-              title="Attach link"
+              title="Attach media"
             >
               <Paperclip size={18} />
             </button>
@@ -714,14 +939,14 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                 className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#8696a0] resize-none outline-none"
               />
             </div>
-            <Button size="icon" className="h-9 w-9 bg-[#00a884] text-black hover:bg-[#06cf9c] shrink-0" onClick={inputText.trim() || attachmentUrl.trim() ? handleSendMessage : undefined}>
-              {inputText.trim() || attachmentUrl.trim() ? <Send size={14} /> : <Mic size={15} />}
+            <Button size="icon" className="h-9 w-9 bg-[#00a884] text-black hover:bg-[#06cf9c] shrink-0" onClick={inputText.trim() || attachmentUrl.trim() || pendingMedia.length > 0 ? handleSendMessage : undefined} disabled={uploadingMedia}>
+              {uploadingMedia ? <span className="text-[10px] font-semibold">...</span> : inputText.trim() || attachmentUrl.trim() || pendingMedia.length > 0 ? <Send size={14} /> : <Mic size={15} />}
             </Button>
           </div>
         </div>
       </section>
 
-      <aside className="w-64 border-l border-[#2a3942] bg-[#111b21] flex-col shrink-0 overflow-y-auto hidden xl:flex">
+      <aside className="no-scrollbar w-64 border-l border-[#2a3942] bg-[#111b21] flex-col shrink-0 overflow-y-auto hidden xl:flex">
         <div className="p-4 border-b border-[#2a3942] bg-[#202c33]">
           <div className="flex flex-col items-center gap-2 text-center">
             <div className="w-14 h-14 rounded-full bg-[#2a3942] flex items-center justify-center">

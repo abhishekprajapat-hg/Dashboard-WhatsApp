@@ -25,7 +25,49 @@ function normalizeRecipient(phone = "") {
   return String(phone).replace(/[^\d]/g, "");
 }
 
-export async function sendWhatsAppText({ account, to, body }) {
+function firstAttachment(attachments = []) {
+  return Array.isArray(attachments) ? attachments.find((item) => item?.url) : null;
+}
+
+function metaMediaType(attachment = {}) {
+  if (["image", "video", "audio", "document"].includes(attachment.type)) return attachment.type;
+  const mimeType = String(attachment.mimeType || "");
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  return "document";
+}
+
+function buildMetaMessagePayload({ recipient, body, attachment }) {
+  if (!attachment?.url) {
+    return {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "text",
+      text: { preview_url: false, body },
+    };
+  }
+
+  const type = metaMediaType(attachment);
+  const mediaPayload = { link: attachment.url };
+  if (type === "document") {
+    mediaPayload.filename = attachment.name || "Attachment";
+    if (body) mediaPayload.caption = body;
+  } else if (["image", "video"].includes(type) && body) {
+    mediaPayload.caption = body;
+  }
+
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: recipient,
+    type,
+    [type]: mediaPayload,
+  };
+}
+
+export async function sendWhatsAppText({ account, to, body, attachments = [] }) {
   if (!account) {
     return {
       providerMessageId: `local_${Date.now()}`,
@@ -35,6 +77,7 @@ export async function sendWhatsAppText({ account, to, body }) {
   }
 
   const credentials = decodeCredentials(account);
+  const attachment = firstAttachment(attachments);
 
   if (isLocalCredential(credentials)) {
     return {
@@ -43,6 +86,7 @@ export async function sendWhatsAppText({ account, to, body }) {
       mode: "local",
       to,
       body,
+      attachment,
     };
   }
 
@@ -71,6 +115,7 @@ export async function sendWhatsAppText({ account, to, body }) {
         From: account.phoneNumber.startsWith("whatsapp:") ? account.phoneNumber : `whatsapp:${account.phoneNumber}`,
         To: `whatsapp:+${recipient}`,
         Body: body,
+        ...(attachment?.url ? { MediaUrl: attachment.url } : {}),
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -104,7 +149,7 @@ export async function sendWhatsAppText({ account, to, body }) {
       error.status = response.status || 502;
       throw error;
     }
-    return { providerMessageId: payload.messageId || payload.id || `wati_${Date.now()}`, status: "sent", mode: "wati", to: recipient, body };
+    return { providerMessageId: payload.messageId || payload.id || `wati_${Date.now()}`, status: "sent", mode: "wati", to: recipient, body, attachment };
   }
 
   const accessToken = credentials.accessToken;
@@ -115,16 +160,7 @@ export async function sendWhatsAppText({ account, to, body }) {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: recipient,
-      type: "text",
-      text: {
-        preview_url: false,
-        body,
-      },
-    }),
+    body: JSON.stringify(buildMetaMessagePayload({ recipient, body, attachment })),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -144,6 +180,7 @@ export async function sendWhatsAppText({ account, to, body }) {
     mode: "meta",
     to: recipient,
     body,
+    attachment,
   };
 }
 

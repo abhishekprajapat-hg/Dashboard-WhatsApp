@@ -99,6 +99,15 @@ export function getDashboardSummary<T>() {
   return request<T>("/dashboard/summary");
 }
 
+export function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("File could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function getAnalyticsSummary<T>(days = 14) {
   return request<T>(`/analytics/summary?days=${days}`);
 }
@@ -145,11 +154,24 @@ export function getConversations<T>(params: { status?: string; search?: string }
 export function sendConversationMessage<T>(
   conversationId: string,
   content: string,
-  options: { attachments?: { name: string; url: string; type?: string }[]; replyToMessageId?: string } = {}
+  options: { attachments?: { name: string; url: string; type?: string; mimeType?: string; size?: number }[]; replyToMessageId?: string } = {}
 ) {
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content, ...options }),
+  });
+}
+
+export async function uploadMedia<T>(file: File) {
+  const data = await fileToDataUrl(file);
+  return request<T>("/media/upload", {
+    method: "POST",
+    body: JSON.stringify({
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      size: file.size,
+      data,
+    }),
   });
 }
 

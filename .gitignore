@@ -24,6 +24,7 @@ pnpm-debug.log*
 
 # local database/runtime data
 .mongo-data/
+server/uploads/
 
 # OS/editor
 .DS_Store
