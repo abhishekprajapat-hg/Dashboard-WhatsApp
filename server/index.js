@@ -1,6 +1,4 @@
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { connectDatabase } from "./db.js";
 import { requireAuth } from "./middleware/auth.js";
@@ -17,9 +15,9 @@ import { mediaRouter } from "./routes/media.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { eventsRouter } from "./realtime/events.js";
+import { uploadRoot } from "./services/mediaStorage.js";
 
 const app = express();
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "16mb" }));
@@ -52,7 +50,11 @@ app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/media", requireAuth, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);
 app.use("/webhooks/whatsapp", whatsappWebhookRouter);
-app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+app.use("/api/uploads", express.static(uploadRoot, {
+  maxAge: "7d",
+  immutable: true,
+}));
+app.use("/uploads", express.static(uploadRoot, {
   maxAge: "7d",
   immutable: true,
 }));

@@ -15,11 +15,13 @@ import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheet } from "../services/googleSheets.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
+import { absoluteBaseUrl, mediaTypeFor } from "../services/mediaStorage.js";
 import {
   fetchWhatsAppTemplates,
   normalizeTwilioWebhookPayload,
   normalizeWatiWebhookPayload,
   normalizeWebhookPayload,
+  resolveInboundMedia,
   testWhatsAppConnection,
 } from "../services/whatsappProvider.js";
 
@@ -410,7 +412,7 @@ async function findWebhookAccount(normalized, provider = "meta") {
   });
 }
 
-async function handleProviderWebhook({ normalized, provider, res }) {
+async function handleProviderWebhook({ normalized, provider, req, res }) {
   const account = await findWebhookAccount(normalized, provider);
 
   const event = await WebhookEvent.findOneAndUpdate(
@@ -418,7 +420,7 @@ async function handleProviderWebhook({ normalized, provider, res }) {
     {
       organizationId: account?.organizationId,
       workspaceId: account?.workspaceId,
-      provider: "meta",
+      provider,
       eventType: normalized.type,
       payload: normalized.raw,
       status: "received",
@@ -429,6 +431,9 @@ async function handleProviderWebhook({ normalized, provider, res }) {
   try {
     if (normalized.type === "message" && account) {
       const isAdLead = isMetaAdReferral(normalized.referral);
+      const attachments = await resolveInboundMedia({ account, normalized, baseUrl: absoluteBaseUrl(req) });
+      const messageBody = normalized.body || attachments[0]?.caption || (attachments.length ? "Attachment" : "");
+      const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const contact = await Contact.findOneAndUpdate(
         { workspaceId: account.workspaceId, phone: normalized.from },
         {
@@ -477,8 +482,9 @@ async function handleProviderWebhook({ normalized, provider, res }) {
           contactId: contact._id,
           whatsappAccountId: account._id,
           direction: "inbound",
-          type: "text",
-          body: normalized.body,
+          type: attachments.length ? messageType : "text",
+          body: messageBody,
+          attachments,
           providerMessageId: normalized.providerMessageId,
           status: "delivered",
           receivedAt: new Date(),
@@ -546,15 +552,15 @@ async function handleProviderWebhook({ normalized, provider, res }) {
 }
 
 whatsappWebhookRouter.post("/", async (req, res) => {
-  await handleProviderWebhook({ normalized: normalizeWebhookPayload(req.body), provider: "meta", res });
+  await handleProviderWebhook({ normalized: normalizeWebhookPayload(req.body), provider: "meta", req, res });
 });
 
 whatsappWebhookRouter.post("/twilio", async (req, res) => {
-  await handleProviderWebhook({ normalized: normalizeTwilioWebhookPayload(req.body), provider: "twilio", res });
+  await handleProviderWebhook({ normalized: normalizeTwilioWebhookPayload(req.body), provider: "twilio", req, res });
 });
 
 whatsappWebhookRouter.post("/wati", async (req, res) => {
-  await handleProviderWebhook({ normalized: normalizeWatiWebhookPayload(req.body), provider: "wati", res });
+  await handleProviderWebhook({ normalized: normalizeWatiWebhookPayload(req.body), provider: "wati", req, res });
 });
 
 

@@ -1,6 +1,7 @@
 import { config } from "../config.js";
+import { saveMediaBuffer } from "./mediaStorage.js";
 
-function decodeCredentials(account) {
+export function decodeCredentials(account) {
   const raw = Buffer.from(account.encryptedCredentials || "", "base64").toString("utf8");
   if (!raw) return {};
 
@@ -10,6 +11,108 @@ function decodeCredentials(account) {
   } catch {
     return { accessToken: raw };
   }
+}
+
+function normalizeMetaAttachments(message = {}) {
+  const type = ["image", "video", "audio", "document"].find((key) => message[key]);
+  if (!type) return [];
+  const media = message[type] || {};
+  return [{
+    providerMediaId: media.id,
+    name: media.filename || `${type}-attachment`,
+    type,
+    mimeType: media.mime_type || "",
+    caption: media.caption || "",
+  }];
+}
+
+function normalizeTwilioAttachments(payload = {}) {
+  const count = Number(payload.NumMedia || 0);
+  return Array.from({ length: count }, (_, index) => {
+    const mimeType = payload[`MediaContentType${index}`] || "";
+    return {
+      name: `twilio-media-${index + 1}`,
+      url: payload[`MediaUrl${index}`],
+      type: metaMediaType({ mimeType }),
+      mimeType,
+      providerMediaId: payload[`MediaSid${index}`] || "",
+    };
+  }).filter((item) => item.url);
+}
+
+function normalizeWatiAttachments(payload = {}) {
+  const message = payload.message || payload;
+  const candidates = [
+    message.media,
+    message.attachment,
+    message.image,
+    message.video,
+    message.audio,
+    message.document,
+    payload.media,
+    payload.attachment,
+  ].filter(Boolean);
+
+  return candidates.map((item, index) => {
+    const url = typeof item === "string" ? item : item.url || item.link || item.mediaUrl || item.fileUrl;
+    const mimeType = typeof item === "string" ? "" : item.mimeType || item.mime_type || item.contentType || "";
+    return {
+      name: typeof item === "string" ? `wati-media-${index + 1}` : item.fileName || item.filename || item.name || `wati-media-${index + 1}`,
+      url,
+      type: metaMediaType({ type: item.type, mimeType }),
+      mimeType,
+      providerMediaId: typeof item === "string" ? "" : item.id || item.mediaId || "",
+    };
+  }).filter((item) => item.url);
+}
+
+export async function resolveInboundMedia({ account, normalized, baseUrl }) {
+  const attachments = Array.isArray(normalized.attachments) ? normalized.attachments : [];
+  if (!attachments.length) return [];
+
+  if (account.provider !== "meta") {
+    return attachments;
+  }
+
+  const credentials = decodeCredentials(account);
+  const accessToken = credentials.accessToken;
+  if (!accessToken || isLocalCredential(credentials)) return attachments;
+
+  const resolved = [];
+  for (const attachment of attachments) {
+    if (!attachment.providerMediaId) {
+      resolved.push(attachment);
+      continue;
+    }
+
+    const infoResponse = await fetch(`https://graph.facebook.com/${config.metaGraphApiVersion}/${attachment.providerMediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const info = await infoResponse.json().catch(() => ({}));
+    if (!infoResponse.ok || !info.url) {
+      resolved.push(attachment);
+      continue;
+    }
+
+    const mediaResponse = await fetch(info.url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!mediaResponse.ok) {
+      resolved.push(attachment);
+      continue;
+    }
+
+    const buffer = Buffer.from(await mediaResponse.arrayBuffer());
+    resolved.push(await saveMediaBuffer({
+      workspaceId: account.workspaceId,
+      buffer,
+      name: attachment.name,
+      mimeType: info.mime_type || attachment.mimeType || "application/octet-stream",
+      baseUrl,
+    }));
+  }
+
+  return resolved;
 }
 
 function primaryCredential(credentials = {}) {
@@ -446,6 +549,7 @@ export function normalizeWebhookPayload(payload) {
       phoneNumberId: value.metadata?.phone_number_id,
       from: message.from,
       body: message.text?.body || "",
+      attachments: normalizeMetaAttachments(message),
       providerMessageId: message.id,
       referral: message.referral || null,
       raw: payload,
@@ -478,6 +582,7 @@ export function normalizeTwilioWebhookPayload(payload = {}) {
     phoneNumberId: payload.To || payload.ToCountry || "twilio",
     from: String(payload.From || "").replace(/^whatsapp:/, "").replace(/^\+/, ""),
     body: payload.Body || "",
+    attachments: normalizeTwilioAttachments(payload),
     providerMessageId: messageId,
     status: payload.MessageStatus || payload.SmsStatus,
     raw: payload,
@@ -495,6 +600,7 @@ export function normalizeWatiWebhookPayload(payload = {}) {
     phoneNumberId: payload.tenantId || payload.channelId || "wati",
     from: String(message.waId || message.from || payload.waId || payload.whatsappNumber || "").replace(/[^\d]/g, ""),
     body: message.text || message.messageText || message.body || payload.text || "",
+    attachments: normalizeWatiAttachments(payload),
     providerMessageId: messageId,
     status,
     raw: payload,

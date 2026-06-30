@@ -313,6 +313,11 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
   }
 
+  function attachmentDisplayUrl(url = "") {
+    if (!url) return "";
+    return url.replace(`${window.location.origin}/uploads/`, `${window.location.origin}/api/uploads/`);
+  }
+
   async function buildAttachments() {
     const uploaded: Attachment[] = [];
     for (const item of pendingMedia) {
@@ -669,20 +674,20 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                     {message.attachments.map((attachment) => (
                       <div key={attachment.url} className="overflow-hidden rounded bg-black/15">
                         {attachment.type === "image" && (
-                          <a href={attachment.url} target="_blank" rel="noreferrer">
-                            <img src={attachment.url} alt={attachment.name} className="max-h-64 w-full object-cover" />
+                          <a href={attachmentDisplayUrl(attachment.url)} target="_blank" rel="noreferrer">
+                            <img src={attachmentDisplayUrl(attachment.url)} alt={attachment.name} className="max-h-64 w-full object-cover" />
                           </a>
                         )}
                         {attachment.type === "video" && (
-                          <video src={attachment.url} controls className="max-h-64 w-full bg-black" />
+                          <video src={attachmentDisplayUrl(attachment.url)} controls className="max-h-64 w-full bg-black" />
                         )}
                         {attachment.type === "audio" && (
                           <div className="p-2">
-                            <audio src={attachment.url} controls className="w-full" />
+                            <audio src={attachmentDisplayUrl(attachment.url)} controls className="w-full" />
                           </div>
                         )}
                         {!["image", "video", "audio"].includes(attachment.type || "") && (
-                          <a href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-2 py-2 text-xs text-[#9fead8] hover:underline">
+                          <a href={attachmentDisplayUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-2 py-2 text-xs text-[#9fead8] hover:underline">
                             <FileText size={14} />
                             <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
                             {attachment.size ? <span className="text-[#aebac1]">{formatBytes(attachment.size)}</span> : null}
