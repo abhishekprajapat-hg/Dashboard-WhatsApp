@@ -76,7 +76,7 @@ export default function App() {
 
   if (booting) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="h-dvh w-screen flex items-center justify-center bg-background text-sm text-muted-foreground">
         Restoring session...
       </div>
     );
@@ -87,7 +87,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-background font-[Inter,system-ui,sans-serif]">
+    <div className="h-dvh w-screen flex flex-col md:flex-row overflow-hidden bg-background font-[Inter,system-ui,sans-serif]">
       <ActivityBar
         activeView={activeView}
         onViewChange={setActiveView}
@@ -95,17 +95,17 @@ export default function App() {
         unreadCount={unreadCount}
       />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-9 border-b border-border flex items-center px-4 gap-2 shrink-0">
+      <main className="min-h-0 flex-1 flex flex-col overflow-hidden pb-14 md:pb-0">
+        <div className="min-h-9 border-b border-border flex items-center px-3 md:px-4 gap-2 shrink-0">
           <span className="text-xs text-muted-foreground capitalize">{activeView === "contacts" ? "CRM" : activeView}</span>
           <span className="text-xs text-muted-foreground">/</span>
-          <span className="text-xs text-foreground">{session.workspace.name}</span>
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-xs text-foreground">{session.workspace.name}</span>
+          <span className="ml-auto hidden sm:block truncate text-xs text-muted-foreground">
             {session.user.name} - {session.user.role}
           </span>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="min-h-0 flex-1 flex overflow-hidden">
           {activeView === "dashboard" && <DashboardView userName={session.user.name} />}
           {activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} onUnreadCountChange={setUnreadCount} />}
           {activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} />}

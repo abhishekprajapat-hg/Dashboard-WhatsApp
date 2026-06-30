@@ -47,19 +47,19 @@ export function DashboardView({ userName }: DashboardViewProps) {
   const colors = ["text-primary", "text-blue-400", "text-yellow-400", "text-primary"];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-foreground">Good morning, {userName.split(" ")[0]}</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Here&apos;s what&apos;s happening with your workspace today.</p>
         </div>
-        <Badge variant="outline" className="border-primary/30 text-primary bg-primary/10">
+        <Badge variant="outline" className="w-fit border-primary/30 text-primary bg-primary/10">
           <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse mr-1.5 inline-block" />
           {summary.health.onlineAgents} agents online
         </Badge>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {summary.kpis.map((kpi, index) => (
           <Card key={kpi.label} className="p-4 bg-card border-border">
             <div className="flex items-start justify-between">
@@ -79,12 +79,12 @@ export function DashboardView({ userName }: DashboardViewProps) {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card className="xl:col-span-2 p-4 bg-card border-border">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
             <div>
               <h3 className="text-foreground text-sm font-medium">Message Volume</h3>
               <p className="text-xs text-muted-foreground">Last 7 days</p>
             </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary inline-block" />Inbound</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-chart-2 inline-block" />Outbound</span>
             </div>
@@ -135,7 +135,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
 
       {summary.teamWorkload.length > 0 && (
         <Card className="bg-card border-border">
-          <div className="flex items-center justify-between p-4 border-b border-border">
+          <div className="flex flex-col gap-2 p-4 border-b border-border sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-foreground text-sm font-medium">Team Monitoring</h3>
               <p className="text-xs text-muted-foreground">Live workload by assigned conversations</p>
@@ -146,7 +146,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
           </div>
           <div className="divide-y divide-border">
             {summary.teamWorkload.map((member) => (
-              <div key={member.userId} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3">
+              <div key={member.userId} className="grid grid-cols-3 items-center gap-3 px-4 py-3 sm:grid-cols-[1fr_auto_auto_auto]">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground truncate">{member.name}</span>
@@ -175,26 +175,26 @@ export function DashboardView({ userName }: DashboardViewProps) {
       )}
 
       <Card className="bg-card border-border">
-        <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="flex items-center justify-between gap-3 p-4 border-b border-border">
           <h3 className="text-foreground text-sm font-medium">Recent Conversations</h3>
           <button className="text-xs text-primary hover:underline">View all -&gt;</button>
         </div>
         <div className="divide-y divide-border">
           {summary.recentConversations.map((conv) => (
-            <div key={conv.phone} className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors cursor-pointer">
+            <div key={conv.phone} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors cursor-pointer sm:items-center">
               <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
                 <span className="text-xs font-medium text-foreground">{conv.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">{conv.name}</span>
-                  <span className="text-xs text-muted-foreground">{conv.phone}</span>
+                <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+                  <span className="truncate text-sm font-medium text-foreground">{conv.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">{conv.phone}</span>
                 </div>
                 <p className="text-xs text-muted-foreground truncate">{conv.preview}</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
                 <Badge variant="outline" className={`text-xs ${statusColor[conv.status]}`}>{conv.status}</Badge>
-                <span className="text-xs text-muted-foreground">{conv.agent}</span>
+                <span className="hidden text-xs text-muted-foreground sm:inline">{conv.agent}</span>
                 <span className="text-xs text-muted-foreground">{conv.time}</span>
               </div>
             </div>

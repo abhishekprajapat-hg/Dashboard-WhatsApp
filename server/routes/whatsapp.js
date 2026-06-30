@@ -48,6 +48,53 @@ function isMetaAdReferral(referral) {
   return String(referral?.source_type || "").toLowerCase() === "ad";
 }
 
+function phoneLookupValues(phone = "") {
+  const raw = String(phone || "").trim();
+  const digits = raw.replace(/[^\d]/g, "");
+  const values = new Set([raw, digits]);
+
+  if (digits) {
+    values.add(`+${digits}`);
+    values.add(`whatsapp:+${digits}`);
+  }
+
+  const last10 = digits.length > 10 ? digits.slice(-10) : digits;
+  if (last10 && last10.length === 10) {
+    values.add(last10);
+    values.add(`+${last10}`);
+    values.add(`91${last10}`);
+    values.add(`+91${last10}`);
+    values.add(`whatsapp:+91${last10}`);
+  }
+
+  return Array.from(values).filter(Boolean);
+}
+
+async function findReusableContactAndConversation({ account, phone }) {
+  const phoneValues = phoneLookupValues(phone);
+  const contacts = await Contact.find({
+    workspaceId: account.workspaceId,
+    phone: { $in: phoneValues },
+  }).sort({ lastMessageAt: -1, updatedAt: -1 });
+
+  if (!contacts.length) {
+    return { contact: null, conversation: null, existingConversation: null };
+  }
+
+  const contactIds = contacts.map((contact) => contact._id);
+  const existingConversation = await Conversation.findOne({
+    workspaceId: account.workspaceId,
+    contactId: { $in: contactIds },
+    status: { $ne: "resolved" },
+  }).sort({ createdAt: 1 });
+
+  const contact = existingConversation
+    ? contacts.find((item) => item._id.equals(existingConversation.contactId)) || contacts[0]
+    : contacts[0];
+
+  return { contact, conversation: existingConversation, existingConversation };
+}
+
 function serializeTemplate(template) {
   return {
     id: template._id.toString(),
@@ -434,44 +481,41 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
       const attachments = await resolveInboundMedia({ account, normalized, baseUrl: absoluteBaseUrl(req) });
       const messageBody = normalized.body || attachments[0]?.caption || (attachments.length ? "Attachment" : "");
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
-      const contact = await Contact.findOneAndUpdate(
-        { workspaceId: account.workspaceId, phone: normalized.from },
-        {
-          organizationId: account.organizationId,
-          workspaceId: account.workspaceId,
-          name: normalized.from,
-          phone: normalized.from,
-          source: isAdLead ? "Meta Ad" : "WhatsApp",
-          ...(isAdLead
-            ? {
-                "customFields.metaAdReferral": normalized.referral,
-                "customFields.leadSource": "meta_ad",
-              }
-            : {}),
-          lifecycleStatus: "lead",
-          lastMessageAt: new Date(),
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-
-      const existingConversation = await Conversation.findOne({
+      const found = await findReusableContactAndConversation({ account, phone: normalized.from });
+      const contactUpdate = {
+        organizationId: account.organizationId,
         workspaceId: account.workspaceId,
-        contactId: contact._id,
-        status: { $ne: "resolved" },
-      });
+        name: found.contact?.name || normalized.from,
+        phone: found.contact?.phone || normalized.from,
+        source: isAdLead ? "Meta Ad" : found.contact?.source || "WhatsApp",
+        ...(isAdLead
+          ? {
+              "customFields.metaAdReferral": normalized.referral,
+              "customFields.leadSource": "meta_ad",
+            }
+          : {}),
+        lifecycleStatus: found.contact?.lifecycleStatus || "lead",
+        lastMessageAt: new Date(),
+      };
+      const contact = found.contact
+        ? await Contact.findByIdAndUpdate(found.contact._id, contactUpdate, { new: true })
+        : await Contact.create(contactUpdate);
 
-      const conversation = await Conversation.findOneAndUpdate(
-        { workspaceId: account.workspaceId, contactId: contact._id, status: { $ne: "resolved" } },
-        {
+      const existingConversation = found.existingConversation;
+      const conversation = existingConversation
+        ? await Conversation.findByIdAndUpdate(existingConversation._id, {
+          whatsappAccountId: account._id,
+          status: "open",
+          lastMessageAt: new Date(),
+        }, { new: true })
+        : await Conversation.create({
           organizationId: account.organizationId,
           workspaceId: account.workspaceId,
           contactId: contact._id,
           whatsappAccountId: account._id,
           status: "open",
           lastMessageAt: new Date(),
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
+        });
 
       const message = await Message.findOneAndUpdate(
         { workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId },

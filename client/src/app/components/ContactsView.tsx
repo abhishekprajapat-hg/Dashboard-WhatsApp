@@ -130,16 +130,16 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <div>
+      <div className="flex flex-col gap-3 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+        <div className="min-w-0">
           <h1 className="text-foreground">CRM</h1>
           <p className="text-xs text-muted-foreground mt-0.5">{leadCount} leads · {contacts.length} total records</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs border-border text-muted-foreground hover:text-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="hidden h-8 text-xs border-border text-muted-foreground hover:text-foreground sm:inline-flex">
             <Upload size={13} className="mr-1.5" /> Import
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs border-border text-muted-foreground hover:text-foreground">
+          <Button variant="outline" size="sm" className="hidden h-8 text-xs border-border text-muted-foreground hover:text-foreground sm:inline-flex">
             <Download size={13} className="mr-1.5" /> Export
           </Button>
           <Button
@@ -153,7 +153,7 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreateContact} className="grid grid-cols-1 md:grid-cols-5 gap-2 px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
+        <form onSubmit={handleCreateContact} className="grid grid-cols-1 md:grid-cols-5 gap-2 px-3 sm:px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
           <Input
             value={form.name}
             onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
@@ -190,8 +190,8 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-2 px-6 py-3 border-b border-border shrink-0">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col gap-2 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:px-6">
+        <div className="relative w-full flex-1 sm:max-w-xs">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -200,7 +200,7 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
             className="pl-8 h-8 text-xs bg-secondary border-transparent focus:border-border"
           />
         </div>
-        <div className="flex items-center gap-0.5 rounded-md border border-border bg-secondary/40 p-0.5">
+        <div className="no-scrollbar flex items-center gap-0.5 overflow-x-auto rounded-md border border-border bg-secondary/40 p-0.5">
           {crmFilters.map((filter) => (
             <button
               key={filter.label}
@@ -211,11 +211,11 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
             </button>
           ))}
         </div>
-        <Button variant="outline" size="sm" className="h-8 text-xs border-border text-muted-foreground hover:text-foreground">
+        <Button variant="outline" size="sm" className="h-8 w-fit text-xs border-border text-muted-foreground hover:text-foreground">
           <Filter size={13} className="mr-1.5" /> Filter
         </Button>
         {selectedIds.length > 0 && (
-          <div className="flex items-center gap-2 ml-2">
+          <div className="flex flex-wrap items-center gap-2 sm:ml-2">
             <span className="text-xs text-muted-foreground">{selectedIds.length} selected</span>
             <Button variant="outline" size="sm" className="h-7 text-xs border-border text-muted-foreground hover:text-foreground">
               <MessageCircle size={12} className="mr-1" /> Message
@@ -236,7 +236,53 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div className="no-scrollbar flex-1 overflow-y-auto sm:hidden">
+        <div className="divide-y divide-border">
+          {filtered.map((contact) => (
+            <button
+              key={contact.id}
+              onClick={() => onOpenContactChat?.(contact.id)}
+              className={`w-full px-3 py-3 text-left transition-colors hover:bg-secondary/30 ${selectedIds.includes(contact.id) ? "bg-primary/5" : ""}`}
+            >
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(contact.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggleSelect(contact.id)}
+                  className="mt-1 rounded"
+                />
+                <div className="h-9 w-9 shrink-0 rounded-full bg-secondary flex items-center justify-center">
+                  <span className="text-xs font-medium text-foreground">
+                    {contact.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot[contact.lifecycleStatus || contact.status] || statusDot.active}`} />
+                    <span className="truncate text-sm font-medium text-foreground">{contact.name}</span>
+                    <Badge variant="outline" className={`shrink-0 text-[10px] px-1.5 py-0 h-4 capitalize ${lifecycleColors[contact.lifecycleStatus || "lead"] || lifecycleColors.lead}`}>
+                      {contact.lifecycleStatus || "lead"}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{contact.phone}</p>
+                  <p className="truncate text-xs text-muted-foreground">{contact.email || contact.source}</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {contact.tags.slice(0, 3).map((tag) => (
+                      <Badge key={tag} variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${tagColors[tag] || "border-border text-muted-foreground"}`}>
+                        {tag}
+                      </Badge>
+                    ))}
+                    <span className="ml-auto text-[11px] text-muted-foreground">{contact.lastActivity}</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="hidden flex-1 overflow-auto sm:block">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-secondary/50 sticky top-0">
@@ -337,9 +383,9 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between px-6 py-3 border-t border-border shrink-0">
+      <div className="flex items-center justify-between gap-3 px-3 py-3 border-t border-border shrink-0 sm:px-6">
         <span className="text-xs text-muted-foreground">Showing {filtered.length} of {contacts.length} contacts</span>
-        <div className="flex items-center gap-1">
+        <div className="hidden items-center gap-1 sm:flex">
           <Button variant="outline" size="sm" className="h-7 text-xs border-border text-muted-foreground" disabled>
             Previous
           </Button>

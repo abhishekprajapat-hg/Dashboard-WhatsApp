@@ -211,8 +211,8 @@ export function CampaignsView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <div>
+      <div className="flex flex-col gap-3 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+        <div className="min-w-0">
           <h1 className="text-foreground">Campaigns</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             {campaigns.length} campaigns - {campaigns.filter((campaign) => campaign.status === "running").length} running
@@ -224,7 +224,7 @@ export function CampaignsView() {
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreateCampaign} className="grid grid-cols-1 md:grid-cols-7 gap-2 px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
+        <form onSubmit={handleCreateCampaign} className="grid grid-cols-1 md:grid-cols-7 gap-2 px-3 sm:px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
           <input
             value={form.name}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
@@ -267,12 +267,12 @@ export function CampaignsView() {
       )}
 
       {!showCreate && notice && (
-        <div className="px-6 py-2 border-b border-border bg-secondary/20 text-xs text-muted-foreground">
+        <div className="px-3 sm:px-6 py-2 border-b border-border bg-secondary/20 text-xs text-muted-foreground">
           {notice}
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-border shrink-0">
+      <div className="grid grid-cols-2 gap-3 px-3 py-3 border-b border-border shrink-0 sm:grid-cols-4 sm:px-6 sm:py-4">
         {[
           { label: "Total sent", value: summary.totalSent.toLocaleString(), icon: <Send size={14} /> },
           { label: "Avg delivery rate", value: `${summary.deliveryRate}%`, icon: <TrendingUp size={14} /> },
@@ -287,7 +287,7 @@ export function CampaignsView() {
         ))}
       </div>
 
-      <div className="flex gap-1 px-6 pt-3 border-b border-border shrink-0">
+      <div className="no-scrollbar flex gap-1 overflow-x-auto px-3 sm:px-6 pt-3 border-b border-border shrink-0">
         {tabs.map((tab) => (
           <button
             key={tab}
@@ -301,23 +301,23 @@ export function CampaignsView() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-hidden flex">
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+      <div className="flex-1 overflow-hidden flex flex-col xl:flex-row">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3">
         {filtered.length === 0 && <Card className="p-6 bg-card border-border text-sm text-muted-foreground">No campaigns yet.</Card>}
         {filtered.map((campaign) => {
           const deliveryRate = rate(campaign.delivered, campaign.sent);
           const readRate = rate(campaign.read, campaign.delivered);
 
           return (
-            <Card key={campaign.id} className="p-4 bg-card border-border hover:border-border/80 transition-colors">
-              <div className="flex items-start gap-4">
+            <Card key={campaign.id} className="p-3 sm:p-4 bg-card border-border hover:border-border/80 transition-colors">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                 <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0 mt-0.5">
                   <Send size={15} className="text-muted-foreground" />
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-medium text-sm text-foreground">{campaign.name}</span>
+                    <span className="min-w-0 truncate font-medium text-sm text-foreground">{campaign.name}</span>
                     <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${statusStyle[campaign.status]}`}>
                       {campaign.status}
                     </Badge>
@@ -334,7 +334,7 @@ export function CampaignsView() {
                   </div>
 
                   {campaign.status !== "draft" && (
-                    <div className="grid grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       {[
                         { label: "Recipients", value: campaign.recipients.toLocaleString() },
                         { label: "Delivered", value: deliveryRate },
@@ -350,7 +350,7 @@ export function CampaignsView() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex flex-wrap items-center gap-1 shrink-0 sm:justify-end">
                   {campaign.status === "running" && (
                     <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-yellow-400 hover:bg-secondary transition-colors" onClick={() => handleStatus(campaign, "paused")}>
                       <Pause size={13} />
@@ -386,7 +386,7 @@ export function CampaignsView() {
         </div>
 
         {report && (
-          <aside className="w-[420px] border-l border-border bg-card overflow-y-auto shrink-0">
+          <aside className="max-h-[55vh] w-full border-t border-border bg-card overflow-y-auto shrink-0 xl:max-h-none xl:w-[420px] xl:border-l xl:border-t-0">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">{report.name}</h2>
@@ -398,7 +398,7 @@ export function CampaignsView() {
             </div>
 
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   { label: "Recipients", value: report.recipients.length },
                   { label: "Sent", value: report.sent },

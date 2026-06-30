@@ -4,6 +4,7 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import {
   Archive,
+  ArrowLeft,
   CheckCheck,
   CheckCircle2,
   ChevronDown,
@@ -186,6 +187,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [templateParameters, setTemplateParameters] = useState("");
   const [templateSending, setTemplateSending] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
 
   useEffect(() => {
     getConversations<{ data: Conversation[]; total: number }>()
@@ -226,6 +228,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
         setConversations((items) => mergeConversation(items, response.data));
         setSelectedId(response.data.id);
         setActiveTab("All");
+        setMobileChatOpen(true);
       })
       .catch(() => undefined);
   }, [openContactId]);
@@ -490,8 +493,8 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const selectedCrmStage = selected.crmStage?.replace(/_/g, " ") || "new lead";
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-[#111b21]">
-      <aside className="w-80 xl:w-[360px] flex flex-col border-r border-[#2a3942] bg-[#111b21] shrink-0">
+    <div className="min-h-0 flex-1 flex overflow-hidden bg-[#111b21]">
+      <aside className={`${mobileChatOpen ? "hidden" : "flex"} w-full flex-col border-r border-[#2a3942] bg-[#111b21] shrink-0 md:flex md:w-80 xl:w-[360px]`}>
         <div className="h-14 px-4 border-b border-[#2a3942] bg-[#202c33] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center">
@@ -541,7 +544,10 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           {filtered.map((conversation) => (
             <button
               key={conversation.id}
-              onClick={() => setSelectedId(conversation.id)}
+              onClick={() => {
+                setSelectedId(conversation.id);
+                setMobileChatOpen(true);
+              }}
               className={`w-full flex items-start gap-3 px-3 py-3 border-b border-[#1f2c33] hover:bg-[#202c33] transition-colors text-left ${
                 selected.id === conversation.id ? "bg-[#2a3942]" : ""
               }`}
@@ -578,19 +584,22 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
         </div>
       </aside>
 
-      <section className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-14 px-4 border-b border-[#2a3942] bg-[#202c33] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
+      <section className={`${mobileChatOpen ? "flex" : "hidden"} min-w-0 flex-1 flex-col overflow-hidden md:flex`}>
+        <div className="min-h-14 px-2.5 md:px-4 border-b border-[#2a3942] bg-[#202c33] flex items-center justify-between gap-2 shrink-0">
+          <div className="flex min-w-0 items-center gap-2 md:gap-2.5">
+            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#aebac1] hover:bg-[#2a3942] md:hidden" onClick={() => setMobileChatOpen(false)}>
+              <ArrowLeft size={18} />
+            </button>
             <div className="w-10 h-10 rounded-full bg-[#2a3942] flex items-center justify-center">
               <span className="text-sm font-medium text-[#e9edef]">{initials(selected.name)}</span>
             </div>
-            <div>
-              <div className="text-sm font-medium text-[#e9edef]">{selected.name}</div>
-              <div className="text-[11px] text-[#8696a0]">{selected.phone} - {selected.agent || "Unassigned"}</div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-[#e9edef]">{selected.name}</div>
+              <div className="truncate text-[11px] text-[#8696a0]">{selected.phone} - {selected.agent || "Unassigned"}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             <div className="relative hidden 2xl:block">
               <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#8696a0]" />
               <Input
@@ -609,7 +618,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
               value={selected.agentId || ""}
               onChange={(event) => handleAssign(event.target.value)}
               disabled={assigning}
-              className="h-7 max-w-40 rounded-md border border-[#2a3942] bg-[#111b21] px-2 text-xs text-[#e9edef] outline-none"
+              className="hidden h-7 max-w-40 rounded-md border border-[#2a3942] bg-[#111b21] px-2 text-xs text-[#e9edef] outline-none sm:block"
               title="Assign conversation"
             >
               <option value="">Unassigned</option>
@@ -620,7 +629,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             <Button
               size="sm"
               variant={selectedIsInCrm ? "outline" : "default"}
-              className={`h-7 text-xs px-2 ${selectedIsInCrm ? "border-[#00a884]/30 text-[#00a884] hover:text-[#00a884]" : "bg-[#00a884] text-black hover:bg-[#06cf9c]"}`}
+              className={`hidden h-7 text-xs px-2 sm:inline-flex ${selectedIsInCrm ? "border-[#00a884]/30 text-[#00a884] hover:text-[#00a884]" : "bg-[#00a884] text-black hover:bg-[#06cf9c]"}`}
               onClick={handleAddToCrm}
               disabled={crmSaving || selectedIsInCrm}
             >
@@ -633,18 +642,18 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
               </button>
             ))}
             {selected.status !== "resolved" ? (
-              <Button size="sm" className="h-7 text-xs px-2 ml-1 bg-[#00a884] text-black hover:bg-[#06cf9c]" onClick={() => handleStatusChange("resolved")}>
+              <Button size="sm" className="hidden h-7 text-xs px-2 ml-1 bg-[#00a884] text-black hover:bg-[#06cf9c] sm:inline-flex" onClick={() => handleStatusChange("resolved")}>
                 Resolve
               </Button>
             ) : (
-              <Button size="sm" variant="outline" className="h-7 text-xs px-2 ml-1 border-[#2a3942] text-[#e9edef]" onClick={() => handleStatusChange("open")}>
+              <Button size="sm" variant="outline" className="hidden h-7 text-xs px-2 ml-1 border-[#2a3942] text-[#e9edef] sm:inline-flex" onClick={() => handleStatusChange("open")}>
                 Reopen
               </Button>
             )}
           </div>
         </div>
 
-        <div className="no-scrollbar flex-1 overflow-y-auto p-4 space-y-2 bg-[#0b141a] bg-[radial-gradient(circle_at_top_left,rgba(0,168,132,0.08),transparent_32%),linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:auto,28px_28px]">
+        <div className="no-scrollbar flex-1 overflow-y-auto p-2.5 md:p-4 space-y-2 bg-[#0b141a] bg-[radial-gradient(circle_at_top_left,rgba(0,168,132,0.08),transparent_32%),linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:auto,28px_28px]">
           <div className="text-center mb-4">
             <span className="text-[11px] text-[#8696a0] bg-[#182229] px-3 py-1 rounded-full">
               Today - {selected.messages[0]?.time}
@@ -654,7 +663,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           {visibleMessages.map((message) => (
             <div key={message.id} className={`flex ${message.from === "agent" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`group max-w-xs xl:max-w-md rounded-lg px-3 py-2 shadow-sm ${
+                className={`group max-w-[86vw] sm:max-w-xs xl:max-w-md rounded-lg px-3 py-2 shadow-sm ${
                   message.internal
                     ? "bg-yellow-500/10 text-yellow-100 border border-yellow-500/20"
                     : message.from === "agent"
@@ -717,11 +726,11 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           ))}
         </div>
 
-        <div className="border-t border-[#2a3942] bg-[#202c33] p-3 space-y-2">
+        <div className="border-t border-[#2a3942] bg-[#202c33] p-2.5 md:p-3 space-y-2">
           {sendError && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{sendError}</div>}
           {crmNotice && <div className="text-xs text-[#00a884] bg-[#00a884]/10 border border-[#00a884]/20 rounded px-3 py-2">{crmNotice}</div>}
 
-          <div className="flex items-center gap-2">
+          <div className="no-scrollbar flex items-center gap-2 overflow-x-auto">
             <button className={`text-[11px] px-2 py-1 rounded ${composerMode === "reply" ? "text-[#00a884] bg-[#00a884]/10" : "text-[#aebac1] hover:text-[#e9edef]"}`} onClick={() => setComposerMode("reply")}>Reply</button>
             <button className={`text-[11px] px-2 py-1 rounded ${composerMode === "note" ? "text-yellow-300 bg-yellow-500/10" : "text-[#aebac1] hover:text-[#e9edef]"}`} onClick={() => setComposerMode("note")}>Note</button>
             {quickReplies.map((reply) => (
@@ -729,7 +738,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                 {reply.slice(0, 22)}
               </button>
             ))}
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex min-w-[420px] flex-1 items-center gap-2 sm:min-w-0">
               <div className="relative min-w-36 max-w-56 flex-1">
                 <select
                   value={selectedTemplateId}
@@ -915,7 +924,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
               </button>
             </div>
           )}
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-1.5 md:gap-2">
             <button className="h-9 w-9 rounded-full text-[#aebac1] hover:bg-[#2a3942] flex items-center justify-center">
               <Smile size={18} />
             </button>
@@ -929,7 +938,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             >
               <Paperclip size={18} />
             </button>
-            <div className="flex-1 bg-[#2a3942] rounded-lg px-3 py-2">
+            <div className="min-w-0 flex-1 bg-[#2a3942] rounded-lg px-3 py-2">
               <textarea
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}

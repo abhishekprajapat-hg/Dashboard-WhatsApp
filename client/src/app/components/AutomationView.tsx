@@ -196,8 +196,8 @@ export function AutomationView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <div>
+      <div className="flex flex-col gap-3 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+        <div className="min-w-0">
           <h1 className="text-foreground">Automation</h1>
           <p className="text-xs text-muted-foreground mt-0.5">{activeCount} active flows - {flowList.length} total</p>
         </div>
@@ -207,7 +207,7 @@ export function AutomationView() {
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreateFlow} className="grid grid-cols-1 md:grid-cols-6 gap-2 px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
+        <form onSubmit={handleCreateFlow} className="grid grid-cols-1 md:grid-cols-6 gap-2 px-3 sm:px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
           <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Flow name" className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground" />
           <input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Description" className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground md:col-span-2" />
           <select value={form.trigger} onChange={(event) => setForm((current) => ({ ...current, trigger: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground">
@@ -265,7 +265,7 @@ export function AutomationView() {
         </form>
       )}
 
-      <div className="grid grid-cols-3 gap-3 px-6 py-4 border-b border-border shrink-0">
+      <div className="grid grid-cols-1 gap-3 px-3 py-3 border-b border-border shrink-0 sm:grid-cols-3 sm:px-6 sm:py-4">
         {[
           { label: "Flow runs today", value: summary.runsToday.toLocaleString() },
           { label: "Messages automated", value: summary.automatedMessages.toLocaleString() },
@@ -278,17 +278,17 @@ export function AutomationView() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-3">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3">
         {flowList.map((flow) => (
-          <Card key={flow.id} className="p-4 bg-card border-border hover:border-border/80 transition-colors">
-            <div className="flex items-start gap-4">
+          <Card key={flow.id} className="p-3 sm:p-4 bg-card border-border hover:border-border/80 transition-colors">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
               <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                 <Zap size={16} className="text-primary" />
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm text-foreground">{flow.name}</span>
+                  <span className="min-w-0 truncate font-medium text-sm text-foreground">{flow.name}</span>
                   <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${statusStyle[flow.status]}`}>{flow.status}</Badge>
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-border text-muted-foreground">{flow.category}</Badge>
                 </div>
@@ -353,7 +353,7 @@ export function AutomationView() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0 sm:justify-end">
                 {flow.status !== "draft" && <Switch checked={flow.status === "active"} onCheckedChange={() => toggleStatus(flow)} className="scale-75" />}
                 <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" onClick={() => toggleStatus(flow)}><Edit2 size={13} /></button>
                 <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" onClick={() => handleCopy(flow)}><Copy size={13} /></button>

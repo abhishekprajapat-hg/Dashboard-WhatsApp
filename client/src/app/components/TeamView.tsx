@@ -104,8 +104,8 @@ export function TeamView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <div>
+      <div className="flex flex-col gap-3 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+        <div className="min-w-0">
           <h1 className="text-foreground">Team</h1>
           <p className="text-xs text-muted-foreground mt-0.5">{members.length} members - {onlineCount} online now</p>
         </div>
@@ -115,7 +115,7 @@ export function TeamView() {
       </div>
 
       {showInvite && (
-        <form onSubmit={handleInvite} className="mx-6 mt-4 p-4 rounded-lg bg-card border border-border">
+        <form onSubmit={handleInvite} className="mx-3 mt-3 p-3 rounded-lg bg-card border border-border sm:mx-6 sm:mt-4 sm:p-4">
           <h3 className="text-sm font-medium text-foreground mb-3">Invite a team member</h3>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
             <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Name" className="h-8 text-xs bg-secondary border-transparent" />
@@ -138,7 +138,7 @@ export function TeamView() {
         </form>
       )}
 
-      <div className="grid grid-cols-3 gap-3 px-6 py-4 border-b border-border shrink-0">
+      <div className="grid grid-cols-1 gap-3 px-3 py-3 border-b border-border shrink-0 sm:grid-cols-3 sm:px-6 sm:py-4">
         {[
           { label: "Agents online", value: onlineCount, icon: <Users size={14} className="text-primary" /> },
           { label: "Open conversations", value: members.reduce((sum, member) => sum + member.assignedConversations, 0), icon: <MessageCircle size={14} className="text-blue-400" /> },
@@ -152,15 +152,15 @@ export function TeamView() {
         ))}
       </div>
 
-      <div className="px-6 py-3 border-b border-border shrink-0">
-        <div className="relative max-w-xs">
+      <div className="px-3 py-3 border-b border-border shrink-0 sm:px-6">
+        <div className="relative w-full sm:max-w-xs">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="pl-8 h-8 text-xs bg-secondary border-transparent focus:border-border" />
         </div>
       </div>
 
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
+        <table className="min-w-[560px] w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-secondary/50 sticky top-0">
               <th className="px-6 py-2.5 text-left font-medium text-muted-foreground">Member</th>

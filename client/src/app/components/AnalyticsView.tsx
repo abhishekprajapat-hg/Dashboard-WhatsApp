@@ -49,13 +49,13 @@ export function AnalyticsView() {
   const sourceTotal = analytics.sourceBreakdown.reduce((sum, item) => sum + item.value, 0);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-foreground">Analytics</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Campaigns, automations, agents, and delivery health</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="no-scrollbar flex items-center gap-2 overflow-x-auto">
           {[7, 14, 30, 90].map((period) => (
             <button
               key={period}
@@ -70,7 +70,7 @@ export function AnalyticsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {analytics.kpis.map((kpi, index) => (
           <Card key={kpi.label} className="p-4 bg-card border-border">
             <div className="flex items-center justify-between mb-2">
@@ -87,12 +87,12 @@ export function AnalyticsView() {
       </div>
 
       <Card className="p-4 bg-card border-border">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div>
             <h3 className="text-sm font-medium text-foreground">Message Volume</h3>
             <p className="text-xs text-muted-foreground">Daily inbound and outbound messages</p>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-primary inline-block" />Inbound</span>
             <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-chart-2 inline-block" />Outbound</span>
           </div>
@@ -212,7 +212,8 @@ export function AnalyticsView() {
           <h3 className="text-sm font-medium text-foreground">Agent Leaderboard</h3>
           <p className="text-xs text-muted-foreground">Resolved conversations and assigned workload</p>
         </div>
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto">
+        <table className="min-w-[560px] w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-secondary/30">
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Agent</th>
@@ -240,6 +241,7 @@ export function AnalyticsView() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );
