@@ -99,6 +99,10 @@ export function getDashboardSummary<T>() {
   return request<T>("/dashboard/summary");
 }
 
+export function getAnalyticsSummary<T>(days = 14) {
+  return request<T>(`/analytics/summary?days=${days}`);
+}
+
 export function getContacts<T>(search = "", lifecycle = "") {
   const query = new URLSearchParams();
   if (search) query.set("search", search);
@@ -138,8 +142,19 @@ export function getConversations<T>(params: { status?: string; search?: string }
   return request<T>(`/conversations${suffix}`);
 }
 
-export function sendConversationMessage<T>(conversationId: string, content: string) {
+export function sendConversationMessage<T>(
+  conversationId: string,
+  content: string,
+  options: { attachments?: { name: string; url: string; type?: string }[]; replyToMessageId?: string } = {}
+) {
   return request<T>(`/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content, ...options }),
+  });
+}
+
+export function sendConversationNote<T>(conversationId: string, content: string) {
+  return request<T>(`/conversations/${conversationId}/notes`, {
     method: "POST",
     body: JSON.stringify({ content }),
   });
@@ -179,16 +194,46 @@ export function markConversationRead<T>(conversationId: string) {
   });
 }
 
+export function updateConversationStatus<T>(conversationId: string, status: string) {
+  return request<T>(`/conversations/${conversationId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
 export function getSettings<T>() {
   return request<T>("/settings");
 }
 
+export function updateIntegrations<T>(integrations: {
+  outboundWebhook?: { enabled?: boolean; url?: string; secret?: string };
+  googleSheets?: { enabled?: boolean; webhookUrl?: string; secret?: string };
+}) {
+  return request<T>("/settings/integrations", {
+    method: "PUT",
+    body: JSON.stringify(integrations),
+  });
+}
+
+export function testIntegrationWebhook<T>(payload: { url: string; secret?: string }) {
+  return request<T>("/settings/integrations/test-webhook", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createWhatsAppAccount<T>(account: {
+  provider?: string;
   displayName: string;
   phoneNumber: string;
   phoneNumberId: string;
   businessAccountId: string;
   accessToken?: string;
+  accountSid?: string;
+  authToken?: string;
+  apiKey?: string;
+  apiBaseUrl?: string;
+  tenantId?: string;
 }) {
   return request<T>("/whatsapp/accounts", {
     method: "POST",
@@ -208,8 +253,18 @@ export function syncWhatsAppTemplates<T>(id: string) {
   });
 }
 
+export function testWhatsAppAccount<T>(id: string) {
+  return request<T>(`/whatsapp/accounts/${id}/test`, {
+    method: "POST",
+  });
+}
+
 export function getWhatsAppTemplates<T>() {
   return request<T>("/whatsapp/templates");
+}
+
+export function getWhatsAppConsole<T>() {
+  return request<T>("/whatsapp/console");
 }
 
 export function createWhatsAppTemplate<T>(template: {
@@ -229,10 +284,16 @@ export function getCampaigns<T>() {
   return request<T>("/campaigns");
 }
 
+export function getCampaignReport<T>(id: string) {
+  return request<T>(`/campaigns/${id}`);
+}
+
 export function createCampaign<T>(campaign: {
   name: string;
   type?: string;
   audience?: string;
+  audienceType?: string;
+  templateId?: string;
   status?: string;
   scheduledAt?: string;
 }) {
@@ -242,10 +303,16 @@ export function createCampaign<T>(campaign: {
   });
 }
 
-export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; audience?: string }) {
+export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; audience?: string; audienceType?: string; templateId?: string }) {
   return request<T>(`/campaigns/${id}`, {
     method: "PATCH",
     body: JSON.stringify(campaign),
+  });
+}
+
+export function sendCampaign<T>(id: string) {
+  return request<T>(`/campaigns/${id}/send`, {
+    method: "POST",
   });
 }
 
@@ -266,6 +333,15 @@ export function createAutomationFlow<T>(flow: {
   category?: string;
   status?: string;
   actionMessage?: string;
+  keyword?: string;
+  sendReply?: boolean;
+  assignmentUserId?: string;
+  nextStatus?: string;
+  tagName?: string;
+  addToCrm?: boolean;
+  callWebhook?: boolean;
+  webhookUrl?: string;
+  webhookSecret?: string;
 }) {
   return request<T>("/automation", {
     method: "POST",
@@ -277,6 +353,13 @@ export function updateAutomationFlow<T>(id: string, flow: { name?: string; statu
   return request<T>(`/automation/${id}`, {
     method: "PATCH",
     body: JSON.stringify(flow),
+  });
+}
+
+export function testAutomationFlow<T>(id: string, message: string) {
+  return request<T>(`/automation/${id}/test`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
   });
 }
 

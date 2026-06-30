@@ -15,7 +15,13 @@ import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheet } from "../services/googleSheets.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
-import { fetchWhatsAppTemplates, normalizeWebhookPayload } from "../services/whatsappProvider.js";
+import {
+  fetchWhatsAppTemplates,
+  normalizeTwilioWebhookPayload,
+  normalizeWatiWebhookPayload,
+  normalizeWebhookPayload,
+  testWhatsAppConnection,
+} from "../services/whatsappProvider.js";
 
 export const whatsappRouter = Router();
 export const whatsappWebhookRouter = Router();
@@ -28,6 +34,7 @@ function serializeAccount(account) {
     phoneNumberId: account.phoneNumberId,
     businessAccountId: account.businessAccountId,
     provider: account.provider,
+    providerConfig: account.providerConfig || {},
     webhookStatus: account.webhookStatus,
     templateSyncStatus: account.templateSyncStatus,
     status: account.status,
@@ -52,19 +59,144 @@ function serializeTemplate(template) {
 
 whatsappRouter.use(requireAuth);
 
+function shortTime(date) {
+  if (!date) return "";
+  return new Date(date).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 whatsappRouter.get("/accounts", async (req, res) => {
   const accounts = await WhatsAppAccount.find({ workspaceId: req.user.workspaceId }).sort({ createdAt: -1 });
   res.json({ data: accounts.map(serializeAccount), total: accounts.length });
 });
 
+whatsappRouter.get("/console", async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.json({
+      health: { status: "offline", connectedAccounts: 0, healthyWebhooks: 0, needsAttention: 0 },
+      messageStats: { inbound: 0, outbound: 0, sent: 0, delivered: 0, failed: 0 },
+      templateStats: { total: 0, approved: 0, pending: 0, rejected: 0 },
+      recentMessages: [],
+      recentWebhookEvents: [],
+    });
+  }
+
+  const workspaceId = req.user.workspaceId;
+  const [
+    accounts,
+    messageStats,
+    templateStats,
+    recentMessages,
+    recentWebhookEvents,
+  ] = await Promise.all([
+    WhatsAppAccount.find({ workspaceId }),
+    Message.aggregate([
+      { $match: { workspaceId: new mongoose.Types.ObjectId(workspaceId) } },
+      {
+        $group: {
+          _id: null,
+          inbound: { $sum: { $cond: [{ $eq: ["$direction", "inbound"] }, 1, 0] } },
+          outbound: { $sum: { $cond: [{ $eq: ["$direction", "outbound"] }, 1, 0] } },
+          sent: { $sum: { $cond: [{ $eq: ["$status", "sent"] }, 1, 0] } },
+          delivered: { $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] } },
+          failed: { $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] } },
+        },
+      },
+    ]),
+    Template.aggregate([
+      { $match: { workspaceId: new mongoose.Types.ObjectId(workspaceId) } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          approved: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] } },
+        },
+      },
+    ]),
+    Message.find({ workspaceId })
+      .populate("contactId", "name phone")
+      .populate("whatsappAccountId", "displayName phoneNumberId")
+      .sort({ createdAt: -1 })
+      .limit(10),
+    WebhookEvent.find({ workspaceId })
+      .sort({ createdAt: -1 })
+      .limit(10),
+  ]);
+
+  const stats = messageStats[0] || {};
+  const templates = templateStats[0] || {};
+  const connectedAccounts = accounts.filter((account) => account.status === "connected").length;
+  const healthyWebhooks = accounts.filter((account) => account.webhookStatus === "healthy").length;
+  const needsAttention = accounts.filter((account) => account.status === "needs_attention").length;
+
+  res.json({
+    health: {
+      status: connectedAccounts > 0 && needsAttention === 0 ? "healthy" : connectedAccounts > 0 ? "attention" : "offline",
+      connectedAccounts,
+      healthyWebhooks,
+      needsAttention,
+    },
+    messageStats: {
+      inbound: stats.inbound || 0,
+      outbound: stats.outbound || 0,
+      sent: stats.sent || 0,
+      delivered: stats.delivered || 0,
+      failed: stats.failed || 0,
+    },
+    templateStats: {
+      total: templates.total || 0,
+      approved: templates.approved || 0,
+      pending: templates.pending || 0,
+      rejected: templates.rejected || 0,
+    },
+    recentMessages: recentMessages.map((message) => ({
+      id: message._id.toString(),
+      direction: message.direction,
+      type: message.type,
+      body: message.body || "",
+      status: message.status,
+      contact: message.contactId?.name || message.contactId?.phone || "Unknown",
+      phone: message.contactId?.phone || "",
+      account: message.whatsappAccountId?.displayName || "Default",
+      providerMessageId: message.providerMessageId || "",
+      time: shortTime(message.sentAt || message.receivedAt || message.createdAt),
+    })),
+    recentWebhookEvents: recentWebhookEvents.map((event) => ({
+      id: event._id.toString(),
+      eventType: event.eventType,
+      status: event.status,
+      error: event.error || "",
+      idempotencyKey: event.idempotencyKey,
+      time: shortTime(event.createdAt),
+    })),
+  });
+});
+
 whatsappRouter.post("/accounts", async (req, res) => {
   const {
+    provider = "meta",
     displayName,
     phoneNumber,
     phoneNumberId,
     businessAccountId,
     accessToken = "local-placeholder-token",
+    accountSid = "",
+    authToken = "",
+    apiKey = "",
+    apiBaseUrl = "",
+    tenantId = "",
   } = req.body || {};
+
+  const providerKey = String(provider || "meta").toLowerCase();
+  if (!["meta", "twilio", "wati"].includes(providerKey)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Provider must be Meta, Twilio, or Wati." });
+  }
 
   if (!displayName || !phoneNumber || !phoneNumberId || !businessAccountId) {
     return res.status(400).json({
@@ -72,6 +204,15 @@ whatsappRouter.post("/accounts", async (req, res) => {
       message: "Display name, phone number, phone number ID, and business account ID are required.",
     });
   }
+
+  const credentials = {
+    provider: providerKey,
+    accessToken,
+    accountSid,
+    authToken,
+    apiKey,
+    apiBaseUrl,
+  };
 
   const account = await WhatsAppAccount.findOneAndUpdate(
     { workspaceId: req.user.workspaceId, phoneNumberId },
@@ -82,8 +223,13 @@ whatsappRouter.post("/accounts", async (req, res) => {
       phoneNumber,
       phoneNumberId,
       businessAccountId,
-      encryptedCredentials: Buffer.from(accessToken).toString("base64"),
-      provider: "meta",
+      encryptedCredentials: Buffer.from(JSON.stringify(credentials)).toString("base64"),
+      provider: providerKey,
+      providerConfig: {
+        tenantId: tenantId || businessAccountId,
+        apiBaseUrl,
+        webhookPath: providerKey === "meta" ? "/webhooks/whatsapp" : `/webhooks/whatsapp/${providerKey}`,
+      },
       webhookStatus: "healthy",
       templateSyncStatus: "pending",
       status: "connected",
@@ -209,6 +355,35 @@ whatsappRouter.post("/accounts/:id/sync-templates", async (req, res) => {
   res.json({ account: serializeAccount(account), templates: templates.map(serializeTemplate) });
 });
 
+whatsappRouter.post("/accounts/:id/test", async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  try {
+    const result = await testWhatsAppConnection(account);
+    account.status = "connected";
+    account.webhookStatus = "healthy";
+    account.lastSyncedAt = new Date();
+    await account.save();
+    res.json({ result, account: serializeAccount(account) });
+  } catch (error) {
+    account.status = "needs_attention";
+    account.webhookStatus = "needs_attention";
+    await account.save();
+    res.status(error.status || 502).json({
+      error: error.code || "CONNECTION_TEST_FAILED",
+      message: error.message || "Connection test failed.",
+      account: serializeAccount(account),
+    });
+  }
+});
+
 whatsappWebhookRouter.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -221,12 +396,22 @@ whatsappWebhookRouter.get("/", (req, res) => {
   res.sendStatus(403);
 });
 
-whatsappWebhookRouter.post("/", async (req, res) => {
-  const normalized = normalizeWebhookPayload(req.body);
+async function findWebhookAccount(normalized, provider = "meta") {
+  if (!normalized.phoneNumberId) return null;
+  const lookup = String(normalized.phoneNumberId);
+  return WhatsAppAccount.findOne({
+    provider,
+    $or: [
+      { phoneNumberId: lookup },
+      { phoneNumber: lookup },
+      { businessAccountId: lookup },
+      { "providerConfig.tenantId": lookup },
+    ],
+  });
+}
 
-  const account = normalized.phoneNumberId
-    ? await WhatsAppAccount.findOne({ phoneNumberId: normalized.phoneNumberId })
-    : null;
+async function handleProviderWebhook({ normalized, provider, res }) {
+  const account = await findWebhookAccount(normalized, provider);
 
   const event = await WebhookEvent.findOneAndUpdate(
     { idempotencyKey: normalized.idempotencyKey },
@@ -358,6 +543,18 @@ whatsappWebhookRouter.post("/", async (req, res) => {
   }
 
   res.sendStatus(200);
+}
+
+whatsappWebhookRouter.post("/", async (req, res) => {
+  await handleProviderWebhook({ normalized: normalizeWebhookPayload(req.body), provider: "meta", res });
+});
+
+whatsappWebhookRouter.post("/twilio", async (req, res) => {
+  await handleProviderWebhook({ normalized: normalizeTwilioWebhookPayload(req.body), provider: "twilio", res });
+});
+
+whatsappWebhookRouter.post("/wati", async (req, res) => {
+  await handleProviderWebhook({ normalized: normalizeWatiWebhookPayload(req.body), provider: "wati", res });
 });
 
 

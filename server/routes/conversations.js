@@ -129,6 +129,25 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
+conversationsRouter.get("/:id", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId })
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId");
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
+});
+
 conversationsRouter.patch("/:id/read", async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
@@ -144,6 +163,44 @@ conversationsRouter.patch("/:id/read", async (req, res) => {
   await conversation.save();
 
   res.json({ unread: 0 });
+});
+
+conversationsRouter.patch("/:id/status", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const statusMap = {
+    open: "open",
+    waiting: "pending",
+    pending: "pending",
+    resolved: "resolved",
+    archived: "archived",
+  };
+  const nextStatus = statusMap[String(req.body?.status || "").toLowerCase()];
+
+  if (!nextStatus) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid status is required." });
+  }
+
+  const conversation = await Conversation.findOneAndUpdate(
+    { _id: req.params.id, workspaceId: req.user.workspaceId },
+    { status: nextStatus },
+    { new: true }
+  )
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId");
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  await publishConversationChanged(conversation._id);
+
+  res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
 conversationsRouter.post("/", async (req, res) => {
@@ -414,9 +471,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
     }
 
-    const { content } = req.body || {};
+    const { content, attachments = [], replyToMessageId = "" } = req.body || {};
 
-    if (!content?.trim()) {
+    if (!content?.trim() && (!Array.isArray(attachments) || attachments.length === 0)) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
     }
 
@@ -430,7 +487,7 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       providerResult = await sendWhatsAppText({
         account,
         to: contact?.phone,
-        body: content.trim(),
+        body: content.trim() || "Attachment",
       });
     } catch (error) {
       if (account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
@@ -447,13 +504,15 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
         whatsappAccountId: conversation.whatsappAccountId || account?._id,
         direction: "outbound",
         type: "text",
-        body: content.trim(),
+        body: content.trim() || "Attachment",
+        attachments: Array.isArray(attachments) ? attachments : [],
         providerMessageId: `failed_${Date.now()}`,
         status: "failed",
         sentByUserId: req.user.sub,
         sentAt: new Date(),
         metadata: {
           providerMode: "meta",
+          ...(replyToMessageId ? { replyToMessageId } : {}),
           error: error.message,
           meta: error.meta,
         },
@@ -480,12 +539,13 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       whatsappAccountId: conversation.whatsappAccountId || account?._id,
       direction: "outbound",
       type: "text",
-      body: content.trim(),
+      body: content.trim() || "Attachment",
+      attachments: Array.isArray(attachments) ? attachments : [],
       providerMessageId: providerResult.providerMessageId,
       status: providerResult.status,
       sentByUserId: req.user.sub,
       sentAt: new Date(),
-      metadata: { providerMode: providerResult.mode },
+      metadata: { providerMode: providerResult.mode, ...(replyToMessageId ? { replyToMessageId } : {}) },
     });
 
     conversation.lastMessageId = message._id;
@@ -522,5 +582,39 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
   conversation.unread = 0;
 
   res.status(201).json({ data: message });
+});
+
+conversationsRouter.post("/:id/notes", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const { content } = req.body || {};
+  if (!content?.trim()) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Note content is required." });
+  }
+
+  const message = await Message.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    conversationId: conversation._id,
+    contactId: conversation.contactId,
+    whatsappAccountId: conversation.whatsappAccountId,
+    direction: "outbound",
+    type: "note",
+    body: content.trim(),
+    status: "sent",
+    sentByUserId: req.user.sub,
+    sentAt: new Date(),
+    metadata: { internal: true },
+  });
+
+  await publishConversationChanged(conversation._id);
+  res.status(201).json({ data: serializeMessage(message) });
 });
 

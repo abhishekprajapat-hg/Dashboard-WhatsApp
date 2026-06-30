@@ -1,3 +1,5 @@
+import { Workspace } from "../models/index.js";
+
 const sheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || "";
 const sheetWebhookSecret = process.env.GOOGLE_SHEET_WEBHOOK_SECRET || "";
 
@@ -9,8 +11,19 @@ export function hasGoogleSheetWebhook() {
   return Boolean(sheetWebhookUrl);
 }
 
+async function getSheetConfig(workspaceId) {
+  const workspace = workspaceId ? await Workspace.findById(workspaceId).select("settings") : null;
+  const googleSheets = workspace?.settings?.integrations?.googleSheets || {};
+  return {
+    url: sheetWebhookUrl || (googleSheets.enabled ? googleSheets.webhookUrl : ""),
+    secret: sheetWebhookSecret || googleSheets.secret || "",
+  };
+}
+
 export async function syncLeadToGoogleSheet({ contact, conversation, message }) {
-  if (!sheetWebhookUrl || !contact || !conversation) {
+  const config = await getSheetConfig(conversation?.workspaceId || contact?.workspaceId);
+
+  if (!config.url || !contact || !conversation) {
     return { skipped: true, reason: "missing_webhook" };
   }
 
@@ -22,7 +35,7 @@ export async function syncLeadToGoogleSheet({ contact, conversation, message }) 
   }
 
   const payload = {
-    secret: sheetWebhookSecret || undefined,
+    secret: config.secret || undefined,
     timestamp: toIso(message?.receivedAt || conversation.lastMessageAt || contact.lastMessageAt),
     name: contact.name || contact.phone,
     phone: contact.phone,
@@ -36,7 +49,7 @@ export async function syncLeadToGoogleSheet({ contact, conversation, message }) 
     providerMessageId: message?.providerMessageId || "",
   };
 
-  const response = await fetch(sheetWebhookUrl, {
+  const response = await fetch(config.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -47,8 +47,12 @@ export function serializeMessage(message) {
     id: message._id.toString(),
     content: message.body || "",
     from: message.direction === "outbound" ? "agent" : "contact",
+    type: message.type || "text",
     time: shortTime(message.sentAt || message.receivedAt || message.createdAt),
     status: message.status,
+    attachments: message.attachments || [],
+    replyToMessageId: message.metadata?.replyToMessageId || "",
+    internal: Boolean(message.metadata?.internal),
   };
 }
 

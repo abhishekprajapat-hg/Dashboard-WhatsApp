@@ -1,12 +1,24 @@
 import { config } from "../config.js";
 
-function decodeAccessToken(account) {
-  const token = Buffer.from(account.encryptedCredentials || "", "base64").toString("utf8");
-  return token || "";
+function decodeCredentials(account) {
+  const raw = Buffer.from(account.encryptedCredentials || "", "base64").toString("utf8");
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : { accessToken: raw };
+  } catch {
+    return { accessToken: raw };
+  }
 }
 
-function isLocalToken(token) {
-  return !token || token === "local-placeholder-token" || token.startsWith("local-");
+function primaryCredential(credentials = {}) {
+  return credentials.accessToken || credentials.authToken || credentials.apiKey || "";
+}
+
+function isLocalCredential(credentials = {}) {
+  const value = primaryCredential(credentials);
+  return !value || value === "local-placeholder-token" || value.startsWith("local-");
 }
 
 function normalizeRecipient(phone = "") {
@@ -22,9 +34,9 @@ export async function sendWhatsAppText({ account, to, body }) {
     };
   }
 
-  const accessToken = decodeAccessToken(account);
+  const credentials = decodeCredentials(account);
 
-  if (isLocalToken(accessToken)) {
+  if (isLocalCredential(credentials)) {
     return {
       providerMessageId: `local_${account._id}_${Date.now()}`,
       status: "sent",
@@ -42,6 +54,60 @@ export async function sendWhatsAppText({ account, to, body }) {
     throw error;
   }
 
+  if (account.provider === "twilio") {
+    if (!credentials.accountSid || !credentials.authToken) {
+      const error = new Error("Twilio Account SID and Auth Token are required.");
+      error.code = "TWILIO_CREDENTIALS_REQUIRED";
+      throw error;
+    }
+
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${credentials.accountSid}/Messages.json`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${credentials.accountSid}:${credentials.authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        From: account.phoneNumber.startsWith("whatsapp:") ? account.phoneNumber : `whatsapp:${account.phoneNumber}`,
+        To: `whatsapp:+${recipient}`,
+        Body: body,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || "Twilio WhatsApp send failed.");
+      error.meta = payload;
+      error.code = payload.code || "TWILIO_SEND_FAILED";
+      error.status = response.status;
+      throw error;
+    }
+    return { providerMessageId: payload.sid || `twilio_${Date.now()}`, status: "sent", mode: "twilio", to: recipient, body };
+  }
+
+  if (account.provider === "wati") {
+    if (!credentials.apiKey || !credentials.apiBaseUrl) {
+      const error = new Error("Wati API endpoint and access token are required.");
+      error.code = "WATI_CREDENTIALS_REQUIRED";
+      throw error;
+    }
+
+    const url = `${String(credentials.apiBaseUrl).replace(/\/$/, "")}/api/v1/sendSessionMessage/${recipient}?messageText=${encodeURIComponent(body)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credentials.apiKey}` },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.result === false) {
+      const error = new Error(payload.info || payload.message || "Wati WhatsApp send failed.");
+      error.meta = payload;
+      error.code = "WATI_SEND_FAILED";
+      error.status = response.status || 502;
+      throw error;
+    }
+    return { providerMessageId: payload.messageId || payload.id || `wati_${Date.now()}`, status: "sent", mode: "wati", to: recipient, body };
+  }
+
+  const accessToken = credentials.accessToken;
   const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`;
   const response = await fetch(url, {
     method: "POST",
@@ -124,9 +190,9 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
     };
   }
 
-  const accessToken = decodeAccessToken(account);
+  const credentials = decodeCredentials(account);
 
-  if (isLocalToken(accessToken)) {
+  if (isLocalCredential(credentials)) {
     return {
       providerMessageId: `local_template_${account._id}_${Date.now()}`,
       status: "sent",
@@ -143,6 +209,46 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
     throw error;
   }
 
+  if (account.provider === "twilio") {
+    return sendWhatsAppText({
+      account,
+      to,
+      body: `Template sent: ${template.name}`,
+    });
+  }
+
+  if (account.provider === "wati") {
+    if (!credentials.apiKey || !credentials.apiBaseUrl) {
+      const error = new Error("Wati API endpoint and access token are required.");
+      error.code = "WATI_CREDENTIALS_REQUIRED";
+      throw error;
+    }
+
+    const customParams = parameters.map((value, index) => ({ name: String(index + 1), value: String(value ?? "-") }));
+    const response = await fetch(`${String(credentials.apiBaseUrl).replace(/\/$/, "")}/api/v1/sendTemplateMessage?whatsappNumber=${recipient}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credentials.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        template_name: template.name,
+        broadcast_name: template.name,
+        parameters: customParams,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.result === false) {
+      const error = new Error(payload.info || payload.message || "Wati template send failed.");
+      error.meta = payload;
+      error.code = "WATI_TEMPLATE_SEND_FAILED";
+      error.status = response.status || 502;
+      throw error;
+    }
+    return { providerMessageId: payload.messageId || payload.id || `wati_template_${Date.now()}`, status: "sent", mode: "wati", to: recipient, template: template.name };
+  }
+
+  const accessToken = credentials.accessToken;
   const templatePayload = {
     name: template.name,
     language: { code: template.language || "en" },
@@ -185,9 +291,9 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
   };
 }
 export async function fetchWhatsAppTemplates(account) {
-  const accessToken = decodeAccessToken(account);
+  const credentials = decodeCredentials(account);
 
-  if (isLocalToken(accessToken)) {
+  if (isLocalCredential(credentials) || account.provider !== "meta") {
     return [
       { providerTemplateId: "order_update", name: "order_update", language: "en", category: "UTILITY", status: "approved" },
       { providerTemplateId: "support_follow_up", name: "support_follow_up", language: "en", category: "UTILITY", status: "approved" },
@@ -195,6 +301,7 @@ export async function fetchWhatsAppTemplates(account) {
     ];
   }
 
+  const accessToken = credentials.accessToken;
   const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.businessAccountId}/message_templates?fields=id,name,language,category,status,components&limit=100`;
   const response = await fetch(url, {
     headers: {
@@ -218,6 +325,74 @@ export async function fetchWhatsAppTemplates(account) {
     status: String(template.status || "pending").toLowerCase(),
     components: template.components || [],
   }));
+}
+
+export async function testWhatsAppConnection(account) {
+  if (!account) {
+    const error = new Error("WhatsApp account not found.");
+    error.code = "ACCOUNT_NOT_FOUND";
+    throw error;
+  }
+
+  const credentials = decodeCredentials(account);
+  if (isLocalCredential(credentials)) {
+    return {
+      ok: true,
+      mode: "local",
+      provider: account.provider || "meta",
+      message: "Local placeholder credentials are valid for development testing.",
+    };
+  }
+
+  if (account.provider === "twilio") {
+    if (!credentials.accountSid || !credentials.authToken) {
+      const error = new Error("Twilio Account SID and Auth Token are required.");
+      error.code = "TWILIO_CREDENTIALS_REQUIRED";
+      throw error;
+    }
+
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${credentials.accountSid}.json`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${credentials.accountSid}:${credentials.authToken}`).toString("base64")}`,
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || "Twilio connection test failed.");
+      error.status = response.status;
+      error.meta = payload;
+      throw error;
+    }
+    return { ok: true, mode: "twilio", provider: "twilio", message: `Twilio account ${payload.friendly_name || payload.sid} is reachable.` };
+  }
+
+  if (account.provider === "wati") {
+    if (!credentials.apiKey || !credentials.apiBaseUrl) {
+      const error = new Error("Wati API endpoint and access token are required.");
+      error.code = "WATI_CREDENTIALS_REQUIRED";
+      throw error;
+    }
+
+    const response = await fetch(`${String(credentials.apiBaseUrl).replace(/\/$/, "")}/api/v1/getMessageTemplates`, {
+      headers: { Authorization: `Bearer ${credentials.apiKey}` },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.result === false) {
+      const error = new Error(payload.info || payload.message || "Wati connection test failed.");
+      error.status = response.status || 502;
+      error.meta = payload;
+      throw error;
+    }
+    return { ok: true, mode: "wati", provider: "wati", message: "Wati API is reachable." };
+  }
+
+  const templates = await fetchWhatsAppTemplates(account);
+  return {
+    ok: true,
+    mode: "meta",
+    provider: "meta",
+    message: `Meta Cloud API is reachable. ${templates.length} templates returned.`,
+  };
 }
 
 export function normalizeWebhookPayload(payload) {
@@ -254,6 +429,37 @@ export function normalizeWebhookPayload(payload) {
   return {
     type: "unknown",
     idempotencyKey: `unknown:${Date.now()}`,
+    raw: payload,
+  };
+}
+
+export function normalizeTwilioWebhookPayload(payload = {}) {
+  const messageId = payload.MessageSid || payload.SmsMessageSid || `twilio:${Date.now()}`;
+  return {
+    type: payload.MessageStatus ? "status" : "message",
+    idempotencyKey: payload.MessageStatus ? `${messageId}:${payload.MessageStatus}` : messageId,
+    phoneNumberId: payload.To || payload.ToCountry || "twilio",
+    from: String(payload.From || "").replace(/^whatsapp:/, "").replace(/^\+/, ""),
+    body: payload.Body || "",
+    providerMessageId: messageId,
+    status: payload.MessageStatus || payload.SmsStatus,
+    raw: payload,
+  };
+}
+
+export function normalizeWatiWebhookPayload(payload = {}) {
+  const message = payload.message || payload;
+  const messageId = message.id || message.messageId || payload.id || `wati:${Date.now()}`;
+  const eventType = String(payload.eventType || payload.type || "").toLowerCase();
+  const status = message.statusString || message.status || payload.status;
+  return {
+    type: eventType.includes("status") || status ? "status" : "message",
+    idempotencyKey: status ? `${messageId}:${status}` : messageId,
+    phoneNumberId: payload.tenantId || payload.channelId || "wati",
+    from: String(message.waId || message.from || payload.waId || payload.whatsappNumber || "").replace(/[^\d]/g, ""),
+    body: message.text || message.messageText || message.body || payload.text || "",
+    providerMessageId: messageId,
+    status,
     raw: payload,
   };
 }

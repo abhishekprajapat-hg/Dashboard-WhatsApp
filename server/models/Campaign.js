@@ -13,6 +13,7 @@ const campaignSchema = new mongoose.Schema(
     sentAt: Date,
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     metrics: { type: mongoose.Schema.Types.Mixed, default: {} },
+    recipients: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
   { timestamps: true }
 );

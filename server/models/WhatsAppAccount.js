@@ -9,6 +9,7 @@ const whatsAppAccountSchema = new mongoose.Schema(
     phoneNumberId: { type: String, required: true },
     businessAccountId: { type: String, required: true },
     provider: { type: String, default: "meta" },
+    providerConfig: { type: mongoose.Schema.Types.Mixed, default: {} },
     encryptedCredentials: { type: String, required: true },
     webhookStatus: { type: String, default: "pending" },
     templateSyncStatus: { type: String, default: "pending" },

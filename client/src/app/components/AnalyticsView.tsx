@@ -2,107 +2,79 @@ import { useEffect, useState } from "react";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { TrendingUp, TrendingDown, MessageCircle, Users, Clock, CheckCircle2 } from "lucide-react";
-import { getDashboardSummary } from "../lib/api";
-import { demoDashboard } from "../lib/demoData";
+import { TrendingUp, TrendingDown, MessageCircle, Users, AlertCircle, CheckCircle2, Zap, Send } from "lucide-react";
+import { getAnalyticsSummary } from "../lib/api";
 
-const volumeData = [
-  { date: "Jun 1", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 2", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 3", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 4", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 5", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 6", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 7", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 8", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 9", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 10", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 11", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 12", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 13", inbound: 0, outbound: 0, resolved: 0 },
-  { date: "Jun 14", inbound: 0, outbound: 0, resolved: 0 },
-];
+interface AnalyticsPayload {
+  kpis: { label: string; value: string; delta: string; up: boolean }[];
+  messageVolume: { date: string; inbound: number; outbound: number; resolved: number }[];
+  agentPerformance: { name: string; role: string; resolved: number; assigned: number; avg: number; csat: number }[];
+  sourceBreakdown: { name: string; value: number; color: string }[];
+  campaignPerformance: { id: string; name: string; template: string; status: string; sent: number; delivered: number; failed: number; deliveryRate: number }[];
+  automationPerformance: { id: string; name: string; status: string; trigger: string; runs: number; lastRunAt: string | null }[];
+  deliveryFailures: { id: string; contact: string; phone: string; body: string; error: string; time: string }[];
+  webhookHealth: { processed: number; failed: number; failureRate: number };
+}
 
-const responseTimeData = [
-  { hour: "8 AM", avg: 0 },
-  { hour: "9 AM", avg: 0 },
-  { hour: "10 AM", avg: 0 },
-  { hour: "11 AM", avg: 0 },
-  { hour: "12 PM", avg: 0 },
-  { hour: "1 PM", avg: 0 },
-  { hour: "2 PM", avg: 0 },
-  { hour: "3 PM", avg: 0 },
-  { hour: "4 PM", avg: 0 },
-  { hour: "5 PM", avg: 0 },
-];
-
-const agentPerformance = [
-  { name: "Admin", resolved: 0, csat: 0, avg: 0 },
-];
-
-const channelData = [
-  { name: "WhatsApp", value: 0, color: "#25D366" },
-  { name: "API", value: 0, color: "#128C7E" },
-  { name: "Import", value: 0, color: "#3b82f6" },
-];
-
-const kpis = [
-  { label: "Total messages", value: "0", delta: "+0%", up: true, icon: <MessageCircle size={15} /> },
-  { label: "New contacts", value: "0", delta: "+0%", up: true, icon: <Users size={15} /> },
-  { label: "Avg response time", value: "0 min", delta: "+0%", up: true, icon: <Clock size={15} /> },
-  { label: "Resolution rate", value: "0%", delta: "+0%", up: true, icon: <CheckCircle2 size={15} /> },
-];
+const emptyAnalytics: AnalyticsPayload = {
+  kpis: [
+    { label: "Total messages", value: "0", delta: "+0%", up: true },
+    { label: "New contacts", value: "0", delta: "+0%", up: true },
+    { label: "Delivery failure rate", value: "0%", delta: "+0%", up: true },
+    { label: "Resolution rate", value: "0%", delta: "+0%", up: true },
+  ],
+  messageVolume: [],
+  agentPerformance: [],
+  sourceBreakdown: [],
+  campaignPerformance: [],
+  automationPerformance: [],
+  deliveryFailures: [],
+  webhookHealth: { processed: 0, failed: 0, failureRate: 0 },
+};
 
 export function AnalyticsView() {
-  const [summary, setSummary] = useState(demoDashboard);
+  const [days, setDays] = useState(14);
+  const [analytics, setAnalytics] = useState<AnalyticsPayload>(emptyAnalytics);
 
   useEffect(() => {
-    getDashboardSummary<typeof demoDashboard>()
-      .then(setSummary)
-      .catch(() => setSummary(demoDashboard));
-  }, []);
+    getAnalyticsSummary<AnalyticsPayload>(days)
+      .then(setAnalytics)
+      .catch(() => setAnalytics(emptyAnalytics));
+  }, [days]);
 
-  const liveKpis = summary.kpis.map((kpi, index) => ({
-    ...kpi,
-    up: true,
-    icon: [<MessageCircle size={15} />, <Users size={15} />, <Clock size={15} />, <CheckCircle2 size={15} />][index] || <MessageCircle size={15} />,
-  }));
-  const liveVolumeData = summary.messageVolume.map((item) => ({ date: item.day, inbound: item.inbound, outbound: item.outbound, resolved: 0 }));
-  const liveAgentPerformance = summary.agentPerformance.map((agent) => ({ name: agent.name, resolved: agent.resolved, csat: 0, avg: agent.avg }));
+  const icons = [<MessageCircle size={15} />, <Users size={15} />, <AlertCircle size={15} />, <CheckCircle2 size={15} />];
+  const sourceTotal = analytics.sourceBreakdown.reduce((sum, item) => sum + item.value, 0);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-foreground">Analytics</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Jun 1 – Jun 14, 2026</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Campaigns, automations, agents, and delivery health</p>
         </div>
         <div className="flex items-center gap-2">
-          {["7d", "14d", "30d", "90d"].map((p, i) => (
+          {[7, 14, 30, 90].map((period) => (
             <button
-              key={p}
+              key={period}
+              onClick={() => setDays(period)}
               className={`text-xs px-3 py-1 rounded transition-colors ${
-                i === 1
-                  ? "bg-primary/20 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                days === period ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary"
               }`}
             >
-              {p}
+              {period}d
             </button>
           ))}
         </div>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        {liveKpis.map((kpi) => (
+        {analytics.kpis.map((kpi, index) => (
           <Card key={kpi.label} className="p-4 bg-card border-border">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-muted-foreground">{kpi.icon}</span>
+              <span className="text-muted-foreground">{icons[index] || <MessageCircle size={15} />}</span>
               <Badge variant="outline" className={`text-[10px] px-1.5 ${kpi.up ? "border-primary/30 bg-primary/10 text-primary" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>
                 {kpi.up ? <TrendingUp size={9} className="mr-0.5 inline" /> : <TrendingDown size={9} className="mr-0.5 inline" />}
                 {kpi.delta}
@@ -114,122 +86,156 @@ export function AnalyticsView() {
         ))}
       </div>
 
-      {/* Message Volume */}
       <Card className="p-4 bg-card border-border">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-medium text-foreground">Message Volume</h3>
-            <p className="text-xs text-muted-foreground">Daily inbound, outbound, and resolved</p>
+            <p className="text-xs text-muted-foreground">Daily inbound and outbound messages</p>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-primary inline-block" />Inbound</span>
             <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-chart-2 inline-block" />Outbound</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-chart-3 inline-block" />Resolved</span>
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={liveVolumeData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height={210}>
+          <AreaChart data={analytics.messageVolume} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
             <defs>
-              <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="analyticsIn" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#25D366" stopOpacity={0.2} />
                 <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
               </linearGradient>
-              <linearGradient id="gOut" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="analyticsOut" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#128C7E" stopOpacity={0.2} />
                 <stop offset="95%" stopColor="#128C7E" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gRes" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(240,246,252,0.06)" />
             <XAxis dataKey="date" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} />
             <Tooltip contentStyle={{ background: "#1c2128", border: "1px solid rgba(240,246,252,0.1)", borderRadius: 6, fontSize: 12 }} labelStyle={{ color: "#e6edf3" }} />
-            <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#gIn)" />
-            <Area type="monotone" dataKey="outbound" stroke="#128C7E" strokeWidth={2} fill="url(#gOut)" />
-            <Area type="monotone" dataKey="resolved" stroke="#3b82f6" strokeWidth={2} fill="url(#gRes)" />
+            <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#analyticsIn)" />
+            <Area type="monotone" dataKey="outbound" stroke="#128C7E" strokeWidth={2} fill="url(#analyticsOut)" />
           </AreaChart>
         </ResponsiveContainer>
       </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Response time */}
         <Card className="xl:col-span-2 p-4 bg-card border-border">
-          <h3 className="text-sm font-medium text-foreground mb-1">Avg Response Time by Hour</h3>
-          <p className="text-xs text-muted-foreground mb-4">Minutes · Today</p>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={responseTimeData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+          <h3 className="text-sm font-medium text-foreground mb-1">Campaign Performance</h3>
+          <p className="text-xs text-muted-foreground mb-4">Latest campaigns by sent, delivered, and failed</p>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={analytics.campaignPerformance} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(240,246,252,0.06)" vertical={false} />
-              <XAxis dataKey="hour" tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="name" tick={{ fill: "#8b949e", fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#8b949e", fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ background: "#1c2128", border: "1px solid rgba(240,246,252,0.1)", borderRadius: 6, fontSize: 12 }} labelStyle={{ color: "#e6edf3" }} />
-              <Bar dataKey="avg" fill="#25D366" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="delivered" fill="#25D366" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="failed" fill="#f85149" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
-        {/* Channel breakdown */}
         <Card className="p-4 bg-card border-border">
           <h3 className="text-sm font-medium text-foreground mb-1">Contact Source</h3>
-          <p className="text-xs text-muted-foreground mb-4">This month</p>
-          <ResponsiveContainer width="100%" height={120}>
+          <p className="text-xs text-muted-foreground mb-4">{sourceTotal.toLocaleString()} contacts</p>
+          <ResponsiveContainer width="100%" height={125}>
             <PieChart>
-              <Pie data={channelData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value">
-                {channelData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
+              <Pie data={analytics.sourceBreakdown} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value">
+                {analytics.sourceBreakdown.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
               </Pie>
               <Tooltip contentStyle={{ background: "#1c2128", border: "1px solid rgba(240,246,252,0.1)", borderRadius: 6, fontSize: 12 }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1.5 mt-2">
-            {channelData.map((c) => (
-              <div key={c.name} className="flex items-center justify-between">
+            {analytics.sourceBreakdown.map((source) => (
+              <div key={source.name} className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                  <span className="text-xs text-muted-foreground">{c.name}</span>
+                  <span className="w-2 h-2 rounded-full" style={{ background: source.color }} />
+                  <span className="text-xs text-muted-foreground">{source.name}</span>
                 </div>
-                <span className="text-xs font-medium text-foreground">{c.value}%</span>
+                <span className="text-xs font-medium text-foreground">{source.value}</span>
               </div>
             ))}
           </div>
         </Card>
       </div>
 
-      {/* Agent performance table */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card className="bg-card border-border">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Automation Runs</h3>
+              <p className="text-xs text-muted-foreground">Latest active flows and trigger volume</p>
+            </div>
+            <Zap size={15} className="text-muted-foreground" />
+          </div>
+          <div className="divide-y divide-border">
+            {analytics.automationPerformance.map((flow) => (
+              <div key={flow.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{flow.name}</p>
+                  <p className="text-xs text-muted-foreground">{flow.trigger}</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] border-primary/30 bg-primary/10 text-primary">{flow.runs} runs</Badge>
+              </div>
+            ))}
+            {analytics.automationPerformance.length === 0 && <div className="px-4 py-6 text-sm text-muted-foreground">No automation runs yet.</div>}
+          </div>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Delivery Failures</h3>
+              <p className="text-xs text-muted-foreground">Recent failed outbound messages</p>
+            </div>
+            <Send size={15} className="text-muted-foreground" />
+          </div>
+          <div className="divide-y divide-border">
+            {analytics.deliveryFailures.map((failure) => (
+              <div key={failure.id} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-foreground truncate">{failure.contact}</p>
+                  <Badge variant="outline" className="text-[10px] border-destructive/30 bg-destructive/10 text-destructive">failed</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground truncate">{failure.error}</p>
+                <p className="text-[10px] text-muted-foreground">{failure.phone}</p>
+              </div>
+            ))}
+            {analytics.deliveryFailures.length === 0 && <div className="px-4 py-6 text-sm text-muted-foreground">No delivery failures in this range.</div>}
+          </div>
+        </Card>
+      </div>
+
       <Card className="bg-card border-border">
         <div className="px-4 py-3 border-b border-border">
           <h3 className="text-sm font-medium text-foreground">Agent Leaderboard</h3>
-          <p className="text-xs text-muted-foreground">This month's performance</p>
+          <p className="text-xs text-muted-foreground">Resolved conversations and assigned workload</p>
         </div>
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-secondary/30">
               <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Agent</th>
-              <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Resolved</th>
-              <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">CSAT</th>
-              <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Avg Response</th>
+              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Role</th>
+              <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Resolved today</th>
+              <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Assigned</th>
             </tr>
           </thead>
           <tbody>
-            {liveAgentPerformance.map((agent, i) => (
+            {analytics.agentPerformance.map((agent, index) => (
               <tr key={agent.name} className="border-b border-border hover:bg-secondary/20 transition-colors">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
-                    <span className="text-[10px] text-muted-foreground w-4">{i + 1}</span>
+                    <span className="text-[10px] text-muted-foreground w-4">{index + 1}</span>
                     <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center">
-                      <span className="text-[10px] font-medium text-foreground">{agent.name.split(" ").map(n => n[0]).join("")}</span>
+                      <span className="text-[10px] font-medium text-foreground">{agent.name.split(" ").map((name) => name[0]).join("")}</span>
                     </div>
                     <span className="font-medium text-foreground">{agent.name}</span>
                   </div>
                 </td>
+                <td className="px-4 py-3 text-muted-foreground">{agent.role}</td>
                 <td className="px-4 py-3 text-right text-foreground font-medium">{agent.resolved}</td>
-                <td className="px-4 py-3 text-right">
-                  <span className="text-primary font-medium">★ {agent.csat}</span>
-                </td>
-                <td className="px-4 py-3 text-right text-muted-foreground">{agent.avg} min</td>
+                <td className="px-4 py-3 text-right text-muted-foreground">{agent.assigned}</td>
               </tr>
             ))}
           </tbody>
