@@ -12,6 +12,7 @@ interface Flow {
   description: string;
   trigger: string;
   keyword: string;
+  keywords?: string[];
   actionSummary: string[];
   actions: number;
   status: "active" | "inactive" | "draft";
@@ -48,6 +49,17 @@ const triggerIcon = (trigger: string) => {
   if (trigger.startsWith("Conversation") || trigger.startsWith("New")) return <MessageCircle size={13} />;
   return <Play size={13} />;
 };
+
+function parseKeywords(value = "") {
+  return value
+    .split(/[,/|;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function sampleKeyword(flow: Flow) {
+  return flow.keywords?.[0] || parseKeywords(flow.keyword)[0] || flow.keyword || "hello";
+}
 
 export function AutomationView() {
   const [flowList, setFlowList] = useState<Flow[]>([]);
@@ -167,7 +179,7 @@ export function AutomationView() {
   }
 
   async function handleTest(flow: Flow) {
-    const message = (testMessages[flow.id] || flow.keyword || "hello").trim();
+    const message = (testMessages[flow.id] || sampleKeyword(flow)).trim();
     if (!message) return;
 
     setTestingFlowId(flow.id);
@@ -217,7 +229,7 @@ export function AutomationView() {
             <option>Webhook event</option>
           </select>
           {form.trigger === "Keyword match" && (
-            <input value={form.keyword} onChange={(event) => setForm((current) => ({ ...current, keyword: event.target.value }))} placeholder="Keyword, e.g. price" className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground" />
+            <input value={form.keyword} onChange={(event) => setForm((current) => ({ ...current, keyword: event.target.value }))} placeholder="Keywords, e.g. price, cost, kimat" className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground" />
           )}
           <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground">
             <option value="draft">Draft</option>
@@ -295,7 +307,7 @@ export function AutomationView() {
                 <p className="text-xs text-muted-foreground mt-1">{flow.description}</p>
                 <div className="flex items-center gap-4 mt-2 flex-wrap">
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">{triggerIcon(flow.trigger)}<span>{flow.trigger}</span></div>
-                  {flow.keyword && <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Tag size={13} /><span>{flow.keyword}</span></div>}
+                  {flow.keyword && <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Tag size={13} /><span>Any: {flow.keyword}</span></div>}
                   <div className="text-[11px] text-muted-foreground">{flow.actions} actions</div>
                   {flow.actionSummary?.slice(0, 4).map((action) => (
                     <Badge key={action} variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-border text-muted-foreground">
@@ -309,7 +321,7 @@ export function AutomationView() {
                   <div className="mt-3 rounded-md border border-border bg-secondary/30 p-3">
                     <div className="flex flex-col gap-2 md:flex-row">
                       <input
-                        value={testMessages[flow.id] ?? flow.keyword ?? ""}
+                        value={testMessages[flow.id] ?? sampleKeyword(flow)}
                         onChange={(event) => setTestMessages((current) => ({ ...current, [flow.id]: event.target.value }))}
                         placeholder="Type a test inbound message"
                         className="h-8 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground"

@@ -9,6 +9,7 @@ import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callOutboundWebhook } from "./integrations.js";
 import { sendWhatsAppText } from "./whatsappProvider.js";
+import { keywordMatches, parseKeywords } from "../utils/keywords.js";
 
 function actionNodes(flow, type) {
   return (flow.nodes || []).filter((node) => node?.type === type);
@@ -21,8 +22,8 @@ function triggerMatches(flow, { inboundMessage, isNewConversation }) {
   if (triggerType === "new_conversation") return Boolean(isNewConversation);
 
   if (triggerType === "keyword_match") {
-    const keyword = String(flow.trigger?.keyword || "").trim().toLowerCase();
-    return keyword ? inboundBody.includes(keyword) : true;
+    const keywords = parseKeywords(flow.trigger?.keywords || flow.trigger?.keyword || "");
+    return keywords.length ? keywordMatches(inboundBody, keywords) : true;
   }
 
   if (triggerType === "webhook_event") return true;

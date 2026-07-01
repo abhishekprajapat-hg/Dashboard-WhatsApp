@@ -8,21 +8,32 @@ import {
   CheckCheck,
   CheckCircle2,
   ChevronDown,
+  CheckSquare,
+  Copy,
+  Download,
+  ExternalLink,
   File,
   FileAudio,
   FileText,
+  Forward,
   Image,
+  Info,
   Link,
   MessageCircle,
   Mic,
   MoreVertical,
   Paperclip,
   Phone,
+  Pin,
   Plus,
+  Reply,
   Search,
   Send,
+  Share2,
   Smile,
+  Star,
   Tag,
+  Trash2,
   User,
   UserPlus,
   Video,
@@ -31,6 +42,8 @@ import {
 import {
   addConversationToCrm,
   assignConversation,
+  deleteConversationMessage,
+  getMessageInfo,
   getConversationByContact,
   getConversations,
   getEventStreamUrl,
@@ -42,6 +55,7 @@ import {
   sendConversationNote,
   sendConversationTemplate,
   uploadMedia,
+  updateMessageActions,
   updateConversationStatus,
 } from "../lib/api";
 import { demoConversations } from "../lib/demoData";
@@ -56,6 +70,13 @@ interface Message {
   attachments?: Attachment[];
   replyToMessageId?: string;
   internal?: boolean;
+  pinned?: boolean;
+  starred?: boolean;
+  providerMessageId?: string;
+  sentAt?: string;
+  receivedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface Conversation {
@@ -188,6 +209,10 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const [templateParameters, setTemplateParameters] = useState("");
   const [templateSending, setTemplateSending] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [actionMenuMessageId, setActionMenuMessageId] = useState("");
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [messageInfo, setMessageInfo] = useState<Message | null>(null);
+  const [messageActionNotice, setMessageActionNotice] = useState("");
 
   useEffect(() => {
     getConversations<{ data: Conversation[]; total: number }>()
@@ -268,6 +293,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
     selected?.messages.filter((message) =>
       messageSearch ? message.content.toLowerCase().includes(messageSearch.toLowerCase()) : true
     ) || [];
+  const pinnedMessages = visibleMessages.filter((message) => message.pinned);
 
   function mediaKind(file: File): PendingMedia["kind"] {
     if (file.type.startsWith("image/")) return "image";
@@ -319,6 +345,155 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   function attachmentDisplayUrl(url = "") {
     if (!url) return "";
     return url.replace(`${window.location.origin}/uploads/`, `${window.location.origin}/api/uploads/`);
+  }
+
+  function messageText(message: Message) {
+    const attachmentLinks = (message.attachments || []).map((attachment) => attachmentDisplayUrl(attachment.url)).filter(Boolean);
+    return [message.content, ...attachmentLinks].filter(Boolean).join("\n");
+  }
+
+  function primaryAttachment(message: Message) {
+    return message.attachments?.find((attachment) => attachment.url);
+  }
+
+  function updateSelectedMessage(messageId: string, patch: Partial<Message>) {
+    if (!selected) return;
+    setConversations((items) =>
+      items.map((conversation) =>
+        conversation.id === selected.id
+          ? {
+              ...conversation,
+              messages: conversation.messages.map((message) =>
+                message.id === messageId ? { ...message, ...patch } : message
+              ),
+            }
+          : conversation
+      )
+    );
+  }
+
+  async function persistSelectedMessage(message: Message, patch: Partial<Message>) {
+    updateSelectedMessage(message.id, patch);
+    if (!selected || message.id.startsWith("local_")) return;
+
+    try {
+      const response = await updateMessageActions<{ data: Message }>(selected.id, message.id, {
+        pinned: patch.pinned,
+        starred: patch.starred,
+      });
+      updateSelectedMessage(message.id, response.data);
+    } catch (error) {
+      updateSelectedMessage(message.id, { pinned: message.pinned, starred: message.starred });
+      setMessageActionNotice(error instanceof Error ? error.message : "Message action could not be saved");
+    }
+  }
+
+  function toggleMessageSelection(messageId: string) {
+    setSelectedMessageIds((items) =>
+      items.includes(messageId) ? items.filter((id) => id !== messageId) : [...items, messageId]
+    );
+  }
+
+  async function deleteMessages(messageIds: string[]) {
+    if (!selected || messageIds.length === 0) return;
+    const previous = selected;
+    setConversations((items) =>
+      items.map((conversation) => {
+        if (conversation.id !== selected.id) return conversation;
+        const messages = conversation.messages.filter((message) => !messageIds.includes(message.id));
+        return {
+          ...conversation,
+          messages,
+          preview: messages[messages.length - 1]?.content || "No messages yet",
+        };
+      })
+    );
+    setSelectedMessageIds((items) => items.filter((id) => !messageIds.includes(id)));
+    setActionMenuMessageId("");
+
+    const persistedIds = messageIds.filter((id) => !id.startsWith("local_"));
+    if (!persistedIds.length) return;
+
+    try {
+      await Promise.all(persistedIds.map((id) => deleteConversationMessage(selected.id, id)));
+    } catch (error) {
+      setConversations((items) => items.map((conversation) => (conversation.id === previous.id ? previous : conversation)));
+      setMessageActionNotice(error instanceof Error ? error.message : "Message could not be deleted");
+    }
+  }
+
+  async function copyMessage(message: Message) {
+    await navigator.clipboard?.writeText(messageText(message));
+    setMessageActionNotice("Message copied");
+  }
+
+  function saveMessageAs(message: Message) {
+    const attachment = primaryAttachment(message);
+    if (attachment) {
+      const link = document.createElement("a");
+      link.href = attachmentDisplayUrl(attachment.url);
+      link.download = attachment.name || "attachment";
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.click();
+      return;
+    }
+
+    const blob = new Blob([messageText(message)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `message-${message.id}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function shareMessage(message: Message) {
+    const text = messageText(message);
+    if (navigator.share) {
+      await navigator.share({ text });
+      return;
+    }
+    await navigator.clipboard?.writeText(text);
+    setMessageActionNotice("Share text copied");
+  }
+
+  function openMessage(message: Message) {
+    const attachment = primaryAttachment(message);
+    const target = attachment ? attachmentDisplayUrl(attachment.url) : `data:text/plain;charset=utf-8,${encodeURIComponent(messageText(message))}`;
+    window.open(target, "_blank", "noopener,noreferrer");
+  }
+
+  async function handleMessageAction(action: string, message: Message) {
+    setActionMenuMessageId("");
+    setMessageActionNotice("");
+
+    try {
+      if (action === "info") {
+        setMessageInfo(message);
+        if (selected && !message.id.startsWith("local_")) {
+          getMessageInfo<{ data: Message }>(selected.id, message.id)
+            .then((response) => setMessageInfo(response.data))
+            .catch(() => undefined);
+        }
+      }
+      if (action === "reply") setReplyTo(message);
+      if (action === "copy") await copyMessage(message);
+      if (action === "forward") {
+        setComposerMode("reply");
+        setInputText(`Forwarded:\n${messageText(message)}`);
+        setMessageActionNotice("Forward draft ready");
+      }
+      if (action === "pin") await persistSelectedMessage(message, { pinned: !message.pinned });
+      if (action === "star") await persistSelectedMessage(message, { starred: !message.starred });
+      if (action === "select") toggleMessageSelection(message.id);
+      if (action === "save") saveMessageAs(message);
+      if (action === "share") await shareMessage(message);
+      if (action === "open") openMessage(message);
+      if (action === "delete") await deleteMessages([message.id]);
+    } catch (error) {
+      setMessageActionNotice(error instanceof Error ? error.message : "Action failed");
+    }
   }
 
   async function buildAttachments() {
@@ -660,10 +835,36 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
             </span>
           </div>
 
+          {messageActionNotice && (
+            <div className="mx-auto w-fit rounded-full bg-[#182229] px-3 py-1 text-[11px] text-[#aebac1]">
+              {messageActionNotice}
+            </div>
+          )}
+
+          {selectedMessageIds.length > 0 && (
+            <div className="sticky top-0 z-20 mx-auto flex w-fit items-center gap-2 rounded-full border border-[#2a3942] bg-[#111b21]/95 px-3 py-1.5 text-xs text-[#e9edef] shadow-xl">
+              <span>{selectedMessageIds.length} selected</span>
+              <button className="text-[#00a884] hover:underline" onClick={() => setSelectedMessageIds([])}>Clear</button>
+              <button className="text-red-300 hover:underline" onClick={() => deleteMessages(selectedMessageIds)}>Delete</button>
+            </div>
+          )}
+
+          {pinnedMessages.length > 0 && (
+            <div className="sticky top-9 z-10 rounded-md border border-[#2a3942] bg-[#111b21]/95 px-3 py-2 text-xs text-[#e9edef] shadow-xl">
+              <div className="mb-1 flex items-center gap-1.5 text-[#00a884]">
+                <Pin size={12} />
+                <span>Pinned</span>
+              </div>
+              <div className="truncate text-[#aebac1]">{pinnedMessages[0].content || pinnedMessages[0].attachments?.[0]?.name || "Attachment"}</div>
+            </div>
+          )}
+
           {visibleMessages.map((message) => (
             <div key={message.id} className={`flex ${message.from === "agent" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`group max-w-[86vw] sm:max-w-xs xl:max-w-md rounded-lg px-3 py-2 shadow-sm ${
+                className={`group relative max-w-[86vw] sm:max-w-xs xl:max-w-md rounded-lg px-3 py-2 shadow-sm ${
+                  selectedMessageIds.includes(message.id) ? "ring-2 ring-[#00a884]/70" : ""
+                } ${
                   message.internal
                     ? "bg-yellow-500/10 text-yellow-100 border border-yellow-500/20"
                     : message.from === "agent"
@@ -671,13 +872,51 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
                       : "bg-[#202c33] text-[#e9edef] rounded-bl-sm"
                 }`}
               >
+                <div className={`absolute top-1 ${message.from === "agent" ? "left-1" : "right-1"} flex items-center gap-1`}>
+                  {message.starred && <Star size={11} className="fill-yellow-300 text-yellow-300" />}
+                  {message.pinned && <Pin size={11} className="text-[#00a884]" />}
+                  {selectedMessageIds.includes(message.id) && <CheckSquare size={12} className="text-[#00a884]" />}
+                </div>
+                <button
+                  className={`absolute top-1 ${message.from === "agent" ? "right-1" : "left-1"} flex h-6 w-6 items-center justify-center rounded-full bg-black/15 text-[#d1d7db] hover:bg-black/30 sm:hidden sm:group-hover:flex`}
+                  onClick={() => setActionMenuMessageId((current) => current === message.id ? "" : message.id)}
+                  title="Message actions"
+                >
+                  <ChevronDown size={14} />
+                </button>
+                {actionMenuMessageId === message.id && (
+                  <div className={`absolute top-8 z-30 w-44 rounded-lg bg-[#1f1f1f] py-1.5 text-sm text-[#f1f1f1] shadow-2xl ${message.from === "agent" ? "right-0" : "left-0"}`}>
+                    {[
+                      { id: "info", label: "Message info", icon: <Info size={15} /> },
+                      { id: "reply", label: "Reply", icon: <Reply size={15} /> },
+                      { id: "copy", label: "Copy", icon: <Copy size={15} /> },
+                      { id: "forward", label: "Forward", icon: <Forward size={15} /> },
+                      { id: "pin", label: message.pinned ? "Unpin" : "Pin", icon: <Pin size={15} /> },
+                      { id: "star", label: message.starred ? "Unstar" : "Star", icon: <Star size={15} /> },
+                      { id: "select", label: "Select", icon: <CheckSquare size={15} /> },
+                      { id: "save", label: "Save as", icon: <Download size={15} /> },
+                      { id: "share", label: "Share", icon: <Share2 size={15} /> },
+                      { id: "open", label: "Open with", icon: <ExternalLink size={15} /> },
+                      { id: "delete", label: "Delete", icon: <Trash2 size={15} /> },
+                    ].map((item, index) => (
+                      <button
+                        key={item.id}
+                        className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/10 ${[6, 10].includes(index) ? "border-t border-white/10" : ""}`}
+                        onClick={() => handleMessageAction(item.id, message)}
+                      >
+                        <span className="w-4 text-[#f1f1f1]">{item.icon}</span>
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {message.replyToMessageId && (
                   <div className="mb-1 rounded border-l-2 border-[#00a884] bg-black/15 px-2 py-1 text-[11px] text-[#aebac1]">
                     Replying to message
                   </div>
                 )}
                 {message.internal && <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-yellow-300">Internal note</div>}
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                <p className="pr-4 text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 {message.attachments && message.attachments.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {message.attachments.map((attachment) => (
@@ -959,6 +1198,44 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
           </div>
         </div>
       </section>
+
+      {messageInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={() => setMessageInfo(null)}>
+          <div className="w-full max-w-sm rounded-lg border border-[#2a3942] bg-[#111b21] text-[#e9edef] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[#2a3942] px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Info size={16} className="text-[#00a884]" />
+                Message info
+              </div>
+              <button className="rounded-full p-1 text-[#aebac1] hover:bg-[#2a3942] hover:text-[#e9edef]" onClick={() => setMessageInfo(null)}>
+                <X size={15} />
+              </button>
+            </div>
+            <div className="space-y-3 p-4 text-xs">
+              <div className="rounded-md bg-[#202c33] px-3 py-2 text-sm leading-relaxed">
+                {messageInfo.content || messageInfo.attachments?.[0]?.name || "Attachment"}
+              </div>
+              {[
+                ["Direction", messageInfo.from === "agent" ? "Sent by agent" : "Received from contact"],
+                ["Type", messageInfo.type || "text"],
+                ["Time", messageInfo.time],
+                ["Status", messageInfo.status || "received"],
+                ["Provider ID", messageInfo.providerMessageId || "-"],
+                ["Sent at", messageInfo.sentAt ? new Date(messageInfo.sentAt).toLocaleString() : "-"],
+                ["Received at", messageInfo.receivedAt ? new Date(messageInfo.receivedAt).toLocaleString() : "-"],
+                ["Attachments", String(messageInfo.attachments?.length || 0)],
+                ["Pinned", messageInfo.pinned ? "Yes" : "No"],
+                ["Starred", messageInfo.starred ? "Yes" : "No"],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-4">
+                  <span className="text-[#8696a0]">{label}</span>
+                  <span className="text-right capitalize text-[#e9edef]">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside className="no-scrollbar w-64 border-l border-[#2a3942] bg-[#111b21] flex-col shrink-0 overflow-y-auto hidden xl:flex">
         <div className="p-4 border-b border-[#2a3942] bg-[#202c33]">

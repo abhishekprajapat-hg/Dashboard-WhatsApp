@@ -31,6 +31,10 @@ function messageTypeForAttachments(attachments = []) {
   return "text";
 }
 
+function visibleMessagesFilter(conversationId) {
+  return { conversationId, deletedAt: { $exists: false } };
+}
+
 conversationsRouter.get("/", async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const status = String(req.query.status || "").toLowerCase();
@@ -63,7 +67,7 @@ conversationsRouter.get("/", async (req, res) => {
 
     const data = await Promise.all(
       dbConversations.map(async (conversation) => {
-        const messages = await Message.find({ conversationId: conversation._id })
+        const messages = await Message.find(visibleMessagesFilter(conversation._id))
           .sort({ createdAt: 1 })
           .limit(100);
         return serializeConversation(conversation, messages, { userId: req.user.sub });
@@ -145,7 +149,7 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
       .populate("lastMessageId");
   }
 
-  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
@@ -164,7 +168,7 @@ conversationsRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
@@ -217,7 +221,7 @@ conversationsRouter.patch("/:id/status", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
   await publishConversationChanged(conversation._id);
 
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
@@ -304,7 +308,7 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
       .populate("assignedToUserId", "name")
       .populate("tagIds")
       .populate("lastMessageId"),
-    Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100),
+    Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100),
   ]);
 
   await publishConversationChanged(conversation._id);
@@ -353,7 +357,7 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
       .populate("assignedToUserId", "name")
       .populate("tagIds")
       .populate("lastMessageId"),
-    Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 }).limit(100),
+    Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100),
   ]);
 
   await publishConversationChanged(conversation._id);
@@ -639,4 +643,127 @@ conversationsRouter.post("/:id/notes", async (req, res) => {
   await publishConversationChanged(conversation._id);
   res.status(201).json({ data: serializeMessage(message) });
 });
+
+conversationsRouter.get("/:conversationId/messages/:messageId/info", async (req, res) => {
+  if (
+    mongoose.connection.readyState !== 1 ||
+    !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
+    !mongoose.Types.ObjectId.isValid(req.params.messageId)
+  ) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  const message = await Message.findOne({
+    _id: req.params.messageId,
+    conversationId: req.params.conversationId,
+    workspaceId: req.user.workspaceId,
+    deletedAt: { $exists: false },
+  });
+
+  if (!message) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  res.json({
+    data: {
+      ...serializeMessage(message),
+      providerMessageId: message.providerMessageId || "",
+      sentAt: message.sentAt,
+      receivedAt: message.receivedAt,
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      metadata: message.metadata || {},
+    },
+  });
+});
+
+conversationsRouter.patch("/:conversationId/messages/:messageId/actions", async (req, res) => {
+  if (
+    mongoose.connection.readyState !== 1 ||
+    !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
+    !mongoose.Types.ObjectId.isValid(req.params.messageId)
+  ) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  const allowed = {};
+  if (typeof req.body?.pinned === "boolean") allowed.pinned = req.body.pinned;
+  if (typeof req.body?.starred === "boolean") allowed.starred = req.body.starred;
+
+  if (Object.keys(allowed).length === 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "No supported message action was provided." });
+  }
+
+  const message = await Message.findOneAndUpdate(
+    {
+      _id: req.params.messageId,
+      conversationId: req.params.conversationId,
+      workspaceId: req.user.workspaceId,
+      deletedAt: { $exists: false },
+    },
+    allowed,
+    { new: true }
+  );
+
+  if (!message) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  await publishConversationChanged(message.conversationId);
+  res.json({ data: serializeMessage(message) });
+});
+
+async function deleteConversationMessageById(req, res) {
+  if (
+    mongoose.connection.readyState !== 1 ||
+    !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
+    !mongoose.Types.ObjectId.isValid(req.params.messageId)
+  ) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  const message = await Message.findOneAndUpdate(
+    {
+      _id: req.params.messageId,
+      conversationId: req.params.conversationId,
+      workspaceId: req.user.workspaceId,
+      deletedAt: { $exists: false },
+    },
+    {
+      deletedAt: new Date(),
+      deletedByUserId: req.user.sub,
+      pinned: false,
+      starred: false,
+    },
+    { new: true }
+  );
+
+  if (!message) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  const lastMessage = await Message.findOne({
+    conversationId: message.conversationId,
+    workspaceId: req.user.workspaceId,
+    deletedAt: { $exists: false },
+  }).sort({ createdAt: -1 });
+
+  if (lastMessage) {
+    await Conversation.updateOne(
+      { _id: message.conversationId, workspaceId: req.user.workspaceId },
+      { lastMessageId: lastMessage._id, lastMessageAt: lastMessage.sentAt || lastMessage.receivedAt || lastMessage.createdAt }
+    );
+  } else {
+    await Conversation.updateOne(
+      { _id: message.conversationId, workspaceId: req.user.workspaceId },
+      { $unset: { lastMessageId: "" }, lastMessageAt: new Date() }
+    );
+  }
+
+  await publishConversationChanged(message.conversationId);
+  res.sendStatus(204);
+}
+
+conversationsRouter.delete("/:conversationId/messages/:messageId", deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/:messageId/delete", deleteConversationMessageById);
 

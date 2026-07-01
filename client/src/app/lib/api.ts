@@ -216,6 +216,30 @@ export function markConversationRead<T>(conversationId: string) {
   });
 }
 
+export function getMessageInfo<T>(conversationId: string, messageId: string) {
+  return request<T>(`/conversations/${conversationId}/messages/${messageId}/info`);
+}
+
+export function updateMessageActions<T>(conversationId: string, messageId: string, actions: { pinned?: boolean; starred?: boolean }) {
+  return request<T>(`/conversations/${conversationId}/messages/${messageId}/actions`, {
+    method: "PATCH",
+    body: JSON.stringify(actions),
+  });
+}
+
+export function deleteConversationMessage(conversationId: string, messageId: string) {
+  return request<void>(`/conversations/${conversationId}/messages/${messageId}`, {
+    method: "DELETE",
+  }).catch((error: ApiError) => {
+    if (error.status === 404 || error.status === 405) {
+      return request<void>(`/conversations/${conversationId}/messages/${messageId}/delete`, {
+        method: "POST",
+      });
+    }
+    throw error;
+  });
+}
+
 export function updateConversationStatus<T>(conversationId: string, status: string) {
   return request<T>(`/conversations/${conversationId}/status`, {
     method: "PATCH",

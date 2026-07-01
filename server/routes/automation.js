@@ -2,6 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { AutomationFlow, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
+import { formatKeywords, parseKeywords } from "../utils/keywords.js";
 import { relativeTime } from "../utils/serializers.js";
 
 export const automationRouter = Router();
@@ -20,12 +21,14 @@ function toDbStatus(status) {
 
 function serializeFlow(flow) {
   const actions = (flow.nodes || []).filter((node) => node.type !== "trigger");
+  const keywords = parseKeywords(flow.trigger?.keywords || flow.trigger?.keyword || "");
   return {
     id: flow._id.toString(),
     name: flow.name,
     description: flow.trigger?.description || "",
     trigger: flow.trigger?.label || flow.trigger?.type || "Manual",
-    keyword: flow.trigger?.keyword || "",
+    keyword: keywords.join(", "),
+    keywords,
     actions: actions.length,
     actionSummary: actions.map((node) => {
       if (node.type === "send_message") return "Reply";
@@ -90,9 +93,10 @@ automationRouter.post("/", async (req, res) => {
   }
 
   const triggerType = trigger.toLowerCase().replace(/\s+/g, "_");
-  const cleanKeyword = keyword.trim();
+  const keywords = parseKeywords(keyword);
+  const cleanKeyword = formatKeywords(keywords);
 
-  if (triggerType === "keyword_match" && !cleanKeyword) {
+  if (triggerType === "keyword_match" && keywords.length === 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Keyword is required for keyword automation." });
   }
 
@@ -128,6 +132,7 @@ automationRouter.post("/", async (req, res) => {
       description,
       category,
       keyword: cleanKeyword,
+      keywords,
       replyBody: actionMessage,
       runs: 0,
     },
@@ -185,7 +190,8 @@ automationRouter.post("/:id/test", async (req, res) => {
     return res.status(400).json({ error: "WHATSAPP_REQUIRED", message: "Connect a WhatsApp account before testing automation." });
   }
 
-  const body = String(req.body?.message || flow.trigger?.keyword || "hello").trim();
+  const sampleKeyword = parseKeywords(flow.trigger?.keywords || flow.trigger?.keyword || "")[0] || "hello";
+  const body = String(req.body?.message || sampleKeyword).trim();
   const testPhone = `automation_test_${Date.now()}`;
   const createdTagIdsBefore = new Set(
     (await Tag.find({ workspaceId: req.user.workspaceId }).select("_id")).map((tag) => tag._id.toString())

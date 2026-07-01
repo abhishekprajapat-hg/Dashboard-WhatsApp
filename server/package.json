@@ -8,7 +8,8 @@
                     "start":  "node index.js",
                     "seed":  "node scripts/seed.js",
                     "check":  "node scripts/check-syntax.js",
-                    "connect:whatsapp":  "node scripts/connect-whatsapp.js"
+                    "connect:whatsapp":  "node scripts/connect-whatsapp.js",
+                    "sync:prod-to-local":  "powershell -ExecutionPolicy Bypass -File scripts/sync-prod-to-local.ps1"
                 },
     "dependencies":  {
                          "dotenv":  "17.2.3",

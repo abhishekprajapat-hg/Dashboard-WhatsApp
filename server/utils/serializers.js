@@ -53,6 +53,8 @@ export function serializeMessage(message) {
     attachments: message.attachments || [],
     replyToMessageId: message.metadata?.replyToMessageId || "",
     internal: Boolean(message.metadata?.internal),
+    pinned: Boolean(message.pinned),
+    starred: Boolean(message.starred),
   };
 }
 
