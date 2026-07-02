@@ -31,14 +31,31 @@ function messageTypeForAttachments(attachments = []) {
   return "text";
 }
 
-function visibleMessagesFilter(conversationId) {
-  return { conversationId, deletedAt: { $exists: false } };
+function visibleMessagesFilter(conversationId, userId) {
+  return {
+    conversationId,
+    deletedAt: mongoose.trusted({ $exists: false }),
+    ...(userId ? { deletedForUserIds: mongoose.trusted({ $ne: userId }) } : {}),
+  };
+}
+
+function paginationLimit(value, fallback = 50, max = 100) {
+  const parsed = Number(value || fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+function cursorDate(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
 }
 
 conversationsRouter.get("/", async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const status = String(req.query.status || "").toLowerCase();
     const search = String(req.query.search || "").trim();
+    const limit = paginationLimit(req.query.limit, 50, 100);
+    const cursor = cursorDate(req.query.cursor);
     const filter = { workspaceId: req.user.workspaceId };
     if (!hasPermission(req.user, "team:read")) {
       filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
@@ -47,6 +64,9 @@ conversationsRouter.get("/", async (req, res) => {
     if (status) {
       filter.status = status === "waiting" ? "pending" : status;
     }
+    if (cursor) {
+      filter.lastMessageAt = { $lt: cursor };
+    }
 
     let dbConversations = await Conversation.find(filter)
       .populate({ path: "contactId", populate: { path: "tagIds" } })
@@ -54,7 +74,10 @@ conversationsRouter.get("/", async (req, res) => {
       .populate("tagIds")
       .populate("lastMessageId")
       .sort({ lastMessageAt: -1, updatedAt: -1 })
-      .limit(50);
+      .limit(limit + 1);
+
+    const hasMore = dbConversations.length > limit;
+    dbConversations = dbConversations.slice(0, limit);
 
     if (search) {
       const lowerSearch = search.toLowerCase();
@@ -67,14 +90,23 @@ conversationsRouter.get("/", async (req, res) => {
 
     const data = await Promise.all(
       dbConversations.map(async (conversation) => {
-        const messages = await Message.find(visibleMessagesFilter(conversation._id))
-          .sort({ createdAt: 1 })
-          .limit(100);
+        const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub))
+          .sort({ createdAt: -1, _id: -1 })
+          .limit(50);
+        messages.reverse();
         return serializeConversation(conversation, messages, { userId: req.user.sub });
       })
     );
 
-    return res.json({ data, total: data.length });
+    return res.json({
+      data,
+      total: data.length,
+      page: {
+        limit,
+        hasMore,
+        nextCursor: hasMore ? dbConversations[dbConversations.length - 1]?.lastMessageAt?.toISOString?.() : null,
+      },
+    });
   }
 
   const status = String(req.query.status || "").toLowerCase();
@@ -149,9 +181,17 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
       .populate("lastMessageId");
   }
 
-  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100);
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
+
+conversationsRouter.get("/:conversationId/messages/:messageId/info", getMessageInfoById);
+conversationsRouter.get("/:conversationId/messages", getConversationMessages);
+conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", updateMessageReceiptById);
+conversationsRouter.patch("/:conversationId/messages/:messageId/actions", updateMessageActionsById);
+conversationsRouter.delete("/:conversationId/messages/:messageId", deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/:messageId/delete", deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/delete", deleteConversationMessageFromBody);
 
 conversationsRouter.get("/:id", async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -168,7 +208,7 @@ conversationsRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100);
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
@@ -221,10 +261,50 @@ conversationsRouter.patch("/:id/status", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const messages = await Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100);
+  const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100);
   await publishConversationChanged(conversation._id);
 
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
+});
+
+conversationsRouter.patch("/:id/settings", async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const update = {};
+  if (typeof req.body?.pinned === "boolean") {
+    const operator = req.body.pinned ? "$addToSet" : "$pull";
+    update[operator] = { ...(update[operator] || {}), pinnedByUserIds: req.user.sub };
+  }
+  if (typeof req.body?.muted === "boolean") {
+    const operator = req.body.muted ? "$addToSet" : "$pull";
+    update[operator] = { ...(update[operator] || {}), mutedByUserIds: req.user.sub };
+  }
+
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "No supported setting was provided." });
+  }
+
+  const conversation = await Conversation.findOneAndUpdate(
+    { _id: req.params.id, workspaceId: req.user.workspaceId },
+    update,
+    { new: true }
+  )
+    .populate({ path: "contactId", populate: { path: "tagIds" } })
+    .populate("assignedToUserId", "name")
+    .populate("tagIds")
+    .populate("lastMessageId");
+
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub))
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(50);
+  await publishConversationChanged(conversation._id);
+  res.json({ data: serializeConversation(conversation, messages.reverse(), { userId: req.user.sub }) });
 });
 
 conversationsRouter.post("/", async (req, res) => {
@@ -308,7 +388,7 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
       .populate("assignedToUserId", "name")
       .populate("tagIds")
       .populate("lastMessageId"),
-    Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100),
+    Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100),
   ]);
 
   await publishConversationChanged(conversation._id);
@@ -357,7 +437,7 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
       .populate("assignedToUserId", "name")
       .populate("tagIds")
       .populate("lastMessageId"),
-    Message.find(visibleMessagesFilter(conversation._id)).sort({ createdAt: 1 }).limit(100),
+    Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100),
   ]);
 
   await publishConversationChanged(conversation._id);
@@ -495,11 +575,18 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
     }
 
-    const { content, attachments = [], replyToMessageId = "" } = req.body || {};
+    const { content, attachments = [], replyToMessageId = "", clientMessageId = "" } = req.body || {};
     const mediaAttachments = cleanAttachments(attachments);
 
     if (!content?.trim() && mediaAttachments.length === 0) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
+    }
+
+    if (clientMessageId) {
+      const existingMessage = await Message.findOne({ workspaceId: req.user.workspaceId, clientMessageId });
+      if (existingMessage) {
+        return res.status(200).json({ data: serializeMessage(existingMessage), duplicate: true });
+      }
     }
 
     const [account, contact] = await Promise.all([
@@ -533,11 +620,13 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
         body: content.trim() || "Attachment",
         attachments: mediaAttachments,
         providerMessageId: `failed_${Date.now()}`,
+        clientMessageId: clientMessageId || undefined,
         status: "failed",
         sentByUserId: req.user.sub,
         sentAt: new Date(),
         metadata: {
           providerMode: "meta",
+          ...(clientMessageId ? { clientMessageId } : {}),
           ...(replyToMessageId ? { replyToMessageId } : {}),
           error: error.message,
           meta: error.meta,
@@ -568,10 +657,11 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       body: content.trim() || "Attachment",
       attachments: mediaAttachments,
       providerMessageId: providerResult.providerMessageId,
+      clientMessageId: clientMessageId || undefined,
       status: providerResult.status,
       sentByUserId: req.user.sub,
       sentAt: new Date(),
-      metadata: { providerMode: providerResult.mode, ...(replyToMessageId ? { replyToMessageId } : {}) },
+      metadata: { providerMode: providerResult.mode, ...(clientMessageId ? { clientMessageId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}) },
     });
 
     conversation.lastMessageId = message._id;
@@ -644,7 +734,74 @@ conversationsRouter.post("/:id/notes", async (req, res) => {
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.get("/:conversationId/messages/:messageId/info", async (req, res) => {
+async function getConversationMessages(req, res) {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.conversationId)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.conversationId, workspaceId: req.user.workspaceId }).select("_id");
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const limit = paginationLimit(req.query.limit, 50, 100);
+  const before = cursorDate(req.query.before);
+  const filter = visibleMessagesFilter(conversation._id, req.user.sub);
+  if (before) filter.createdAt = { $lt: before };
+
+  const messages = await Message.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1);
+  const hasMore = messages.length > limit;
+  const pageMessages = messages.slice(0, limit).reverse();
+
+  res.json({
+    data: pageMessages.map(serializeMessage),
+    page: {
+      limit,
+      hasMore,
+      nextCursor: hasMore ? messages[limit - 1]?.createdAt?.toISOString?.() : null,
+    },
+  });
+}
+
+async function updateMessageReceiptById(req, res) {
+  if (
+    mongoose.connection.readyState !== 1 ||
+    !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
+    !mongoose.Types.ObjectId.isValid(req.params.messageId)
+  ) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  const status = String(req.body?.status || "").toLowerCase();
+  if (!["delivered", "read"].includes(status)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Receipt status must be delivered or read." });
+  }
+
+  const now = new Date();
+  const message = await Message.findOneAndUpdate(
+    {
+      _id: req.params.messageId,
+      conversationId: req.params.conversationId,
+      workspaceId: req.user.workspaceId,
+      deletedAt: { $exists: false },
+    },
+    {
+      status,
+      deliveredAt: now,
+      ...(status === "read" ? { readAt: now } : {}),
+    },
+    { new: true }
+  );
+
+  if (!message) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
+  }
+
+  await publishConversationChanged(message.conversationId);
+  res.json({ data: serializeMessage(message) });
+}
+
+async function getMessageInfoById(req, res) {
   if (
     mongoose.connection.readyState !== 1 ||
     !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
@@ -675,9 +832,9 @@ conversationsRouter.get("/:conversationId/messages/:messageId/info", async (req,
       metadata: message.metadata || {},
     },
   });
-});
+}
 
-conversationsRouter.patch("/:conversationId/messages/:messageId/actions", async (req, res) => {
+async function updateMessageActionsById(req, res) {
   if (
     mongoose.connection.readyState !== 1 ||
     !mongoose.Types.ObjectId.isValid(req.params.conversationId) ||
@@ -711,7 +868,7 @@ conversationsRouter.patch("/:conversationId/messages/:messageId/actions", async 
 
   await publishConversationChanged(message.conversationId);
   res.json({ data: serializeMessage(message) });
-});
+}
 
 async function deleteConversationMessageById(req, res) {
   if (
@@ -722,6 +879,18 @@ async function deleteConversationMessageById(req, res) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
   }
 
+  const mode = String(req.body?.mode || req.query?.mode || "everyone").toLowerCase();
+  const update = mode === "me"
+    ? { $addToSet: { deletedForUserIds: req.user.sub } }
+    : {
+        $set: {
+          deletedAt: new Date(),
+          deletedByUserId: req.user.sub,
+          pinned: false,
+          starred: false,
+        },
+      };
+
   const message = await Message.findOneAndUpdate(
     {
       _id: req.params.messageId,
@@ -729,12 +898,7 @@ async function deleteConversationMessageById(req, res) {
       workspaceId: req.user.workspaceId,
       deletedAt: { $exists: false },
     },
-    {
-      deletedAt: new Date(),
-      deletedByUserId: req.user.sub,
-      pinned: false,
-      starred: false,
-    },
+    update,
     { new: true }
   );
 
@@ -742,28 +906,28 @@ async function deleteConversationMessageById(req, res) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
   }
 
-  const lastMessage = await Message.findOne({
-    conversationId: message.conversationId,
-    workspaceId: req.user.workspaceId,
-    deletedAt: { $exists: false },
-  }).sort({ createdAt: -1 });
+  if (mode !== "me") {
+    const lastMessage = await Message.findOne(visibleMessagesFilter(message.conversationId, req.user.sub)).sort({ createdAt: -1 });
 
-  if (lastMessage) {
-    await Conversation.updateOne(
-      { _id: message.conversationId, workspaceId: req.user.workspaceId },
-      { lastMessageId: lastMessage._id, lastMessageAt: lastMessage.sentAt || lastMessage.receivedAt || lastMessage.createdAt }
-    );
-  } else {
-    await Conversation.updateOne(
-      { _id: message.conversationId, workspaceId: req.user.workspaceId },
-      { $unset: { lastMessageId: "" }, lastMessageAt: new Date() }
-    );
+    if (lastMessage) {
+      await Conversation.updateOne(
+        { _id: message.conversationId, workspaceId: req.user.workspaceId },
+        { lastMessageId: lastMessage._id, lastMessageAt: lastMessage.sentAt || lastMessage.receivedAt || lastMessage.createdAt }
+      );
+    } else {
+      await Conversation.updateOne(
+        { _id: message.conversationId, workspaceId: req.user.workspaceId },
+        { $unset: { lastMessageId: "" }, lastMessageAt: new Date() }
+      );
+    }
   }
 
   await publishConversationChanged(message.conversationId);
   res.sendStatus(204);
 }
 
-conversationsRouter.delete("/:conversationId/messages/:messageId", deleteConversationMessageById);
-conversationsRouter.post("/:conversationId/messages/:messageId/delete", deleteConversationMessageById);
+async function deleteConversationMessageFromBody(req, res) {
+  req.params.messageId = req.body?.messageId;
+  return deleteConversationMessageById(req, res);
+}
 

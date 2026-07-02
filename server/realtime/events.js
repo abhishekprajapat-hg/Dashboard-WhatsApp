@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { Conversation, Message } from "../models/index.js";
 import { serializeConversation } from "../utils/serializers.js";
+import { publishSocketWorkspaceUserEvent } from "./socket.js";
 
 export const eventsRouter = Router();
 
@@ -46,7 +47,7 @@ export async function publishConversationChanged(conversationId) {
 
   if (!conversation) return;
 
-  const messages = await Message.find({ conversationId: conversation._id })
+  const messages = await Message.find({ conversationId: conversation._id, deletedAt: { $exists: false } })
     .sort({ createdAt: 1 })
     .limit(100);
 
@@ -54,13 +55,21 @@ export async function publishConversationChanged(conversationId) {
   if (!clients) return;
 
   for (const client of clients) {
+    const visibleMessages = messages.filter((message) => {
+      const deletedFor = message.deletedForUserIds || [];
+      return !deletedFor.some((userId) => userId?.toString?.() === client.userId);
+    });
     const unreadCount = Array.from(conversation.unreadCountByUser?.values?.() || [])
       .reduce((total, value) => total + Number(value || 0), 0);
     sendSse(client.res, "conversation", {
-      conversation: serializeConversation(conversation, messages, { userId: client.userId }),
+      conversation: serializeConversation(conversation, visibleMessages, { userId: client.userId }),
       unreadCount,
     });
   }
+
+  await publishSocketWorkspaceUserEvent(conversation.workspaceId, "conversation", (user) => ({
+    conversation: serializeConversation(conversation, messages, { userId: user?.sub }),
+  }));
 }
 
 eventsRouter.get("/", (req, res) => {

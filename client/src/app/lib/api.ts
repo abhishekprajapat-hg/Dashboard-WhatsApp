@@ -99,6 +99,62 @@ export function getDashboardSummary<T>() {
   return request<T>("/dashboard/summary");
 }
 
+export function getAdminOverview<T>() {
+  return request<T>("/admin/overview");
+}
+
+export function updateAdminSettings<T>(settings: Record<string, unknown>) {
+  return request<T>("/admin/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function getAssistantOverview<T>() {
+  return request<T>("/assistant/overview");
+}
+
+export function analyzeAssistantConversation<T>(payload: {
+  conversationId?: string;
+  provider?: string;
+  task?: string;
+  prompt?: string;
+}) {
+  return request<T>("/assistant/analyze", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function searchAssistant<T>(query: string) {
+  return request<T>(`/assistant/search?q=${encodeURIComponent(query)}`);
+}
+
+export function uploadKnowledgeDocument<T>(document: { name: string; content: string; mimeType?: string; source?: string }) {
+  return request<T>("/assistant/knowledge", {
+    method: "POST",
+    body: JSON.stringify(document),
+  });
+}
+
+export function transcribeAssistantVoice<T>(payload: { fileName?: string; transcript?: string }) {
+  return request<T>("/assistant/voice/transcribe", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function runAssistantTool<T>(payload: { name: string; arguments?: Record<string, unknown>; conversationId?: string }) {
+  return request<T>("/assistant/tool-call", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getApiBaseUrl() {
+  return API_URL;
+}
+
 export function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -110,6 +166,10 @@ export function fileToDataUrl(file: File) {
 
 export function getAnalyticsSummary<T>(days = 14) {
   return request<T>(`/analytics/summary?days=${days}`);
+}
+
+export function getAnalyticsExportUrl(type: "pdf" | "excel", days = 30) {
+  return `${API_URL}/analytics/export/${type}?days=${days}`;
 }
 
 export function getContacts<T>(search = "", lifecycle = "") {
@@ -147,14 +207,39 @@ export function getConversations<T>(params: { status?: string; search?: string }
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
   if (params.search) query.set("search", params.search);
+  if ((params as { cursor?: string }).cursor) query.set("cursor", (params as { cursor?: string }).cursor || "");
+  if ((params as { limit?: number }).limit) query.set("limit", String((params as { limit?: number }).limit));
   const suffix = query.toString() ? `?${query}` : "";
   return request<T>(`/conversations${suffix}`);
+}
+
+export function getConversationMessages<T>(conversationId: string, params: { before?: string; limit?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.before) query.set("before", params.before);
+  if (params.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/conversations/${conversationId}/messages${suffix}`);
 }
 
 export function sendConversationMessage<T>(
   conversationId: string,
   content: string,
   options: { attachments?: { name: string; url: string; type?: string; mimeType?: string; size?: number }[]; replyToMessageId?: string } = {}
+) {
+  return request<T>(`/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content, ...options }),
+  });
+}
+
+export function sendConversationMessageQueued<T>(
+  conversationId: string,
+  content: string,
+  options: {
+    attachments?: { name: string; url: string; type?: string; mimeType?: string; size?: number }[];
+    replyToMessageId?: string;
+    clientMessageId?: string;
+  } = {}
 ) {
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -172,6 +257,33 @@ export async function uploadMedia<T>(file: File) {
       size: file.size,
       data,
     }),
+  });
+}
+
+export async function uploadMediaWithProgress<T>(file: File, onProgress?: (progress: number) => void) {
+  const data = await fileToDataUrl(file);
+  const token = getStoredToken();
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/media/upload`);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      const payload = JSON.parse(xhr.responseText || "{}");
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        resolve(payload as T);
+        return;
+      }
+      const error = new Error(payload.message || "Upload failed.") as ApiError;
+      error.status = xhr.status;
+      reject(error);
+    };
+    xhr.onerror = () => reject(new Error("Upload failed."));
+    xhr.send(JSON.stringify({ name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, data }));
   });
 }
 
@@ -216,6 +328,20 @@ export function markConversationRead<T>(conversationId: string) {
   });
 }
 
+export function updateConversationSettings<T>(conversationId: string, settings: { pinned?: boolean; muted?: boolean }) {
+  return request<T>(`/conversations/${conversationId}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function updateMessageReceipt<T>(conversationId: string, messageId: string, status: "delivered" | "read") {
+  return request<T>(`/conversations/${conversationId}/messages/${messageId}/receipt`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
 export function getMessageInfo<T>(conversationId: string, messageId: string) {
   return request<T>(`/conversations/${conversationId}/messages/${messageId}/info`);
 }
@@ -227,13 +353,15 @@ export function updateMessageActions<T>(conversationId: string, messageId: strin
   });
 }
 
-export function deleteConversationMessage(conversationId: string, messageId: string) {
-  return request<void>(`/conversations/${conversationId}/messages/${messageId}`, {
-    method: "DELETE",
+export function deleteConversationMessage(conversationId: string, messageId: string, mode: "me" | "everyone" = "everyone") {
+  return request<void>(`/conversations/${conversationId}/messages/delete`, {
+    method: "POST",
+    body: JSON.stringify({ messageId, mode }),
   }).catch((error: ApiError) => {
     if (error.status === 404 || error.status === 405) {
       return request<void>(`/conversations/${conversationId}/messages/${messageId}/delete`, {
         method: "POST",
+        body: JSON.stringify({ mode }),
       });
     }
     throw error;
@@ -337,11 +465,18 @@ export function getCampaignReport<T>(id: string) {
 export function createCampaign<T>(campaign: {
   name: string;
   type?: string;
+  campaignKind?: string;
   audience?: string;
   audienceType?: string;
   templateId?: string;
+  templateBId?: string;
   status?: string;
   scheduledAt?: string;
+  recurring?: boolean;
+  recurrence?: string;
+  requireApproval?: boolean;
+  rateLimit?: { perMinute?: number; batchSize?: number };
+  abTest?: { enabled?: boolean; split?: number; winnerMetric?: string };
 }) {
   return request<T>("/campaigns", {
     method: "POST",
@@ -349,10 +484,24 @@ export function createCampaign<T>(campaign: {
   });
 }
 
-export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; audience?: string; audienceType?: string; templateId?: string }) {
+export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; campaignKind?: string; audience?: string; audienceType?: string; templateId?: string; scheduledAt?: string; rateLimit?: { perMinute?: number; batchSize?: number } }) {
   return request<T>(`/campaigns/${id}`, {
     method: "PATCH",
     body: JSON.stringify(campaign),
+  });
+}
+
+export function campaignAction<T>(id: string, action: string, payload: Record<string, unknown> = {}) {
+  return request<T>(`/campaigns/${id}/action`, {
+    method: "POST",
+    body: JSON.stringify({ action, ...payload }),
+  });
+}
+
+export function importCampaignContacts<T>(payload: { csv?: string; contacts?: { name?: string; phone: string; email?: string }[] }) {
+  return request<T>("/campaigns/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -376,6 +525,8 @@ export function createAutomationFlow<T>(flow: {
   name: string;
   description?: string;
   trigger?: string;
+  nodes?: unknown[];
+  edges?: unknown[];
   category?: string;
   status?: string;
   actionMessage?: string;
@@ -396,6 +547,16 @@ export function createAutomationFlow<T>(flow: {
 }
 
 export function updateAutomationFlow<T>(id: string, flow: { name?: string; status?: string }) {
+  return request<T>(`/automation/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(flow),
+  });
+}
+
+export function updateAutomationCanvas<T>(
+  id: string,
+  flow: { name?: string; status?: string; trigger?: unknown; nodes?: unknown[]; edges?: unknown[]; versionLabel?: string }
+) {
   return request<T>(`/automation/${id}`, {
     method: "PATCH",
     body: JSON.stringify(flow),

@@ -543,6 +543,7 @@ export function normalizeWebhookPayload(payload) {
   const status = value.statuses?.[0];
 
   if (message) {
+    const contact = value.contacts?.find((item) => item.wa_id === message.from) || value.contacts?.[0] || {};
     return {
       type: "message",
       idempotencyKey: message.id,
@@ -552,6 +553,13 @@ export function normalizeWebhookPayload(payload) {
       attachments: normalizeMetaAttachments(message),
       providerMessageId: message.id,
       referral: message.referral || null,
+      profile: {
+        waName: contact.profile?.name || "",
+        waId: contact.wa_id || message.from,
+        profilePhoto: contact.profile?.profile_picture_url || contact.profile?.picture || "",
+      },
+      location: message.location || null,
+      campaign: message.referral?.headline || message.referral?.source_id || "",
       raw: payload,
     };
   }
@@ -585,6 +593,18 @@ export function normalizeTwilioWebhookPayload(payload = {}) {
     attachments: normalizeTwilioAttachments(payload),
     providerMessageId: messageId,
     status: payload.MessageStatus || payload.SmsStatus,
+    profile: {
+      waName: payload.ProfileName || payload.WaName || "",
+      waId: String(payload.WaId || payload.From || "").replace(/[^\d]/g, ""),
+      profilePhoto: payload.ProfilePhoto || "",
+    },
+    location: payload.Latitude || payload.Longitude ? {
+      latitude: payload.Latitude,
+      longitude: payload.Longitude,
+      address: payload.Address || "",
+      name: payload.Label || "",
+    } : null,
+    campaign: payload.Campaign || payload.UtmCampaign || "",
     raw: payload,
   };
 }
@@ -603,6 +623,13 @@ export function normalizeWatiWebhookPayload(payload = {}) {
     attachments: normalizeWatiAttachments(payload),
     providerMessageId: messageId,
     status,
+    profile: {
+      waName: message.senderName || message.sender?.name || payload.senderName || "",
+      waId: String(message.waId || message.from || payload.waId || "").replace(/[^\d]/g, ""),
+      profilePhoto: message.senderPhoto || message.profilePhoto || payload.profilePhoto || "",
+    },
+    location: message.location || payload.location || null,
+    campaign: message.campaign || payload.campaign || "",
     raw: payload,
   };
 }

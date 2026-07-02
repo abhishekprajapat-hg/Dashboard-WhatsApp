@@ -52,7 +52,8 @@ export function TeamView() {
   const [showInvite, setShowInvite] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", role: "agent", password: "123456" });
+  const [notice, setNotice] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", role: "agent", password: "" });
 
   async function loadMembers() {
     const response = await getTeamMembers<{ data: TeamMember[]; total: number }>();
@@ -77,16 +78,19 @@ export function TeamView() {
     if (!form.email.trim()) return;
 
     setSaving(true);
+    setNotice("");
     try {
       const response = await inviteTeamMember<{ data: TeamMember }>({
         name: form.name.trim(),
         email: form.email.trim(),
         role: form.role,
-        password: form.password || "123456",
+        password: form.password,
       });
       setMembers((items) => [response.data, ...items.filter((item) => item.id !== response.data.id)]);
-      setForm({ name: "", email: "", role: "agent", password: "123456" });
+      setForm({ name: "", email: "", role: "agent", password: "" });
       setShowInvite(false);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not invite member.");
     } finally {
       setSaving(false);
     }
@@ -120,7 +124,7 @@ export function TeamView() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
             <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Name" className="h-8 text-xs bg-secondary border-transparent" />
             <Input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email address" className="h-8 text-xs bg-secondary border-transparent" />
-            <Input value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Password" className="h-8 text-xs bg-secondary border-transparent" />
+            <Input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder="Temporary password" className="h-8 text-xs bg-secondary border-transparent" />
             <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} className="h-8 text-xs bg-secondary border border-border rounded-md px-2 text-foreground">
               <option value="agent">Agent</option>
               <option value="manager">Manager</option>
@@ -135,6 +139,7 @@ export function TeamView() {
               </Button>
             </div>
           </div>
+          {notice && <p className="mt-2 text-xs text-destructive">{notice}</p>}
         </form>
       )}
 

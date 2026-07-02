@@ -482,22 +482,38 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
       const messageBody = normalized.body || attachments[0]?.caption || (attachments.length ? "Attachment" : "");
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const found = await findReusableContactAndConversation({ account, phone: normalized.from });
+      const waName = normalized.profile?.waName || found.contact?.waName || found.contact?.name || normalized.from;
+      const profilePhoto = normalized.profile?.profilePhoto || found.contact?.profilePhoto || "";
+      const source = isAdLead ? "Meta Ad" : found.contact?.source || "WhatsApp";
+      const campaign = normalized.campaign || normalized.referral?.headline || normalized.referral?.source_id || "";
+      const existingCustomFields = found.contact?.customFields && typeof found.contact.customFields === "object"
+        ? found.contact.customFields
+        : {};
       const contactUpdate = {
         organizationId: account.organizationId,
         workspaceId: account.workspaceId,
-        name: found.contact?.name || normalized.from,
+        name: found.contact?.name || waName || normalized.from,
+        waName,
+        profilePhoto,
         phone: found.contact?.phone || normalized.from,
-        source: isAdLead ? "Meta Ad" : found.contact?.source || "WhatsApp",
-        ...(isAdLead
-          ? {
-              "customFields.metaAdReferral": normalized.referral,
-              "customFields.leadSource": "meta_ad",
-            }
-          : {}),
+        source,
+        customFields: {
+          ...existingCustomFields,
+          ...(isAdLead ? { metaAdReferral: normalized.referral, leadSource: "meta_ad" } : {}),
+          whatsapp: {
+            ...(existingCustomFields.whatsapp || {}),
+            phone: normalized.from,
+            waName,
+            profilePhoto,
+            source: isAdLead ? "meta_ad" : "whatsapp_inbound",
+            campaign,
+            location: normalized.location || existingCustomFields.whatsapp?.location || null,
+          },
+        },
         lifecycleStatus: found.contact?.lifecycleStatus || "lead",
         lastMessageAt: new Date(),
       };
-      const contact = found.contact
+      let contact = found.contact
         ? await Contact.findByIdAndUpdate(found.contact._id, contactUpdate, { new: true })
         : await Contact.create(contactUpdate);
 
@@ -532,14 +548,26 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           providerMessageId: normalized.providerMessageId,
           status: "delivered",
           receivedAt: new Date(),
-          metadata: normalized.referral ? { referral: normalized.referral } : {},
+          metadata: {
+            ...(normalized.referral ? { referral: normalized.referral } : {}),
+            ...(normalized.location ? { location: normalized.location } : {}),
+            ...(normalized.profile ? { profile: normalized.profile } : {}),
+            ...(campaign ? { campaign } : {}),
+          },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
       conversation.lastMessageId = message._id;
       conversation.lastMessageAt = message.receivedAt || new Date();
-      await ensureConversationInCrm({ contact, conversation, source: isAdLead ? "meta_ad" : "whatsapp_inbound" });
+      const crmResult = await ensureConversationInCrm({
+        contact,
+        conversation,
+        inboundMessage: message,
+        normalized,
+        source: isAdLead ? "meta_ad" : "whatsapp_inbound",
+      });
+      contact = crmResult.contact || contact;
       if (isAdLead) {
         try {
           await syncLeadToGoogleSheet({ contact, conversation, message });

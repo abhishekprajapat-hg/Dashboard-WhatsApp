@@ -1,26 +1,68 @@
 import { useEffect, useState } from "react";
+import type React from "react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarClock,
+  CheckCircle2,
+  Copy,
+  Eye,
+  FileUp,
+  MousePointerClick,
+  Pause,
+  Play,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Send,
+  ShieldCheck,
+  TimerReset,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Clock, Copy, Edit2, Eye, MessageCircle, Pause, Play, Plus, Send, Trash2, TrendingUp, Users, X } from "lucide-react";
-import { createCampaign, deleteCampaign, getCampaignReport, getCampaigns, getWhatsAppTemplates, sendCampaign, updateCampaign } from "../lib/api";
+import {
+  campaignAction,
+  createCampaign,
+  deleteCampaign,
+  getCampaignReport,
+  getCampaigns,
+  getWhatsAppTemplates,
+  importCampaignContacts,
+  sendCampaign,
+  updateCampaign,
+} from "../lib/api";
 
 interface Campaign {
   id: string;
   name: string;
-  status: "sent" | "scheduled" | "draft" | "running" | "paused" | "failed";
-  type: "broadcast" | "drip" | "transactional";
+  status: "sent" | "scheduled" | "draft" | "running" | "paused" | "failed" | "pending_approval" | "approved" | "rejected" | "queued" | "cancelled";
+  type: "template" | "bulk" | "scheduled" | "recurring" | "ab_test";
+  campaignKind?: string;
   audience: string;
+  audienceType: string;
   recipients: number;
   sent: number;
   delivered: number;
   read: number;
   replied: number;
+  clicks: number;
+  conversions: number;
   failed: number;
+  queued: number;
+  completed: number;
+  retries: number;
   scheduledAt?: string;
   sentAt?: string;
   template: string;
   templateId: string;
+  rateLimit: { perMinute: number; batchSize: number };
+  approval: { required?: boolean; status?: string; reason?: string };
+  abTest: { enabled?: boolean; split?: number; winnerMetric?: string };
+  history: { type: string; at: string; status?: string }[];
 }
 
 interface WhatsAppTemplate {
@@ -32,12 +74,6 @@ interface WhatsAppTemplate {
 }
 
 interface CampaignReport extends Campaign {
-  account: {
-    id: string;
-    displayName: string;
-    phoneNumber: string;
-    phoneNumberId: string;
-  } | null;
   recipients: {
     contactId: string;
     name: string;
@@ -45,6 +81,8 @@ interface CampaignReport extends Campaign {
     status: string;
     providerMessageId: string;
     error: string;
+    attempts: number;
+    variant: string;
     sentAt: string;
   }[];
   timeline: {
@@ -55,6 +93,8 @@ interface CampaignReport extends Campaign {
     body: string;
     providerMessageId: string;
     error: string;
+    campaignEvent: string;
+    variant: string;
     time: string;
   }[];
 }
@@ -64,53 +104,63 @@ const statusStyle: Record<string, string> = {
   scheduled: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   draft: "bg-secondary text-muted-foreground border-border",
   running: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  queued: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
   paused: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   failed: "bg-destructive/20 text-destructive border-destructive/30",
-};
-
-const typeStyle: Record<string, string> = {
-  broadcast: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  drip: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  transactional: "bg-primary/20 text-primary border-primary/30",
+  pending_approval: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  approved: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  rejected: "bg-red-500/20 text-red-300 border-red-500/30",
+  cancelled: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30",
 };
 
 const audienceLabels: Record<string, string> = {
   all: "All Contacts",
   opted_in: "Opted-in Contacts",
   leads: "Leads",
+  hot_leads: "Hot Leads",
   customers: "Customers",
+  imported: "Imported Contacts",
 };
 
-function rate(a: number, b: number) {
-  if (!b) return "-";
-  return `${Math.round((a / b) * 100)}%`;
+function percent(part: number, total: number) {
+  if (!total) return "-";
+  return `${Math.round((part / total) * 100)}%`;
 }
 
 export function CampaignsView() {
-  const [activeTab, setActiveTab] = useState("All");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [summary, setSummary] = useState({ totalSent: 0, deliveryRate: 0, readRate: 0, replyRate: 0 });
+  const [summary, setSummary] = useState({ totalSent: 0, deliveryRate: 0, readRate: 0, replyRate: 0, clickRate: 0, conversionRate: 0, failures: 0 });
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
+  const [activeTab, setActiveTab] = useState("All");
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sendingId, setSendingId] = useState("");
+  const [busyId, setBusyId] = useState("");
   const [notice, setNotice] = useState("");
   const [report, setReport] = useState<CampaignReport | null>(null);
-  const [reportLoading, setReportLoading] = useState("");
+  const [csvText, setCsvText] = useState("");
   const [form, setForm] = useState({
     name: "",
-    type: "broadcast",
+    type: "template",
+    campaignKind: "broadcast",
     audienceType: "all",
     templateId: "",
+    templateBId: "",
     status: "draft",
+    scheduledAt: "",
+    recurring: false,
+    recurrence: "weekly",
+    requireApproval: true,
+    perMinute: 60,
+    batchSize: 50,
+    abTest: false,
+    split: 50,
   });
-  const tabs = ["All", "Broadcast", "Drip", "Transactional"];
 
   async function loadCampaigns() {
     const response = await getCampaigns<{
       data: Campaign[];
       total: number;
-      summary: { totalSent: number; deliveryRate: number; readRate: number; replyRate: number };
+      summary: typeof summary;
     }>();
     setCampaigns(response.data);
     setSummary(response.summary);
@@ -122,31 +172,39 @@ export function CampaignsView() {
       .then((response) => {
         const approved = response.data.filter((template) => template.status === "approved");
         setTemplates(approved);
-        setForm((current) => ({ ...current, templateId: current.templateId || approved[0]?.id || "" }));
+        setForm((current) => ({ ...current, templateId: current.templateId || approved[0]?.id || "", templateBId: current.templateBId || approved[1]?.id || "" }));
       })
       .catch(() => undefined);
   }, []);
 
-  const filtered = campaigns.filter((campaign) => activeTab === "All" || campaign.type.toLowerCase() === activeTab.toLowerCase());
+  const tabs = ["All", "template", "bulk", "scheduled", "recurring", "ab_test"];
+  const filtered = campaigns.filter((campaign) => activeTab === "All" || campaign.type === activeTab);
 
-  async function handleCreateCampaign(event: React.FormEvent) {
+  async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (!form.name.trim() || !form.templateId) return;
-
     setSaving(true);
     setNotice("");
     try {
       const response = await createCampaign<{ data: Campaign }>({
         name: form.name.trim(),
         type: form.type,
+        campaignKind: form.campaignKind,
         audience: audienceLabels[form.audienceType],
         audienceType: form.audienceType,
         templateId: form.templateId,
+        templateBId: form.abTest ? form.templateBId : undefined,
         status: form.status,
+        scheduledAt: form.scheduledAt || undefined,
+        recurring: form.recurring || form.type === "recurring",
+        recurrence: form.recurrence,
+        requireApproval: form.requireApproval,
+        rateLimit: { perMinute: form.perMinute, batchSize: form.batchSize },
+        abTest: { enabled: form.abTest || form.type === "ab_test", split: form.split, winnerMetric: "read" },
       });
       setCampaigns((items) => [response.data, ...items]);
-      setForm({ name: "", type: "broadcast", audienceType: "all", templateId: templates[0]?.id || "", status: "draft" });
       setShowCreate(false);
+      setNotice("Campaign created.");
       await loadCampaigns();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Campaign could not be created.");
@@ -155,305 +213,291 @@ export function CampaignsView() {
     }
   }
 
-  async function handleStatus(campaign: Campaign, status: string) {
-    const response = await updateCampaign<{ data: Campaign }>(campaign.id, { status });
-    setCampaigns((items) => items.map((item) => (item.id === campaign.id ? response.data : item)));
-    await loadCampaigns();
-  }
-
-  async function handleSendCampaign(campaign: Campaign) {
-    setSendingId(campaign.id);
+  async function runAction(campaign: Campaign, action: string) {
+    setBusyId(campaign.id);
     setNotice("");
     try {
-      const response = await sendCampaign<{ data: Campaign; recipients: unknown[] }>(campaign.id);
+      const response = await campaignAction<{ data: Campaign }>(campaign.id, action);
       setCampaigns((items) => items.map((item) => (item.id === campaign.id ? response.data : item)));
-      setNotice(`Campaign sent to ${response.data.recipients} contacts.`);
-      if (report?.id === campaign.id) {
-        await handleOpenReport(campaign.id);
-      }
+      setNotice(`${action.replace(/_/g, " ")} completed.`);
+      if (report?.id === campaign.id) await openReport(campaign.id);
+      await loadCampaigns();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Campaign action failed.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function sendNow(campaign: Campaign) {
+    setBusyId(campaign.id);
+    setNotice("");
+    try {
+      const response = await sendCampaign<{ data: Campaign }>(campaign.id);
+      setCampaigns((items) => items.map((item) => (item.id === campaign.id ? response.data : item)));
+      setNotice(`Campaign processed for ${response.data.recipients} recipients.`);
       await loadCampaigns();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Campaign could not be sent.");
     } finally {
-      setSendingId("");
+      setBusyId("");
     }
   }
 
-  async function handleCopy(campaign: Campaign) {
-    const response = await createCampaign<{ data: Campaign }>({
-      name: `${campaign.name} Copy`,
-      type: campaign.type,
-      audience: campaign.audience,
-      audienceType: "all",
-      templateId: campaign.templateId,
-      status: "draft",
-    });
-    setCampaigns((items) => [response.data, ...items]);
-    await loadCampaigns();
-  }
-
-  async function handleDelete(id: string) {
-    setCampaigns((items) => items.filter((campaign) => campaign.id !== id));
-    if (report?.id === id) setReport(null);
-    await deleteCampaign(id).catch(() => undefined);
-    await loadCampaigns().catch(() => undefined);
-  }
-
-  async function handleOpenReport(id: string) {
-    setReportLoading(id);
+  async function openReport(id: string) {
+    setBusyId(id);
     try {
       const response = await getCampaignReport<{ data: CampaignReport }>(id);
       setReport(response.data);
     } finally {
-      setReportLoading("");
+      setBusyId("");
     }
   }
 
+  async function duplicate(campaign: Campaign) {
+    const response = await createCampaign<{ data: Campaign }>({
+      name: `${campaign.name} Copy`,
+      type: campaign.type,
+      campaignKind: campaign.campaignKind,
+      audience: campaign.audience,
+      audienceType: campaign.audienceType || "all",
+      templateId: campaign.templateId,
+      status: "draft",
+      requireApproval: Boolean(campaign.approval?.required),
+      rateLimit: campaign.rateLimit,
+    });
+    setCampaigns((items) => [response.data, ...items]);
+  }
+
+  async function remove(id: string) {
+    setCampaigns((items) => items.filter((campaign) => campaign.id !== id));
+    if (report?.id === id) setReport(null);
+    await deleteCampaign(id).catch(() => undefined);
+  }
+
+  async function importCsv() {
+    if (!csvText.trim()) return;
+    const response = await importCampaignContacts<{ created: number; updated: number; failed: number }>({ csv: csvText });
+    setNotice(`Imported ${response.created} new, updated ${response.updated}, failed ${response.failed}.`);
+    setCsvText("");
+  }
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex flex-col gap-3 px-3 py-3 border-b border-border shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-border px-3 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
         <div className="min-w-0">
-          <h1 className="text-foreground">Campaigns</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {campaigns.length} campaigns - {campaigns.filter((campaign) => campaign.status === "running").length} running
+          <h1 className="text-foreground">Campaign Management</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Template, bulk, scheduled, recurring, A/B, approval, queue and analytics
           </p>
         </div>
-        <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setShowCreate((value) => !value)}>
-          <Plus size={13} className="mr-1.5" /> New campaign
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="h-8 border-border text-xs" onClick={loadCampaigns}>
+            <RefreshCcw size={13} className="mr-1.5" /> Refresh
+          </Button>
+          <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => setShowCreate((value) => !value)}>
+            <Plus size={13} className="mr-1.5" /> New campaign
+          </Button>
+        </div>
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreateCampaign} className="grid grid-cols-1 md:grid-cols-7 gap-2 px-3 sm:px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
-          <input
-            value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Campaign name"
-            className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground"
-          />
-          <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground">
-            <option value="broadcast">Broadcast</option>
-            <option value="drip">Drip</option>
-            <option value="transactional">Transactional</option>
-          </select>
-          <select value={form.audienceType} onChange={(event) => setForm((current) => ({ ...current, audienceType: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground">
-            <option value="all">All Contacts</option>
-            <option value="opted_in">Opted-in Contacts</option>
-            <option value="leads">Leads</option>
-            <option value="customers">Customers</option>
-          </select>
-          <select value={form.templateId} onChange={(event) => setForm((current) => ({ ...current, templateId: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground md:col-span-2">
-            {templates.length === 0 && <option value="">No approved templates</option>}
-            {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name} ({template.language})
-              </option>
-            ))}
-          </select>
-          <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="h-8 text-xs bg-background border border-border rounded px-2 text-foreground">
-            <option value="draft">Draft</option>
+        <form onSubmit={handleCreate} className="grid grid-cols-1 gap-2 border-b border-border bg-secondary/20 px-3 py-3 shrink-0 md:grid-cols-8 sm:px-6">
+          <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Campaign name" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <option value="template">Template</option>
+            <option value="bulk">Bulk</option>
             <option value="scheduled">Scheduled</option>
+            <option value="recurring">Recurring</option>
+            <option value="ab_test">A/B Testing</option>
           </select>
+          <select value={form.audienceType} onChange={(event) => setForm((current) => ({ ...current, audienceType: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            {Object.entries(audienceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select value={form.templateId} onChange={(event) => setForm((current) => ({ ...current, templateId: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            {templates.length === 0 && <option value="">No approved templates</option>}
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select>
+          <select value={form.templateBId} onChange={(event) => setForm((current) => ({ ...current, templateBId: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <option value="">Variant B template</option>
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select>
+          <input type="datetime-local" value={form.scheduledAt} onChange={(event) => setForm((current) => ({ ...current, scheduledAt: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <input type="number" value={form.perMinute} onChange={(event) => setForm((current) => ({ ...current, perMinute: Number(event.target.value) }))} placeholder="Rate/min" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={saving || !form.templateId}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => setShowCreate(false)}>
-              Cancel
-            </Button>
+            <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={saving || !form.templateId}>{saving ? "Saving" : "Save"}</Button>
+            <Button type="button" size="sm" variant="outline" className="h-8 border-border text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
           </div>
-          {notice && <div className="md:col-span-7 text-xs text-muted-foreground">{notice}</div>}
+          <label className="flex h-8 items-center gap-2 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <input type="checkbox" checked={form.requireApproval} onChange={(event) => setForm((current) => ({ ...current, requireApproval: event.target.checked }))} />
+            Approval
+          </label>
+          <label className="flex h-8 items-center gap-2 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <input type="checkbox" checked={form.abTest} onChange={(event) => setForm((current) => ({ ...current, abTest: event.target.checked, type: event.target.checked ? "ab_test" : current.type }))} />
+            A/B
+          </label>
+          <label className="flex h-8 items-center gap-2 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <input type="checkbox" checked={form.recurring} onChange={(event) => setForm((current) => ({ ...current, recurring: event.target.checked, type: event.target.checked ? "recurring" : current.type }))} />
+            Recurring
+          </label>
+          <select value={form.recurrence} onChange={(event) => setForm((current) => ({ ...current, recurrence: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <input type="number" value={form.batchSize} onChange={(event) => setForm((current) => ({ ...current, batchSize: Number(event.target.value) }))} placeholder="Batch size" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
         </form>
       )}
 
-      {!showCreate && notice && (
-        <div className="px-3 sm:px-6 py-2 border-b border-border bg-secondary/20 text-xs text-muted-foreground">
-          {notice}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 px-3 py-3 border-b border-border shrink-0 sm:grid-cols-4 sm:px-6 sm:py-4">
+      <div className="grid grid-cols-2 gap-3 border-b border-border px-3 py-3 shrink-0 md:grid-cols-6 sm:px-6">
         {[
-          { label: "Total sent", value: summary.totalSent.toLocaleString(), icon: <Send size={14} /> },
-          { label: "Avg delivery rate", value: `${summary.deliveryRate}%`, icon: <TrendingUp size={14} /> },
-          { label: "Avg read rate", value: `${summary.readRate}%`, icon: <Eye size={14} /> },
-          { label: "Avg reply rate", value: `${summary.replyRate}%`, icon: <MessageCircle size={14} /> },
-        ].map((item) => (
-          <Card key={item.label} className="p-3 bg-card border-border">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">{item.icon}</div>
-            <div className="text-lg font-semibold text-foreground">{item.value}</div>
-            <div className="text-[11px] text-muted-foreground">{item.label}</div>
+          ["Sent", summary.totalSent, <Send size={14} />],
+          ["Delivered", `${summary.deliveryRate}%`, <CheckCircle2 size={14} />],
+          ["Read", `${summary.readRate}%`, <Eye size={14} />],
+          ["Replies", `${summary.replyRate}%`, <Users size={14} />],
+          ["Clicks", `${summary.clickRate}%`, <MousePointerClick size={14} />],
+          ["Conversions", `${summary.conversionRate}%`, <BarChart3 size={14} />],
+        ].map(([label, value, icon]) => (
+          <Card key={String(label)} className="border-border bg-card p-3">
+            <div className="mb-1 text-muted-foreground">{icon}</div>
+            <div className="text-lg font-semibold text-foreground">{String(value)}</div>
+            <div className="text-[11px] text-muted-foreground">{String(label)}</div>
           </Card>
         ))}
       </div>
 
-      <div className="no-scrollbar flex gap-1 overflow-x-auto px-3 sm:px-6 pt-3 border-b border-border shrink-0">
+      <div className="border-b border-border bg-secondary/20 px-3 py-2 shrink-0 sm:px-6">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+          <textarea value={csvText} onChange={(event) => setCsvText(event.target.value)} placeholder="CSV import: name,phone,email" className="h-10 rounded border border-border bg-background px-2 py-1 text-xs text-foreground" />
+          <Button size="sm" variant="outline" className="h-10 border-border text-xs" onClick={importCsv} disabled={!csvText.trim()}>
+            <FileUp size={13} className="mr-1.5" /> Import contacts
+          </Button>
+        </div>
+        {notice && <div className="mt-2 text-xs text-muted-foreground">{notice}</div>}
+      </div>
+
+      <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-border px-3 pt-3 shrink-0 sm:px-6">
         {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`text-xs px-3 py-1.5 rounded-t transition-colors border-b-2 -mb-px ${
-              activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab}
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`-mb-px rounded-t border-b-2 px-3 py-1.5 text-xs transition-colors ${activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+            {tab.replace("_", " ")}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-hidden flex flex-col xl:flex-row">
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3">
-        {filtered.length === 0 && <Card className="p-6 bg-card border-border text-sm text-muted-foreground">No campaigns yet.</Card>}
-        {filtered.map((campaign) => {
-          const deliveryRate = rate(campaign.delivered, campaign.sent);
-          const readRate = rate(campaign.read, campaign.delivered);
-
-          return (
-            <Card key={campaign.id} className="p-3 sm:p-4 bg-card border-border hover:border-border/80 transition-colors">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-                <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0 mt-0.5">
-                  <Send size={15} className="text-muted-foreground" />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-6">
+          {filtered.map((campaign) => (
+            <Card key={campaign.id} className="border-border bg-card p-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  {campaign.type === "scheduled" ? <CalendarClock size={17} /> : campaign.type === "recurring" ? <TimerReset size={17} /> : <Send size={17} />}
                 </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="min-w-0 truncate font-medium text-sm text-foreground">{campaign.name}</span>
-                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${statusStyle[campaign.status]}`}>
-                      {campaign.status}
-                    </Badge>
-                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${typeStyle[campaign.type]}`}>
-                      {campaign.type}
-                    </Badge>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="truncate text-sm font-semibold text-foreground">{campaign.name}</h3>
+                    <Badge variant="outline" className={`text-[10px] ${statusStyle[campaign.status] || statusStyle.draft}`}>{campaign.status.replace("_", " ")}</Badge>
+                    <Badge variant="outline" className="border-border text-[10px] text-muted-foreground">{campaign.type.replace("_", " ")}</Badge>
+                    {campaign.abTest?.enabled && <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-[10px] text-purple-300">A/B {campaign.abTest.split || 50}%</Badge>}
+                    {campaign.approval?.required && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-300">approval {campaign.approval.status}</Badge>}
                   </div>
-
-                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-3 flex-wrap">
-                    <span className="flex items-center gap-1"><Users size={10} />{campaign.audience}</span>
-                    <span className="flex items-center gap-1"><MessageCircle size={10} />{campaign.template}</span>
-                    {campaign.scheduledAt && <span className="flex items-center gap-1"><Clock size={10} />{campaign.scheduledAt}</span>}
-                    {campaign.sentAt && <span className="flex items-center gap-1"><Send size={10} />{campaign.sentAt}</span>}
+                  <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                    <span>{campaign.audience}</span>
+                    <span>{campaign.template}</span>
+                    {campaign.scheduledAt && <span>Scheduled {campaign.scheduledAt}</span>}
+                    <span>{campaign.rateLimit?.perMinute || 60}/min</span>
                   </div>
-
-                  {campaign.status !== "draft" && (
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {[
-                        { label: "Recipients", value: campaign.recipients.toLocaleString() },
-                        { label: "Delivered", value: deliveryRate },
-                        { label: "Read", value: readRate },
-                        { label: "Failed", value: campaign.failed.toLocaleString() },
-                      ].map((metric) => (
-                        <div key={metric.label}>
-                          <div className="text-sm font-semibold text-foreground">{metric.value}</div>
-                          <div className="text-[10px] text-muted-foreground">{metric.label}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-8">
+                    {[
+                      ["Queued", campaign.queued],
+                      ["Sent", campaign.sent],
+                      ["Delivered", percent(campaign.delivered, campaign.sent)],
+                      ["Read", percent(campaign.read, campaign.delivered)],
+                      ["Replies", campaign.replied],
+                      ["Clicks", campaign.clicks],
+                      ["Conversions", campaign.conversions],
+                      ["Failures", campaign.failed],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="rounded border border-border bg-background p-2">
+                        <div className="text-sm font-semibold text-foreground">{String(value)}</div>
+                        <div className="text-[10px] text-muted-foreground">{String(label)}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-1 shrink-0 sm:justify-end">
-                  {campaign.status === "running" && (
-                    <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-yellow-400 hover:bg-secondary transition-colors" onClick={() => handleStatus(campaign, "paused")}>
-                      <Pause size={13} />
-                    </button>
-                  )}
-                  {campaign.status === "paused" && (
-                    <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary transition-colors" onClick={() => handleStatus(campaign, "running")}>
-                      <Play size={13} />
-                    </button>
-                  )}
-                  {["draft", "scheduled", "paused", "failed"].includes(campaign.status) && (
-                    <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary transition-colors disabled:opacity-50" onClick={() => handleSendCampaign(campaign)} disabled={sendingId === campaign.id} title="Send now">
-                      <Send size={13} />
-                    </button>
-                  )}
-                  <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50" onClick={() => handleOpenReport(campaign.id)} disabled={reportLoading === campaign.id} title="View report">
-                    <Eye size={13} />
-                  </button>
-                  <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" onClick={() => handleStatus(campaign, campaign.status === "draft" ? "scheduled" : "draft")}>
-                    <Edit2 size={13} />
-                  </button>
-                  <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" onClick={() => handleCopy(campaign)}>
-                    <Copy size={13} />
-                  </button>
-                  <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors" onClick={() => handleDelete(campaign.id)}>
-                    <Trash2 size={13} />
-                  </button>
+                <div className="flex flex-wrap gap-1 xl:justify-end">
+                  {campaign.status === "draft" && <IconButton title="Submit approval" icon={<ShieldCheck size={13} />} onClick={() => runAction(campaign, "submit_approval")} />}
+                  {campaign.status === "pending_approval" && <IconButton title="Approve" icon={<CheckCircle2 size={13} />} onClick={() => runAction(campaign, "approve")} />}
+                  {campaign.status === "pending_approval" && <IconButton title="Reject" icon={<AlertTriangle size={13} />} onClick={() => runAction(campaign, "reject")} />}
+                  {["approved", "draft", "scheduled", "queued", "paused", "failed"].includes(campaign.status) && <IconButton title="Send" icon={<Send size={13} />} onClick={() => sendNow(campaign)} disabled={busyId === campaign.id} />}
+                  {campaign.status === "running" && <IconButton title="Pause" icon={<Pause size={13} />} onClick={() => runAction(campaign, "pause")} />}
+                  {campaign.status === "paused" && <IconButton title="Resume" icon={<Play size={13} />} onClick={() => runAction(campaign, "resume")} />}
+                  {campaign.failed > 0 && <IconButton title="Retry failures" icon={<RotateCcw size={13} />} onClick={() => runAction(campaign, "retry")} />}
+                  {!["sent", "cancelled"].includes(campaign.status) && <IconButton title="Cancel" icon={<X size={13} />} onClick={() => runAction(campaign, "cancel")} />}
+                  <IconButton title="Report" icon={<Eye size={13} />} onClick={() => openReport(campaign.id)} />
+                  <IconButton title="Duplicate" icon={<Copy size={13} />} onClick={() => duplicate(campaign)} />
+                  <IconButton title="Delete" icon={<Trash2 size={13} />} danger onClick={() => remove(campaign.id)} />
                 </div>
               </div>
             </Card>
-          );
-        })}
+          ))}
+          {!filtered.length && <Card className="border-border bg-card p-6 text-sm text-muted-foreground">No campaigns yet.</Card>}
         </div>
 
         {report && (
-          <aside className="max-h-[55vh] w-full border-t border-border bg-card overflow-y-auto shrink-0 xl:max-h-none xl:w-[420px] xl:border-l xl:border-t-0">
+          <aside className="hidden w-[430px] shrink-0 overflow-y-auto border-l border-border bg-card xl:block">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">{report.name}</h2>
                 <p className="text-xs text-muted-foreground">{report.template} - {report.audience}</p>
               </div>
-              <button className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary" onClick={() => setReport(null)}>
+              <button className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setReport(null)}>
                 <X size={14} />
               </button>
             </div>
-
-            <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {[
-                  { label: "Recipients", value: report.recipients.length },
-                  { label: "Sent", value: report.sent },
-                  { label: "Delivered", value: report.delivered },
-                  { label: "Failed", value: report.failed },
-                ].map((item) => (
-                  <div key={item.label} className="rounded border border-border p-2">
-                    <div className="text-sm font-semibold text-foreground">{item.value.toLocaleString()}</div>
-                    <div className="text-[10px] text-muted-foreground">{item.label}</div>
-                  </div>
-                ))}
-              </div>
-
-              <Card className="p-3 bg-background border-border">
-                <h3 className="text-xs font-semibold text-foreground mb-2">Delivery Timeline</h3>
+            <div className="space-y-4 p-4">
+              <Card className="border-border bg-background p-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Campaign History</h3>
+                <div className="space-y-1">
+                  {(report.history || []).slice(-8).map((event, index) => (
+                    <div key={`${event.at}-${index}`} className="rounded bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                      {event.type.replace(/_/g, " ")} {event.status ? `- ${event.status}` : ""}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+              <Card className="border-border bg-background p-3">
+                <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Execution Timeline</h3>
                 <div className="space-y-2">
-                  {report.timeline.slice(0, 8).map((event) => (
-                    <div key={event.id} className="flex items-start gap-2">
-                      <span className={`mt-1 h-2 w-2 rounded-full ${event.status === "failed" ? "bg-destructive" : "bg-primary"}`} />
+                  {report.timeline.slice(0, 10).map((event) => (
+                    <div key={event.id} className="flex gap-2">
+                      <span className={`mt-1.5 h-2 w-2 rounded-full ${event.status === "failed" ? "bg-destructive" : "bg-primary"}`} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs text-foreground truncate">{event.contact}</p>
-                          <Badge variant="outline" className={`text-[10px] ${event.status === "failed" ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-primary/10 text-primary border-primary/30"}`}>
-                            {event.status}
-                          </Badge>
+                          <p className="truncate text-xs text-foreground">{event.contact}</p>
+                          <Badge variant="outline" className={`text-[10px] ${event.status === "failed" ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>{event.status}</Badge>
                         </div>
-                        <p className="text-[11px] text-muted-foreground truncate">{event.error || event.body}</p>
-                        <p className="text-[10px] text-muted-foreground">{event.time}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{event.error || event.providerMessageId}</p>
+                        <p className="text-[10px] text-muted-foreground">{event.variant ? `Variant ${event.variant} - ` : ""}{event.time}</p>
                       </div>
                     </div>
                   ))}
-                  {report.timeline.length === 0 && <p className="text-xs text-muted-foreground">No delivery events yet.</p>}
                 </div>
               </Card>
-
-              <Card className="bg-background border-border overflow-hidden">
-                <div className="px-3 py-2 border-b border-border">
-                  <h3 className="text-xs font-semibold text-foreground">Recipients</h3>
-                </div>
+              <Card className="overflow-hidden border-border bg-background">
+                <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">Recipients</div>
                 <div className="divide-y divide-border">
                   {report.recipients.map((recipient) => (
                     <div key={`${recipient.contactId}-${recipient.providerMessageId}`} className="px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-xs text-foreground truncate">{recipient.name}</p>
+                          <p className="truncate text-xs text-foreground">{recipient.name}</p>
                           <p className="text-[11px] text-muted-foreground">{recipient.phone}</p>
                         </div>
-                        <Badge variant="outline" className={`text-[10px] shrink-0 ${recipient.status === "failed" ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-primary/10 text-primary border-primary/30"}`}>
-                          {recipient.status}
-                        </Badge>
+                        <Badge variant="outline" className={`text-[10px] ${recipient.status === "failed" ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>{recipient.status}</Badge>
                       </div>
-                      <p className="mt-1 text-[10px] text-muted-foreground truncate">{recipient.error || recipient.providerMessageId}</p>
+                      <p className="mt-1 truncate text-[10px] text-muted-foreground">{recipient.error || recipient.providerMessageId}</p>
                     </div>
                   ))}
-                  {report.recipients.length === 0 && <div className="px-3 py-6 text-xs text-muted-foreground">No recipients yet. Send the campaign to generate a report.</div>}
                 </div>
               </Card>
             </div>
@@ -461,5 +505,18 @@ export function CampaignsView() {
         )}
       </div>
     </div>
+  );
+}
+
+function IconButton({ icon, title, onClick, disabled, danger }: { icon: React.ReactNode; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+  return (
+    <button
+      title={title}
+      disabled={disabled}
+      className={`flex h-8 w-8 items-center justify-center rounded transition disabled:opacity-50 ${danger ? "text-muted-foreground hover:bg-secondary hover:text-destructive" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
   );
 }

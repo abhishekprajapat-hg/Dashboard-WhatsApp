@@ -7,6 +7,8 @@ import {
   Megaphone,
   BarChart3,
   Users2,
+  ShieldCheck,
+  Bot,
   Settings,
   LogOut,
   Bell,
@@ -20,6 +22,8 @@ export type ViewId =
   | "campaigns"
   | "analytics"
   | "team"
+  | "admin"
+  | "assistant"
   | "settings";
 
 interface ActivityBarProps {
@@ -37,6 +41,8 @@ const NAV_ITEMS: { id: ViewId; icon: React.ReactNode; label: string }[] = [
   { id: "campaigns", icon: <Megaphone size={18} />, label: "Campaigns" },
   { id: "analytics", icon: <BarChart3 size={18} />, label: "Analytics" },
   { id: "team", icon: <Users2 size={18} />, label: "Team" },
+  { id: "assistant", icon: <Bot size={18} />, label: "AI Assistant" },
+  { id: "admin", icon: <ShieldCheck size={18} />, label: "Admin" },
 ];
 
 export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 0 }: ActivityBarProps) {

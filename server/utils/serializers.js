@@ -30,6 +30,8 @@ export function serializeContact(contact, { conversationCount = 0 } = {}) {
     name: contact.name,
     phone: contact.phone,
     email: contact.email || "",
+    waName: contact.waName || "",
+    profilePhoto: contact.profilePhoto || "",
     tags,
     assignedTo: contact.ownerUserId?.name || "Unassigned",
     source: contact.source || "Manual",
@@ -38,7 +40,10 @@ export function serializeContact(contact, { conversationCount = 0 } = {}) {
     status: lifecycleStatus === "inactive" ? "inactive" : "active",
     lifecycleStatus,
     crmStage: crm.stage || lifecycleStatus,
+    leadScore: crm.leadScore || 0,
+    followUpAt: crm.followUpAt,
     crmAddedAt: crm.addedToCrmAt,
+    customFields: contact.customFields || {},
   };
 }
 
@@ -55,6 +60,13 @@ export function serializeMessage(message) {
     internal: Boolean(message.metadata?.internal),
     pinned: Boolean(message.pinned),
     starred: Boolean(message.starred),
+    providerMessageId: message.providerMessageId || "",
+    clientMessageId: message.clientMessageId || message.metadata?.clientMessageId || "",
+    sentAt: message.sentAt,
+    deliveredAt: message.deliveredAt,
+    readAt: message.readAt,
+    receivedAt: message.receivedAt,
+    createdAt: message.createdAt,
   };
 }
 
@@ -68,15 +80,21 @@ export function serializeConversation(conversation, messages = [], { userId } = 
     : [];
   const tags = Array.from(new Set([...conversationTags, ...contactTags]));
   const lastMessage = conversation.lastMessageId;
+  const lastVisibleMessage = messages[messages.length - 1];
   const unread = userId ? Number(conversation.unreadCountByUser?.get?.(userId.toString()) || 0) : 0;
   const crm = contact.customFields?.crm || {};
+  const currentUserId = userId?.toString?.() || userId || "";
+  const pinnedByUserIds = conversation.pinnedByUserIds || [];
+  const mutedByUserIds = conversation.mutedByUserIds || [];
 
   return {
     id: conversation._id.toString(),
     contactId: contact._id?.toString?.() || "",
     name: contact.name || "Unknown contact",
+    waName: contact.waName || "",
+    profilePhoto: contact.profilePhoto || "",
     phone: contact.phone || "",
-    preview: lastMessage?.body || "No messages yet",
+    preview: lastVisibleMessage?.body || "No messages yet",
     time: relativeTime(conversation.lastMessageAt || conversation.updatedAt).replace(" ago", ""),
     unread,
     status: conversation.status === "pending" ? "waiting" : conversation.status,
@@ -86,7 +104,13 @@ export function serializeConversation(conversation, messages = [], { userId } = 
     source: contact.source || "WhatsApp",
     lifecycleStatus: contact.lifecycleStatus || "lead",
     crmStage: crm.stage || contact.lifecycleStatus || "lead",
+    leadScore: crm.leadScore || 0,
+    followUpAt: crm.followUpAt,
     crmAddedAt: crm.addedToCrmAt,
+    customFields: contact.customFields || {},
+    pinned: currentUserId ? pinnedByUserIds.some((id) => id?.toString?.() === currentUserId) : false,
+    muted: currentUserId ? mutedByUserIds.some((id) => id?.toString?.() === currentUserId) : false,
+    lastMessageAt: conversation.lastMessageAt,
     messages: messages.map(serializeMessage),
   };
 }

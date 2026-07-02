@@ -1,0 +1,9 @@
+node_modules
+client/dist
+server/uploads
+.git
+.env
+.env.*
+*.log
+local-db-backups
+.mongo-data

@@ -43,6 +43,19 @@ function serializeFlow(flow) {
     runs: Number(flow.trigger?.runs || 0),
     lastRun: relativeTime(flow.trigger?.lastRunAt),
     category: flow.trigger?.category || "General",
+    nodes: flow.nodes || [],
+    edges: flow.edges || [],
+    version: flow.version || 1,
+    publishedAt: flow.publishedAt,
+    updatedAt: flow.updatedAt,
+    analytics: {
+      runs: Number(flow.trigger?.runs || 0),
+      lastRunAt: flow.trigger?.lastRunAt,
+      completionRate: Number(flow.trigger?.completionRate || 0),
+      errorRate: Number(flow.trigger?.errorRate || 0),
+    },
+    versions: flow.trigger?.versions || [],
+    executionLogs: flow.trigger?.executionLogs || [],
   };
 }
 
@@ -86,6 +99,8 @@ automationRouter.post("/", async (req, res) => {
     callWebhook = false,
     webhookUrl = "",
     webhookSecret = "",
+    nodes: visualNodes,
+    edges: visualEdges,
   } = req.body || {};
 
   if (!name?.trim()) {
@@ -100,13 +115,13 @@ automationRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Keyword is required for keyword automation." });
   }
 
-  const nodes = [{ id: "trigger", type: "trigger" }];
-  const edges = [];
-  let previousNodeId = "trigger";
+  const nodes = Array.isArray(visualNodes) && visualNodes.length ? visualNodes : [{ id: "trigger", type: "trigger" }];
+  const edges = Array.isArray(visualEdges) ? visualEdges : [];
+  let previousNodeId = nodes[0]?.id || "trigger";
 
   function addActionNode(type, config = {}) {
     const id = `${type}_${nodes.length}`;
-    nodes.push({ id, type, config });
+    nodes.push({ id, type, config, position: { x: 220 * nodes.length, y: 120 } });
     edges.push({ source: previousNodeId, target: id });
     previousNodeId = id;
   }
@@ -135,6 +150,8 @@ automationRouter.post("/", async (req, res) => {
       keywords,
       replyBody: actionMessage,
       runs: 0,
+      versions: [{ version: 1, label: "Initial draft", at: new Date(), userId: req.user.sub }],
+      executionLogs: [],
     },
     nodes,
     edges,
@@ -152,11 +169,27 @@ automationRouter.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
 
-  const updates = { updatedBy: req.user.sub };
-  if (req.body?.name) updates.name = req.body.name.trim();
+  const updates = { $set: { updatedBy: req.user.sub } };
+  if (req.body?.name) updates.$set.name = req.body.name.trim();
+  if (Array.isArray(req.body?.nodes)) updates.$set.nodes = req.body.nodes;
+  if (Array.isArray(req.body?.edges)) updates.$set.edges = req.body.edges;
+  if (req.body?.trigger && typeof req.body.trigger === "object") updates.$set.trigger = req.body.trigger;
+  if (req.body?.description) updates.$set["trigger.description"] = req.body.description;
+  if (req.body?.category) updates.$set["trigger.category"] = req.body.category;
   if (req.body?.status) {
-    updates.status = toDbStatus(req.body.status);
-    if (updates.status === "published") updates.publishedAt = new Date();
+    updates.$set.status = toDbStatus(req.body.status);
+    if (updates.$set.status === "published") updates.$set.publishedAt = new Date();
+  }
+  if (Array.isArray(req.body?.nodes) || Array.isArray(req.body?.edges)) {
+    updates.$inc = { version: 1 };
+    updates.$push = {
+      "trigger.versions": {
+        version: Date.now(),
+        label: req.body?.versionLabel || "Canvas update",
+        at: new Date(),
+        userId: req.user.sub,
+      },
+    };
   }
 
   const flow = await AutomationFlow.findOneAndUpdate(

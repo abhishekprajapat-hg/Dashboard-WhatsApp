@@ -7,6 +7,8 @@ const contactSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true },
     email: { type: String, trim: true },
+    waName: { type: String, trim: true },
+    profilePhoto: String,
     source: { type: String, default: "Manual" },
     lifecycleStatus: { type: String, default: "lead" },
     ownerUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
@@ -19,6 +21,7 @@ const contactSchema = new mongoose.Schema(
 );
 
 contactSchema.index({ workspaceId: 1, phone: 1 }, { unique: true });
+contactSchema.index({ workspaceId: 1, waName: 1 });
 contactSchema.index({ name: "text", phone: "text", email: "text" });
 
 export const Contact = mongoose.model("Contact", contactSchema);

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whatscrm-config
+  namespace: whatscrm
+data:
+  NODE_ENV: production
+  PORT: "4000"
+  OTEL_ENABLED: "true"
+  OTEL_SERVICE_NAME: whatscrm-api
+  FEATURE_QUEUE_PROCESSING: "true"
+  FEATURE_ZERO_DOWNTIME_MODE: "true"

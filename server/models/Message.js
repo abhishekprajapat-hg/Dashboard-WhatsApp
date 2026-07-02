@@ -12,25 +12,37 @@ const messageSchema = new mongoose.Schema(
     body: String,
     attachments: { type: [mongoose.Schema.Types.Mixed], default: [] },
     providerMessageId: { type: String, sparse: true },
+    clientMessageId: { type: String, sparse: true },
     status: { type: String, enum: ["queued", "sent", "delivered", "read", "failed"], default: "queued", index: true },
     pinned: { type: Boolean, default: false, index: true },
     starred: { type: Boolean, default: false, index: true },
     deletedAt: Date,
     deletedByUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    deletedForUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
     sentByUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     receivedAt: Date,
     sentAt: Date,
+    deliveredAt: Date,
+    readAt: Date,
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );
 
 messageSchema.index({ conversationId: 1, createdAt: 1 });
+messageSchema.index({ conversationId: 1, createdAt: -1, _id: -1 });
 messageSchema.index(
   { workspaceId: 1, providerMessageId: 1 },
   {
     unique: true,
     partialFilterExpression: { providerMessageId: { $type: "string" } },
+  }
+);
+messageSchema.index(
+  { workspaceId: 1, clientMessageId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientMessageId: { $type: "string" } },
   }
 );
 

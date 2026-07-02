@@ -13,6 +13,8 @@ const conversationSchema = new mongoose.Schema(
     lastMessageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
     lastMessageAt: { type: Date, index: true },
     unreadCountByUser: { type: Map, of: Number, default: {} },
+    pinnedByUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
+    mutedByUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
@@ -20,5 +22,6 @@ const conversationSchema = new mongoose.Schema(
 
 conversationSchema.index({ workspaceId: 1, status: 1, lastMessageAt: -1 });
 conversationSchema.index({ workspaceId: 1, assignedToUserId: 1, status: 1 });
+conversationSchema.index({ workspaceId: 1, pinnedByUserIds: 1, lastMessageAt: -1 });
 
 export const Conversation = mongoose.model("Conversation", conversationSchema);

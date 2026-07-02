@@ -8,6 +8,8 @@ import { AutomationView } from "./components/AutomationView";
 import { CampaignsView } from "./components/CampaignsView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { TeamView } from "./components/TeamView";
+import { AssistantView } from "./components/AssistantView";
+import { AdminView } from "./components/AdminView";
 import { SettingsView } from "./components/SettingsView";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 
@@ -113,6 +115,8 @@ export default function App() {
           {activeView === "campaigns" && <CampaignsView />}
           {activeView === "analytics" && <AnalyticsView />}
           {activeView === "team" && <TeamView />}
+          {activeView === "assistant" && <AssistantView />}
+          {activeView === "admin" && <AdminView />}
           {activeView === "settings" && <SettingsView />}
         </div>
       </main>

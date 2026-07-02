@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 export const config = {
+  nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 4000),
   mongoUri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/whatscrm",
   jwtSecret: process.env.JWT_SECRET || "dev-only-secret-change-me",
@@ -8,4 +9,39 @@ export const config = {
   metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || "v21.0",
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "local-whatsapp-verify-token",
   demoMode: process.env.DEMO_MODE !== "false",
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
+  cdnBaseUrl: process.env.CDN_BASE_URL || "",
+  corsOrigins: (process.env.CORS_ORIGINS || "").split(",").map((origin) => origin.trim()).filter(Boolean),
+  redisUrl: process.env.REDIS_URL || "",
+  rabbitmqUrl: process.env.RABBITMQ_URL || "",
+  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60000),
+  rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
+  s3: {
+    enabled: process.env.MEDIA_STORAGE_DRIVER === "s3",
+    bucket: process.env.S3_BUCKET || "",
+    region: process.env.S3_REGION || "ap-south-1",
+    endpoint: process.env.S3_ENDPOINT || "",
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+  },
+  telemetry: {
+    serviceName: process.env.OTEL_SERVICE_NAME || "whatscrm-api",
+    enabled: process.env.OTEL_ENABLED === "true",
+  },
+  featureFlags: {
+    infrastructurePanel: process.env.FEATURE_INFRASTRUCTURE_PANEL !== "false",
+    queueProcessing: process.env.FEATURE_QUEUE_PROCESSING !== "false",
+    s3MediaStorage: process.env.FEATURE_S3_MEDIA_STORAGE === "true" || process.env.MEDIA_STORAGE_DRIVER === "s3",
+    rabbitmqEvents: process.env.FEATURE_RABBITMQ_EVENTS === "true",
+    zeroDowntimeMode: process.env.FEATURE_ZERO_DOWNTIME_MODE !== "false",
+  },
 };
+
+export function validateProductionConfig() {
+  if (config.nodeEnv !== "production") return;
+  const missing = [];
+  if (!process.env.JWT_SECRET || config.jwtSecret === "dev-only-secret-change-me") missing.push("JWT_SECRET");
+  if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
+  if (missing.length) {
+    throw new Error(`Production configuration missing secure values: ${missing.join(", ")}`);
+  }
+}

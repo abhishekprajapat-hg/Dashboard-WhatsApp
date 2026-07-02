@@ -4,6 +4,7 @@ import { Conversation, Membership, Role, User } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { hashPassword } from "../utils/password.js";
 import { relativeTime } from "../utils/serializers.js";
+import { isEmail, passwordPolicy, requiredString } from "../utils/validation.js";
 
 export const teamRouter = Router();
 
@@ -115,9 +116,14 @@ teamRouter.post("/", requirePermission("team:write"), async (req, res) => {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
-  const { name, email, role = "agent", password = "123456" } = req.body || {};
-  if (!email?.trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Email is required." });
+  const { name, email, role = "agent", password = "" } = req.body || {};
+  const normalizedEmail = String(email || "").toLowerCase().trim();
+  if (!isEmail(normalizedEmail)) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid email is required." });
+  }
+  const passwordCheck = passwordPolicy(password);
+  if (!passwordCheck.valid) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: passwordCheck.message });
   }
 
   const roleDoc = await ensureRole({
@@ -127,10 +133,10 @@ teamRouter.post("/", requirePermission("team:write"), async (req, res) => {
   });
 
   const user = await User.findOneAndUpdate(
-    { email: email.toLowerCase().trim() },
+    { email: normalizedEmail },
     {
-      name: name?.trim() || email.split("@")[0],
-      email: email.toLowerCase().trim(),
+      name: requiredString(name, 120) || normalizedEmail.split("@")[0],
+      email: normalizedEmail,
       passwordHash: hashPassword(password),
       status: "active",
     },
