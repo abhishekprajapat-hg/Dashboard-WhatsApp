@@ -1,7 +1,7 @@
 ﻿import "dotenv/config";
 import mongoose from "mongoose";
 import { Membership, Template, WhatsAppAccount, Workspace } from "../models/index.js";
-import { fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
+import { encodeCredentials, fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
 
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/whatscrm";
 
@@ -11,11 +11,13 @@ const required = {
   WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID,
   WHATSAPP_BUSINESS_ACCOUNT_ID: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
   WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN,
+  WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "local-whatsapp-verify-token",
+  WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || process.env.META_APP_SECRET || "",
 };
 
 function missingKeys() {
   return Object.entries(required)
-    .filter(([key, value]) => key !== "WHATSAPP_DISPLAY_NAME" && !value)
+    .filter(([key, value]) => !["WHATSAPP_DISPLAY_NAME", "WHATSAPP_APP_SECRET"].includes(key) && !value)
     .map(([key]) => key);
 }
 
@@ -48,11 +50,17 @@ async function main() {
       phoneNumber: required.WHATSAPP_PHONE_NUMBER,
       phoneNumberId: required.WHATSAPP_PHONE_NUMBER_ID,
       businessAccountId: required.WHATSAPP_BUSINESS_ACCOUNT_ID,
-      encryptedCredentials: Buffer.from(required.WHATSAPP_ACCESS_TOKEN).toString("base64"),
+      encryptedCredentials: encodeCredentials({
+        provider: "meta",
+        accessToken: required.WHATSAPP_ACCESS_TOKEN,
+        verifyToken: required.WHATSAPP_VERIFY_TOKEN,
+        appSecret: required.WHATSAPP_APP_SECRET,
+      }),
       provider: "meta",
       webhookStatus: "healthy",
       templateSyncStatus: "pending",
       status: "connected",
+      credentialsUpdatedAt: new Date(),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );

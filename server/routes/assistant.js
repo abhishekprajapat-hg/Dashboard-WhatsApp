@@ -1,5 +1,6 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { requirePermission } from "../middleware/auth.js";
 import { AutomationFlow, Conversation, Lead, Message } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
@@ -10,7 +11,7 @@ function dbUnavailable(res) {
   return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required for the AI assistant." });
 }
 
-assistantRouter.get("/overview", async (req, res) => {
+assistantRouter.get("/overview", requirePermission("assistant:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
 
   const [conversationCount, aiEnabledCount, flowCount, leadCount] = await Promise.all([
@@ -75,7 +76,7 @@ assistantRouter.get("/overview", async (req, res) => {
   });
 });
 
-assistantRouter.post("/analyze", async (req, res) => {
+assistantRouter.post("/analyze", requirePermission("assistant:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { conversationId, provider = "local", task = "full_analysis", prompt = "" } = req.body || {};
   if (conversationId && !mongoose.Types.ObjectId.isValid(conversationId)) {
@@ -87,7 +88,7 @@ assistantRouter.post("/analyze", async (req, res) => {
   res.json({ data: result });
 });
 
-assistantRouter.post("/stream", async (req, res) => {
+assistantRouter.post("/stream", requirePermission("assistant:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { conversationId, provider = "local", task = "draft_reply", prompt = "" } = req.body || {};
 
@@ -105,11 +106,11 @@ assistantRouter.post("/stream", async (req, res) => {
   res.end();
 });
 
-assistantRouter.get("/search", async (req, res) => {
+assistantRouter.get("/search", requirePermission("assistant:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const query = String(req.query.q || "").trim();
   const limit = Math.min(30, Math.max(1, Number(req.query.limit || 12)));
-  const messageFilter = { workspaceId: req.user.workspaceId, deletedAt: { $exists: false } };
+  const messageFilter = { workspaceId: req.user.workspaceId, deletedAt: mongoose.trusted({ $exists: false }) };
   if (query) messageFilter.$text = { $search: query };
 
   const messages = await Message.find(messageFilter)
@@ -134,7 +135,7 @@ assistantRouter.get("/search", async (req, res) => {
   });
 });
 
-assistantRouter.post("/knowledge", async (req, res) => {
+assistantRouter.post("/knowledge", requirePermission("assistant:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { name = "Knowledge note", content = "", mimeType = "text/plain", source = "upload" } = req.body || {};
   if (!String(content).trim()) {
@@ -151,12 +152,12 @@ assistantRouter.post("/knowledge", async (req, res) => {
   res.status(201).json({ data: { id: document._id.toString(), name: document.name, chunks: document.chunks.length, status: document.status } });
 });
 
-assistantRouter.post("/voice/transcribe", async (req, res) => {
+assistantRouter.post("/voice/transcribe", requirePermission("assistant:write"), async (req, res) => {
   const { fileName = "", transcript = "" } = req.body || {};
   res.json({ data: transcriptionFallback({ fileName, transcript }) });
 });
 
-assistantRouter.post("/voice/reply", async (req, res) => {
+assistantRouter.post("/voice/reply", requirePermission("assistant:write"), async (req, res) => {
   const { text = "" } = req.body || {};
   res.json({
     data: {
@@ -168,7 +169,7 @@ assistantRouter.post("/voice/reply", async (req, res) => {
   });
 });
 
-assistantRouter.post("/tool-call", async (req, res) => {
+assistantRouter.post("/tool-call", requirePermission("assistant:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { name = "", arguments: args = {}, conversationId = "" } = req.body || {};
   const conversation = conversationId && mongoose.Types.ObjectId.isValid(conversationId)

@@ -5,11 +5,14 @@ import { Contact, Conversation, Membership, Message, Template } from "../models/
 import { WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { publishConversationChanged } from "../realtime/events.js";
-import { ensureConversationInCrm } from "../services/crm.js";
+import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
+import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 
 export const conversationsRouter = Router();
+
+conversationsRouter.use(requirePermission("inbox:read"));
 
 function cleanAttachments(attachments = []) {
   if (!Array.isArray(attachments)) return [];
@@ -19,6 +22,10 @@ function cleanAttachments(attachments = []) {
     .map((attachment) => ({
       name: String(attachment.name || "Attachment").slice(0, 160),
       url: String(attachment.url),
+      path: attachment.path ? String(attachment.path) : undefined,
+      storage: attachment.storage ? String(attachment.storage) : undefined,
+      providerMediaId: attachment.providerMediaId ? String(attachment.providerMediaId) : undefined,
+      metaMediaId: attachment.metaMediaId ? String(attachment.metaMediaId) : undefined,
       type: String(attachment.type || "document"),
       mimeType: attachment.mimeType ? String(attachment.mimeType) : undefined,
       size: Number(attachment.size || 0),
@@ -50,22 +57,58 @@ function cursorDate(value) {
   return date && !Number.isNaN(date.getTime()) ? date : null;
 }
 
+function conversationVisibilityFilter(req) {
+  const filter = { workspaceId: req.user.workspaceId };
+  if (!hasPermission(req.user, "team:read")) {
+    filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+  }
+  return filter;
+}
+
 conversationsRouter.get("/", async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const status = String(req.query.status || "").toLowerCase();
     const search = String(req.query.search || "").trim();
+    const unread = String(req.query.unread || "") === "true";
     const limit = paginationLimit(req.query.limit, 50, 100);
     const cursor = cursorDate(req.query.cursor);
-    const filter = { workspaceId: req.user.workspaceId };
-    if (!hasPermission(req.user, "team:read")) {
-      filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
-    }
+    const filter = conversationVisibilityFilter(req);
 
     if (status) {
       filter.status = status === "waiting" ? "pending" : status;
     }
+    if (unread) {
+      filter[`unreadCountByUser.${req.user.sub}`] = { $gt: 0 };
+    }
     if (cursor) {
       filter.lastMessageAt = { $lt: cursor };
+    }
+    if (search) {
+      const phoneSearch = search.replace(/[^\d+]/g, "");
+      const contactSearch = [
+        { name: { $regex: search, $options: "i" } },
+        { waName: { $regex: search, $options: "i" } },
+      ];
+      if (phoneSearch) {
+        contactSearch.push({ phone: { $regex: phoneSearch, $options: "i" } });
+      }
+      const matchingContacts = await Contact.find({
+        workspaceId: req.user.workspaceId,
+        $or: contactSearch,
+      }).select("_id");
+      const matchingMessages = await Message.find({
+        workspaceId: req.user.workspaceId,
+        body: { $regex: search, $options: "i" },
+      }).select("conversationId").limit(100);
+      filter.$and = [
+        ...(filter.$and || []),
+        {
+          $or: [
+            { contactId: mongoose.trusted({ $in: matchingContacts.map((contact) => contact._id) }) },
+            { _id: mongoose.trusted({ $in: matchingMessages.map((message) => message.conversationId) }) },
+          ],
+        },
+      ];
     }
 
     let dbConversations = await Conversation.find(filter)
@@ -78,15 +121,6 @@ conversationsRouter.get("/", async (req, res) => {
 
     const hasMore = dbConversations.length > limit;
     dbConversations = dbConversations.slice(0, limit);
-
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      dbConversations = dbConversations.filter((conversation) => {
-        const contact = conversation.contactId || {};
-        const preview = conversation.lastMessageId?.body || "";
-        return [contact.name, contact.phone, preview].some((value = "") => value.toLowerCase().includes(lowerSearch));
-      });
-    }
 
     const data = await Promise.all(
       dbConversations.map(async (conversation) => {
@@ -131,7 +165,7 @@ conversationsRouter.get("/unread-count", async (req, res) => {
     return res.json({ unread: 0 });
   }
 
-  const conversations = await Conversation.find({ workspaceId: req.user.workspaceId }).select("unreadCountByUser");
+  const conversations = await Conversation.find(conversationVisibilityFilter(req)).select("unreadCountByUser");
   const unread = conversations.reduce(
     (total, conversation) => total + Number(conversation.unreadCountByUser?.get?.(req.user.sub) || 0),
     0
@@ -187,11 +221,11 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
 
 conversationsRouter.get("/:conversationId/messages/:messageId/info", getMessageInfoById);
 conversationsRouter.get("/:conversationId/messages", getConversationMessages);
-conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", updateMessageReceiptById);
-conversationsRouter.patch("/:conversationId/messages/:messageId/actions", updateMessageActionsById);
-conversationsRouter.delete("/:conversationId/messages/:messageId", deleteConversationMessageById);
-conversationsRouter.post("/:conversationId/messages/:messageId/delete", deleteConversationMessageById);
-conversationsRouter.post("/:conversationId/messages/delete", deleteConversationMessageFromBody);
+conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", requirePermission("inbox:write"), updateMessageReceiptById);
+conversationsRouter.patch("/:conversationId/messages/:messageId/actions", requirePermission("inbox:write"), updateMessageActionsById);
+conversationsRouter.delete("/:conversationId/messages/:messageId", requirePermission("inbox:write"), deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/:messageId/delete", requirePermission("inbox:write"), deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/delete", requirePermission("inbox:write"), deleteConversationMessageFromBody);
 
 conversationsRouter.get("/:id", async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -212,7 +246,7 @@ conversationsRouter.get("/:id", async (req, res) => {
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.patch("/:id/read", async (req, res) => {
+conversationsRouter.patch("/:id/read", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -229,7 +263,7 @@ conversationsRouter.patch("/:id/read", async (req, res) => {
   res.json({ unread: 0 });
 });
 
-conversationsRouter.patch("/:id/status", async (req, res) => {
+conversationsRouter.patch("/:id/status", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -267,7 +301,7 @@ conversationsRouter.patch("/:id/status", async (req, res) => {
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.patch("/:id/settings", async (req, res) => {
+conversationsRouter.patch("/:id/settings", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -307,7 +341,7 @@ conversationsRouter.patch("/:id/settings", async (req, res) => {
   res.json({ data: serializeConversation(conversation, messages.reverse(), { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/", async (req, res) => {
+conversationsRouter.post("/", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required to create conversations." });
   }
@@ -361,7 +395,7 @@ conversationsRouter.post("/", async (req, res) => {
   res.status(201).json({ data: serializeConversation(hydrated, [message], { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
+conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -376,10 +410,21 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  await ensureConversationInCrm({
+  const stage = normalizeLeadStage(req.body?.stage || "new_lead");
+  const latestInboundMessage = await Message.findOne({
+    conversationId: conversation._id,
+    workspaceId: req.user.workspaceId,
+    direction: "inbound",
+    deletedAt: mongoose.trusted({ $exists: false }),
+  }).sort({ receivedAt: -1, createdAt: -1 });
+
+  const crmResult = await ensureConversationInCrm({
     contact: conversation.contactId,
     conversation,
+    inboundMessage: latestInboundMessage || conversation.lastMessageId,
     source: "manual_inbox_action",
+    stage,
+    manual: true,
   });
 
   const [hydrated, messages] = await Promise.all([
@@ -392,6 +437,13 @@ conversationsRouter.post("/:id/add-to-crm", async (req, res) => {
   ]);
 
   await publishConversationChanged(conversation._id);
+  syncLeadToGoogleSheetInBackground({
+    contact: hydrated.contactId,
+    conversation: hydrated,
+    message: latestInboundMessage || conversation.lastMessageId,
+    lead: crmResult.lead,
+    onError: (error) => console.warn(`Manual lead sheet sync failed: ${error.message}`),
+  });
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
@@ -444,7 +496,7 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/template", async (req, res) => {
+conversationsRouter.post("/:id/template", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -472,7 +524,7 @@ conversationsRouter.post("/:id/template", async (req, res) => {
     WhatsAppAccount.findOne({
       _id: template.whatsappAccountId,
       workspaceId: req.user.workspaceId,
-      status: { $in: ["connected", "needs_attention"] },
+      status: mongoose.trusted({ $in: ["connected", "needs_attention"] }),
     }),
     Contact.findById(conversation.contactId),
   ]);
@@ -567,7 +619,7 @@ conversationsRouter.post("/:id/template", async (req, res) => {
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.post("/:id/messages", async (req, res) => {
+conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 
@@ -577,8 +629,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
 
     const { content, attachments = [], replyToMessageId = "", clientMessageId = "" } = req.body || {};
     const mediaAttachments = cleanAttachments(attachments);
+    const messageBody = content.trim();
 
-    if (!content?.trim() && mediaAttachments.length === 0) {
+    if (!messageBody && mediaAttachments.length === 0) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
     }
 
@@ -590,16 +643,41 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
     }
 
     const [account, contact] = await Promise.all([
-      WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: { $in: ["connected", "needs_attention"] } }).sort({ createdAt: -1 }),
+      WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) }).sort({ createdAt: -1 }),
       Contact.findById(conversation.contactId),
     ]);
+    const outboundMessage = await Message.create({
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      conversationId: conversation._id,
+      contactId: conversation.contactId,
+      whatsappAccountId: conversation.whatsappAccountId || account?._id,
+      direction: "outbound",
+      type: messageTypeForAttachments(mediaAttachments),
+      body: messageBody,
+      attachments: mediaAttachments,
+      clientMessageId: clientMessageId || undefined,
+      status: "queued",
+      sentByUserId: req.user.sub,
+      metadata: {
+        providerMode: account?.provider || "meta",
+        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(replyToMessageId ? { replyToMessageId } : {}),
+      },
+    });
+
+    conversation.lastMessageId = outboundMessage._id;
+    conversation.lastMessageAt = outboundMessage.createdAt;
+    await conversation.save();
+    await publishConversationChanged(conversation._id);
+
     let providerResult;
 
     try {
       providerResult = await sendWhatsAppText({
         account,
         to: contact?.phone,
-        body: content.trim() || "Attachment",
+        body: messageBody,
         attachments: mediaAttachments,
       });
     } catch (error) {
@@ -609,34 +687,20 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
         await account.save();
       }
 
-      const failedMessage = await Message.create({
-        organizationId: req.user.organizationId,
-        workspaceId: req.user.workspaceId,
-        conversationId: conversation._id,
-        contactId: conversation.contactId,
-        whatsappAccountId: conversation.whatsappAccountId || account?._id,
-        direction: "outbound",
-        type: messageTypeForAttachments(mediaAttachments),
-        body: content.trim() || "Attachment",
-        attachments: mediaAttachments,
-        providerMessageId: `failed_${Date.now()}`,
-        clientMessageId: clientMessageId || undefined,
-        status: "failed",
-        sentByUserId: req.user.sub,
-        sentAt: new Date(),
-        metadata: {
-          providerMode: "meta",
-          ...(clientMessageId ? { clientMessageId } : {}),
-          ...(replyToMessageId ? { replyToMessageId } : {}),
-          error: error.message,
-          meta: error.meta,
-        },
-      });
+      outboundMessage.status = "failed";
+      outboundMessage.sentAt = new Date();
+      outboundMessage.providerMessageId = `failed_${outboundMessage._id}`;
+      outboundMessage.metadata = {
+        ...(outboundMessage.metadata || {}),
+        error: error.message,
+        meta: error.meta,
+      };
+      await outboundMessage.save();
 
-      conversation.lastMessageId = failedMessage._id;
-      conversation.lastMessageAt = failedMessage.sentAt;
+      conversation.lastMessageId = outboundMessage._id;
+      conversation.lastMessageAt = outboundMessage.sentAt;
       await conversation.save();
-      await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: failedMessage.sentAt });
+      await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: outboundMessage.sentAt });
       await publishConversationChanged(conversation._id);
 
       return res.status(error.status || 502).json({
@@ -646,31 +710,23 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       });
     }
 
-    const message = await Message.create({
-      organizationId: req.user.organizationId,
-      workspaceId: req.user.workspaceId,
-      conversationId: conversation._id,
-      contactId: conversation.contactId,
-      whatsappAccountId: conversation.whatsappAccountId || account?._id,
-      direction: "outbound",
-      type: messageTypeForAttachments(mediaAttachments),
-      body: content.trim() || "Attachment",
-      attachments: mediaAttachments,
-      providerMessageId: providerResult.providerMessageId,
-      clientMessageId: clientMessageId || undefined,
-      status: providerResult.status,
-      sentByUserId: req.user.sub,
-      sentAt: new Date(),
-      metadata: { providerMode: providerResult.mode, ...(clientMessageId ? { clientMessageId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}) },
-    });
+    outboundMessage.whatsappAccountId = conversation.whatsappAccountId || account?._id;
+    outboundMessage.providerMessageId = providerResult.providerMessageId;
+    outboundMessage.status = providerResult.status;
+    outboundMessage.sentAt = new Date();
+    outboundMessage.metadata = {
+      ...(outboundMessage.metadata || {}),
+      providerMode: providerResult.mode,
+    };
+    await outboundMessage.save();
 
-    conversation.lastMessageId = message._id;
-    conversation.lastMessageAt = message.sentAt;
+    conversation.lastMessageId = outboundMessage._id;
+    conversation.lastMessageAt = outboundMessage.sentAt;
     await conversation.save();
-    await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: message.sentAt });
+    await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: outboundMessage.sentAt });
 
     await publishConversationChanged(conversation._id);
-    return res.status(201).json({ data: serializeMessage(message) });
+    return res.status(201).json({ data: serializeMessage(outboundMessage) });
   }
 
   const conversation = conversations.find((item) => item.id === req.params.id);
@@ -700,7 +756,7 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
   res.status(201).json({ data: message });
 });
 
-conversationsRouter.post("/:id/notes", async (req, res) => {
+conversationsRouter.post("/:id/notes", requirePermission("inbox:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -783,7 +839,7 @@ async function updateMessageReceiptById(req, res) {
       _id: req.params.messageId,
       conversationId: req.params.conversationId,
       workspaceId: req.user.workspaceId,
-      deletedAt: { $exists: false },
+      deletedAt: mongoose.trusted({ $exists: false }),
     },
     {
       status,
@@ -814,7 +870,7 @@ async function getMessageInfoById(req, res) {
     _id: req.params.messageId,
     conversationId: req.params.conversationId,
     workspaceId: req.user.workspaceId,
-    deletedAt: { $exists: false },
+    deletedAt: mongoose.trusted({ $exists: false }),
   });
 
   if (!message) {
@@ -856,7 +912,7 @@ async function updateMessageActionsById(req, res) {
       _id: req.params.messageId,
       conversationId: req.params.conversationId,
       workspaceId: req.user.workspaceId,
-      deletedAt: { $exists: false },
+      deletedAt: mongoose.trusted({ $exists: false }),
     },
     allowed,
     { new: true }
@@ -896,7 +952,7 @@ async function deleteConversationMessageById(req, res) {
       _id: req.params.messageId,
       conversationId: req.params.conversationId,
       workspaceId: req.user.workspaceId,
-      deletedAt: { $exists: false },
+      deletedAt: mongoose.trusted({ $exists: false }),
     },
     update,
     { new: true }

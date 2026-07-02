@@ -11,7 +11,7 @@ import {
   Template,
   WebhookEvent,
 } from "../models/index.js";
-import { hasPermission } from "../middleware/auth.js";
+import { hasPermission, requirePermission } from "../middleware/auth.js";
 
 export const analyticsRouter = Router();
 
@@ -20,6 +20,20 @@ function daysAgo(days) {
   date.setDate(date.getDate() - days);
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function parseDateRange(query = {}) {
+  const days = Math.max(1, Math.min(365, Number(query.days || 14)));
+  const fallbackFrom = daysAgo(days);
+  const from = query.from ? new Date(query.from) : fallbackFrom;
+  const to = query.to ? new Date(query.to) : new Date();
+  const safeFrom = Number.isNaN(from.getTime()) ? fallbackFrom : from;
+  const safeTo = Number.isNaN(to.getTime()) ? new Date() : to;
+  safeFrom.setHours(0, 0, 0, 0);
+  safeTo.setHours(23, 59, 59, 999);
+  return safeFrom <= safeTo
+    ? { days, from: safeFrom, to: safeTo }
+    : { days, from: safeTo, to: safeFrom };
 }
 
 function dayKey(date) {
@@ -77,6 +91,18 @@ function makeSimplePdf(title, lines = []) {
 function emptyPayload() {
   return {
     kpis: [],
+    metrics: {
+      totalContacts: 0,
+      newLeads: 0,
+      openConversations: 0,
+      unreadMessages: 0,
+      responseTimeMinutes: 0,
+      responseTimeLabel: "0m",
+      leadConversionRate: 0,
+      campaign: { sent: 0, delivered: 0, read: 0, failed: 0 },
+      automationRuns: 0,
+    },
+    filters: { from: "", to: "", memberId: "all", teamMembers: [] },
     messageVolume: [],
     agentPerformance: [],
     sourceBreakdown: [],
@@ -98,27 +124,38 @@ function emptyPayload() {
   };
 }
 
-async function buildAnalytics(req, days = 14) {
+async function buildAnalytics(req) {
   const workspaceId = new mongoose.Types.ObjectId(req.user.workspaceId);
   const userId = req.user.sub;
   const canViewTeam = hasPermission(req.user, "team:read") || hasPermission(req.user, "reports:read");
-  const since = daysAgo(days);
+  const { days, from: since, to: until } = parseDateRange(req.query);
   const today = daysAgo(0);
+  const memberId = canViewTeam && mongoose.Types.ObjectId.isValid(req.query.memberId) ? req.query.memberId : "";
   const conversationScope = { workspaceId };
   if (!canViewTeam) {
     conversationScope.$or = [{ assignedToUserId: userId }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+  }
+  if (memberId) {
+    conversationScope.assignedToUserId = new mongoose.Types.ObjectId(memberId);
+    delete conversationScope.$or;
   }
 
   const scopedConversations = await Conversation.find(conversationScope).select("_id assignedToUserId createdAt updatedAt status metadata");
   const conversationIds = scopedConversations.map((conversation) => conversation._id);
   const messageScope = { workspaceId, ...(canViewTeam ? {} : { conversationId: { $in: conversationIds } }) };
+  if (memberId || !canViewTeam) messageScope.conversationId = { $in: conversationIds };
+  const dateMatch = { $gte: since, $lte: until };
 
   const [
+    totalContacts,
     totalMessages,
     inboundMessages,
     outboundMessages,
     failedMessages,
     newContacts,
+    newLeads,
+    openConversations,
+    unreadRows,
     totalCustomers,
     totalConversations,
     resolvedConversations,
@@ -137,16 +174,20 @@ async function buildAnalytics(req, days = 14) {
     heatRows,
     recentMessages,
   ] = await Promise.all([
-    Message.countDocuments({ ...messageScope, createdAt: { $gte: since } }),
-    Message.countDocuments({ ...messageScope, direction: "inbound", createdAt: { $gte: since } }),
-    Message.countDocuments({ ...messageScope, direction: "outbound", createdAt: { $gte: since } }),
-    Message.countDocuments({ ...messageScope, status: "failed", createdAt: { $gte: since } }),
-    Contact.countDocuments({ workspaceId, createdAt: { $gte: since } }),
     Contact.countDocuments({ workspaceId }),
-    scopedConversations.filter((conversation) => conversation.createdAt >= since).length,
-    scopedConversations.filter((conversation) => conversation.status === "resolved" && conversation.updatedAt >= since).length,
+    Message.countDocuments({ ...messageScope, createdAt: dateMatch }),
+    Message.countDocuments({ ...messageScope, direction: "inbound", createdAt: dateMatch }),
+    Message.countDocuments({ ...messageScope, direction: "outbound", createdAt: dateMatch }),
+    Message.countDocuments({ ...messageScope, status: "failed", createdAt: dateMatch }),
+    Contact.countDocuments({ workspaceId, createdAt: dateMatch }),
+    Lead.countDocuments({ workspaceId, createdAt: dateMatch }),
+    Conversation.countDocuments({ ...conversationScope, status: { $in: ["open", "pending"] } }),
+    Conversation.find({ ...conversationScope, status: { $ne: "archived" } }).select("unreadCountByUser"),
+    Contact.countDocuments({ workspaceId }),
+    scopedConversations.filter((conversation) => conversation.createdAt >= since && conversation.createdAt <= until).length,
+    scopedConversations.filter((conversation) => conversation.status === "resolved" && conversation.updatedAt >= since && conversation.updatedAt <= until).length,
     Message.aggregate([
-      { $match: { ...messageScope, createdAt: { $gte: since } } },
+      { $match: { ...messageScope, createdAt: dateMatch } },
       { $group: { _id: { day: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }, direction: "$direction" }, count: { $sum: 1 } } },
       { $sort: { "_id.day": 1 } },
     ]),
@@ -156,7 +197,7 @@ async function buildAnalytics(req, days = 14) {
       { $sort: { count: -1 } },
       { $limit: 8 },
     ]),
-    Campaign.find({ workspaceId }).populate("templateId").sort({ updatedAt: -1 }).limit(12),
+    Campaign.find({ workspaceId, updatedAt: dateMatch }).populate("templateId").sort({ updatedAt: -1 }).limit(12),
     AutomationFlow.find({ workspaceId }).sort({ updatedAt: -1 }).limit(12),
     Template.find({ workspaceId }).sort({ updatedAt: -1 }).limit(16),
     Membership.find({ workspaceId, status: "active" }).populate("userId", "name email").populate("roleId", "key"),
@@ -169,18 +210,18 @@ async function buildAnalytics(req, days = 14) {
       { $group: { _id: "$assignedToUserId", resolved: { $sum: 1 } } },
     ]),
     WebhookEvent.aggregate([
-      { $match: { workspaceId, createdAt: { $gte: since } } },
+      { $match: { workspaceId, createdAt: dateMatch } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
-    Message.find({ ...messageScope, status: "failed" }).populate("contactId", "name phone").sort({ createdAt: -1 }).limit(10),
-    Lead.find({ workspaceId, updatedAt: { $gte: since } }).populate("contactId", "name phone source").sort({ updatedAt: -1 }).limit(300),
+    Message.find({ ...messageScope, status: "failed", createdAt: dateMatch }).populate("contactId", "name phone").sort({ createdAt: -1 }).limit(10),
+    Lead.find({ workspaceId, updatedAt: dateMatch }).populate("contactId", "name phone source").sort({ updatedAt: -1 }).limit(300),
     Message.aggregate([
-      { $match: { ...messageScope, createdAt: { $gte: since } } },
+      { $match: { ...messageScope, createdAt: dateMatch } },
       { $group: { _id: { hour: { $hour: "$createdAt" } }, count: { $sum: 1 } } },
       { $sort: { "_id.hour": 1 } },
     ]),
     Message.aggregate([
-      { $match: { ...messageScope, createdAt: { $gte: since } } },
+      { $match: { ...messageScope, createdAt: dateMatch } },
       { $group: { _id: { day: { $dayOfWeek: "$createdAt" }, hour: { $hour: "$createdAt" } }, count: { $sum: 1 } } },
     ]),
     Message.find({ ...messageScope, createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } }).sort({ createdAt: 1 }).limit(200),
@@ -196,11 +237,11 @@ async function buildAnalytics(req, days = 14) {
     if (item) item[row._id.direction] = row.count;
   }
 
-  const inboundByConversation = await Message.find({ ...messageScope, direction: "inbound", createdAt: { $gte: since } })
+  const inboundByConversation = await Message.find({ ...messageScope, direction: "inbound", createdAt: dateMatch })
     .select("conversationId createdAt")
     .sort({ createdAt: 1 })
     .limit(2000);
-  const outboundByConversation = await Message.find({ ...messageScope, direction: "outbound", createdAt: { $gte: since } })
+  const outboundByConversation = await Message.find({ ...messageScope, direction: "outbound", createdAt: dateMatch })
     .select("conversationId createdAt")
     .sort({ createdAt: 1 })
     .limit(2000);
@@ -218,6 +259,12 @@ async function buildAnalytics(req, days = 14) {
     .filter((conversation) => conversation.status === "resolved")
     .map((conversation) => minutesBetween(conversation.createdAt, conversation.updatedAt));
   const avgResolution = avg(resolutionDurations);
+  const unreadMessages = unreadRows.reduce((sum, conversation) => {
+    if (canViewTeam) {
+      return sum + Array.from(conversation.unreadCountByUser?.values?.() || []).reduce((itemSum, value) => itemSum + Number(value || 0), 0);
+    }
+    return sum + Number(conversation.unreadCountByUser?.get?.(String(userId)) || 0);
+  }, 0);
 
   const webhookMap = new Map(webhookCounts.map((item) => [item._id, item.count]));
   const webhookProcessed = webhookMap.get("processed") || 0;
@@ -261,6 +308,22 @@ async function buildAnalytics(req, days = 14) {
       conversionRate: percent(conversions, sent),
     };
   });
+  const campaignTotals = campaignPerformance.reduce(
+    (acc, campaign) => ({
+      sent: acc.sent + campaign.sent,
+      delivered: acc.delivered + campaign.delivered,
+      read: acc.read + campaign.read,
+      failed: acc.failed + campaign.failed,
+    }),
+    { sent: 0, delivered: 0, read: 0, failed: 0 }
+  );
+  const automationRuns = automations.reduce((sum, flow) => {
+    const rangedLogs = (flow.runLogs || []).filter((log) => {
+    const date = new Date(log.at || log.createdAt || 0);
+    return date >= since && date <= until;
+    }).length;
+    return sum + (rangedLogs || Number(flow.trigger?.runs || 0));
+  }, 0);
 
   const campaignByTemplate = new Map();
   campaignPerformance.forEach((campaign) => {
@@ -274,11 +337,36 @@ async function buildAnalytics(req, days = 14) {
   });
 
   return {
+    filters: {
+      from: since.toISOString().slice(0, 10),
+      to: until.toISOString().slice(0, 10),
+      memberId: memberId || "all",
+      teamMembers: memberships.map((membership) => ({
+        id: membership.userId?._id?.toString?.() || "",
+        name: membership.userId?.name || membership.userId?.email || "Team member",
+        role: membership.roleId?.key || "agent",
+      })).filter((member) => member.id),
+    },
+    metrics: {
+      totalContacts,
+      newLeads,
+      openConversations,
+      unreadMessages,
+      responseTimeMinutes: avgResponse,
+      responseTimeLabel: formatDuration(avgResponse),
+      leadConversionRate: percent(wonLeads, leads.length),
+      campaign: campaignTotals,
+      automationRuns,
+    },
     kpis: [
-      { label: "Messages", value: String(totalMessages), delta: "+0%", up: true },
-      { label: "Customers", value: String(totalCustomers), delta: `${newContacts} new`, up: true },
+      { label: "Total contacts", value: String(totalCustomers), delta: `${newContacts} new`, up: true },
+      { label: "New leads", value: String(newLeads), delta: `${percent(newLeads, totalCustomers)}% of contacts`, up: true },
+      { label: "Open conversations", value: String(openConversations), delta: `${unreadMessages} unread`, up: true },
       { label: "Response Time", value: formatDuration(avgResponse), delta: "avg", up: true },
-      { label: "Conversion", value: `${percent(wonLeads, leads.length)}%`, delta: `${wonLeads} won`, up: true },
+      { label: "Lead conversion", value: `${percent(wonLeads, leads.length)}%`, delta: `${wonLeads} won`, up: true },
+      { label: "Campaign sent", value: String(campaignTotals.sent), delta: `${campaignTotals.failed} failed`, up: campaignTotals.failed === 0 },
+      { label: "Automation runs", value: String(automationRuns), delta: `${automations.length} flows`, up: true },
+      { label: "Messages", value: String(totalMessages), delta: `${inboundMessages} in / ${outboundMessages} out`, up: true },
     ],
     messageVolume: Array.from(volumeByDay.values()),
     agentPerformance: memberships.map((membership) => ({
@@ -358,18 +446,17 @@ async function buildAnalytics(req, days = 14) {
   };
 }
 
-analyticsRouter.get("/summary", async (req, res) => {
+analyticsRouter.get("/summary", requirePermission("reports:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     return res.json(emptyPayload());
   }
 
-  const days = Math.max(1, Math.min(365, Number(req.query.days || 14)));
-  res.json(await buildAnalytics(req, days));
+  res.json(await buildAnalytics(req));
 });
 
-analyticsRouter.get("/export/excel", async (req, res) => {
+analyticsRouter.get("/export/excel", requirePermission("reports:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
-  const analytics = await buildAnalytics(req, Math.max(1, Math.min(365, Number(req.query.days || 30))));
+  const analytics = await buildAnalytics(req);
   const rows = [
     ...analytics.kpis.map((item) => ({ section: "KPI", metric: item.label, value: item.value, detail: item.delta })),
     ...analytics.campaignPerformance.map((item) => ({ section: "Campaign", metric: item.name, value: item.sent, detail: `${item.deliveryRate}% delivery` })),
@@ -381,9 +468,9 @@ analyticsRouter.get("/export/excel", async (req, res) => {
   res.send(jsonCsv(rows));
 });
 
-analyticsRouter.get("/export/pdf", async (req, res) => {
+analyticsRouter.get("/export/pdf", requirePermission("reports:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
-  const analytics = await buildAnalytics(req, Math.max(1, Math.min(365, Number(req.query.days || 30))));
+  const analytics = await buildAnalytics(req);
   const lines = [
     ...analytics.kpis.map((item) => `${item.label}: ${item.value} ${item.delta}`),
     `Revenue: ${analytics.revenue.total}`,

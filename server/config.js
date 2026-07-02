@@ -1,8 +1,17 @@
 import "dotenv/config";
 
+function numberFromEnv(name, fallback) {
+  const value = Number(process.env[name] || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function listFromEnv(name) {
+  return (process.env[name] || "").split(",").map((origin) => origin.trim()).filter(Boolean);
+}
+
 export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
-  port: Number(process.env.PORT || 4000),
+  port: numberFromEnv("PORT", 4000),
   mongoUri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/whatscrm",
   jwtSecret: process.env.JWT_SECRET || "dev-only-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "15m",
@@ -11,11 +20,11 @@ export const config = {
   demoMode: process.env.DEMO_MODE !== "false",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
   cdnBaseUrl: process.env.CDN_BASE_URL || "",
-  corsOrigins: (process.env.CORS_ORIGINS || "").split(",").map((origin) => origin.trim()).filter(Boolean),
+  corsOrigins: listFromEnv("CORS_ORIGINS"),
   redisUrl: process.env.REDIS_URL || "",
   rabbitmqUrl: process.env.RABBITMQ_URL || "",
-  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60000),
-  rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 600),
+  rateLimitWindowMs: numberFromEnv("RATE_LIMIT_WINDOW_MS", 60000),
+  rateLimitMax: numberFromEnv("RATE_LIMIT_MAX", 600),
   s3: {
     enabled: process.env.MEDIA_STORAGE_DRIVER === "s3",
     bucket: process.env.S3_BUCKET || "",
@@ -39,8 +48,13 @@ export const config = {
 export function validateProductionConfig() {
   if (config.nodeEnv !== "production") return;
   const missing = [];
-  if (!process.env.JWT_SECRET || config.jwtSecret === "dev-only-secret-change-me") missing.push("JWT_SECRET");
+  if (!process.env.JWT_SECRET || config.jwtSecret === "dev-only-secret-change-me") {
+    missing.push("JWT_SECRET");
+  } else if (config.jwtSecret.length < 32) {
+    missing.push("JWT_SECRET (minimum 32 characters)");
+  }
   if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
+  if (config.s3.enabled && !config.s3.bucket) missing.push("S3_BUCKET");
   if (missing.length) {
     throw new Error(`Production configuration missing secure values: ${missing.join(", ")}`);
   }

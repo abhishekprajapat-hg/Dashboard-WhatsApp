@@ -1,7 +1,9 @@
 import { Router } from "express";
+import crypto from "crypto";
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import {
+  Campaign,
   Contact,
   Conversation,
   Membership,
@@ -10,13 +12,17 @@ import {
   WebhookEvent,
   WhatsAppAccount,
 } from "../models/index.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { publishConversationChanged } from "../realtime/events.js";
-import { ensureConversationInCrm } from "../services/crm.js";
-import { syncLeadToGoogleSheet } from "../services/googleSheets.js";
+import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
+import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
 import { absoluteBaseUrl, mediaTypeFor } from "../services/mediaStorage.js";
 import {
+  credentialSummary,
+  decodeCredentials,
+  encodeCredentials,
   fetchWhatsAppTemplates,
   normalizeTwilioWebhookPayload,
   normalizeWatiWebhookPayload,
@@ -29,6 +35,7 @@ export const whatsappRouter = Router();
 export const whatsappWebhookRouter = Router();
 
 function serializeAccount(account) {
+  const credentials = credentialSummary(account);
   return {
     id: account._id.toString(),
     displayName: account.displayName,
@@ -41,7 +48,12 @@ function serializeAccount(account) {
     templateSyncStatus: account.templateSyncStatus,
     status: account.status,
     lastSyncedAt: account.lastSyncedAt,
+    credentials,
   };
+}
+
+function cleanString(value) {
+  return String(value || "").trim();
 }
 
 function isMetaAdReferral(referral) {
@@ -74,7 +86,7 @@ async function findReusableContactAndConversation({ account, phone }) {
   const phoneValues = phoneLookupValues(phone);
   const contacts = await Contact.find({
     workspaceId: account.workspaceId,
-    phone: { $in: phoneValues },
+    phone: mongoose.trusted({ $in: phoneValues }),
   }).sort({ lastMessageAt: -1, updatedAt: -1 });
 
   if (!contacts.length) {
@@ -84,8 +96,8 @@ async function findReusableContactAndConversation({ account, phone }) {
   const contactIds = contacts.map((contact) => contact._id);
   const existingConversation = await Conversation.findOne({
     workspaceId: account.workspaceId,
-    contactId: { $in: contactIds },
-    status: { $ne: "resolved" },
+    contactId: mongoose.trusted({ $in: contactIds }),
+    status: mongoose.trusted({ $ne: "resolved" }),
   }).sort({ createdAt: 1 });
 
   const contact = existingConversation
@@ -106,7 +118,27 @@ function serializeTemplate(template) {
   };
 }
 
-whatsappRouter.use(requireAuth);
+async function hasMatchingVerifyToken(token) {
+  if (!token) return false;
+  if (token === config.whatsappVerifyToken) return true;
+  if (mongoose.connection.readyState !== 1) return false;
+  const accounts = await WhatsAppAccount.find({ provider: "meta" }).select("encryptedCredentials");
+  return accounts.some((account) => decodeCredentials(account).verifyToken === token);
+}
+
+function hasValidMetaSignature(req, appSecret) {
+  if (!appSecret) return true;
+  const header = String(req.headers["x-hub-signature-256"] || "");
+  const expectedPrefix = "sha256=";
+  if (!header.startsWith(expectedPrefix) || !req.rawBody) return false;
+
+  const digest = `${expectedPrefix}${crypto.createHmac("sha256", appSecret).update(req.rawBody).digest("hex")}`;
+  const headerBuffer = Buffer.from(header);
+  const digestBuffer = Buffer.from(digest);
+  return headerBuffer.length === digestBuffer.length && crypto.timingSafeEqual(headerBuffer, digestBuffer);
+}
+
+whatsappRouter.use(requireAuth, requireWorkspaceContext);
 
 function shortTime(date) {
   if (!date) return "";
@@ -118,12 +150,12 @@ function shortTime(date) {
   });
 }
 
-whatsappRouter.get("/accounts", async (req, res) => {
+whatsappRouter.get("/accounts", requirePermission("settings:read"), async (req, res) => {
   const accounts = await WhatsAppAccount.find({ workspaceId: req.user.workspaceId }).sort({ createdAt: -1 });
   res.json({ data: accounts.map(serializeAccount), total: accounts.length });
 });
 
-whatsappRouter.get("/console", async (req, res) => {
+whatsappRouter.get("/console", requirePermission("settings:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({
       health: { status: "offline", connectedAccounts: 0, healthyWebhooks: 0, needsAttention: 0 },
@@ -227,7 +259,7 @@ whatsappRouter.get("/console", async (req, res) => {
   });
 });
 
-whatsappRouter.post("/accounts", async (req, res) => {
+whatsappRouter.post("/accounts", requirePermission("settings:write"), async (req, res) => {
   const {
     provider = "meta",
     displayName,
@@ -240,6 +272,8 @@ whatsappRouter.post("/accounts", async (req, res) => {
     apiKey = "",
     apiBaseUrl = "",
     tenantId = "",
+    verifyToken = "",
+    appSecret = "",
   } = req.body || {};
 
   const providerKey = String(provider || "meta").toLowerCase();
@@ -254,13 +288,22 @@ whatsappRouter.post("/accounts", async (req, res) => {
     });
   }
 
+  const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
+  const existingCredentials = existingAccount ? decodeCredentials(existingAccount) : {};
+  const tokenValue = cleanString(accessToken) || existingCredentials.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "local-placeholder-token";
+  const verifyTokenValue = cleanString(verifyToken) || existingCredentials.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken;
+  const appSecretValue = cleanString(appSecret) || existingCredentials.appSecret || process.env.WHATSAPP_APP_SECRET || "";
+
   const credentials = {
+    ...existingCredentials,
     provider: providerKey,
-    accessToken,
-    accountSid,
-    authToken,
-    apiKey,
-    apiBaseUrl,
+    accessToken: tokenValue,
+    accountSid: cleanString(accountSid) || existingCredentials.accountSid || "",
+    authToken: cleanString(authToken) || existingCredentials.authToken || "",
+    apiKey: cleanString(apiKey) || existingCredentials.apiKey || "",
+    apiBaseUrl: cleanString(apiBaseUrl) || existingCredentials.apiBaseUrl || "",
+    verifyToken: verifyTokenValue,
+    appSecret: appSecretValue,
   };
 
   const account = await WhatsAppAccount.findOneAndUpdate(
@@ -272,7 +315,7 @@ whatsappRouter.post("/accounts", async (req, res) => {
       phoneNumber,
       phoneNumberId,
       businessAccountId,
-      encryptedCredentials: Buffer.from(JSON.stringify(credentials)).toString("base64"),
+      encryptedCredentials: encodeCredentials(credentials),
       provider: providerKey,
       providerConfig: {
         tenantId: tenantId || businessAccountId,
@@ -282,6 +325,8 @@ whatsappRouter.post("/accounts", async (req, res) => {
       webhookStatus: "healthy",
       templateSyncStatus: "pending",
       status: "connected",
+      lastError: "",
+      credentialsUpdatedAt: new Date(),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
@@ -289,7 +334,7 @@ whatsappRouter.post("/accounts", async (req, res) => {
   res.status(201).json({ data: serializeAccount(account) });
 });
 
-whatsappRouter.delete("/accounts/:id", async (req, res) => {
+whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
   }
@@ -304,7 +349,7 @@ whatsappRouter.delete("/accounts/:id", async (req, res) => {
   res.sendStatus(204);
 });
 
-whatsappRouter.get("/templates", async (req, res) => {
+whatsappRouter.get("/templates", requirePermission("settings:read"), async (req, res) => {
   const filter = { workspaceId: req.user.workspaceId };
   if (req.query.accountId && mongoose.Types.ObjectId.isValid(req.query.accountId)) {
     filter.whatsappAccountId = req.query.accountId;
@@ -314,7 +359,7 @@ whatsappRouter.get("/templates", async (req, res) => {
   res.json({ data: templates.map(serializeTemplate), total: templates.length });
 });
 
-whatsappRouter.post("/templates", async (req, res) => {
+whatsappRouter.post("/templates", requirePermission("settings:write"), async (req, res) => {
   const { accountId, name = "", language = "en", category = "UTILITY", body = "" } = req.body || {};
 
   if (!name.trim()) {
@@ -323,7 +368,7 @@ whatsappRouter.post("/templates", async (req, res) => {
 
   const accountFilter = {
     workspaceId: req.user.workspaceId,
-    status: { $in: ["connected", "needs_attention"] },
+    status: mongoose.trusted({ $in: ["connected", "needs_attention"] }),
   };
   if (accountId && mongoose.Types.ObjectId.isValid(accountId)) {
     accountFilter._id = accountId;
@@ -368,7 +413,7 @@ whatsappRouter.post("/templates", async (req, res) => {
   res.status(201).json({ data: serializeTemplate(template) });
 });
 
-whatsappRouter.post("/accounts/:id/sync-templates", async (req, res) => {
+whatsappRouter.post("/accounts/:id/sync-templates", requirePermission("settings:write"), async (req, res) => {
   const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 
   if (!account) {
@@ -404,7 +449,7 @@ whatsappRouter.post("/accounts/:id/sync-templates", async (req, res) => {
   res.json({ account: serializeAccount(account), templates: templates.map(serializeTemplate) });
 });
 
-whatsappRouter.post("/accounts/:id/test", async (req, res) => {
+whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
   }
@@ -419,11 +464,15 @@ whatsappRouter.post("/accounts/:id/test", async (req, res) => {
     account.status = "connected";
     account.webhookStatus = "healthy";
     account.lastSyncedAt = new Date();
+    account.lastTestedAt = new Date();
+    account.lastError = "";
     await account.save();
     res.json({ result, account: serializeAccount(account) });
   } catch (error) {
     account.status = "needs_attention";
     account.webhookStatus = "needs_attention";
+    account.lastTestedAt = new Date();
+    account.lastError = error.message || "Connection test failed.";
     await account.save();
     res.status(error.status || 502).json({
       error: error.code || "CONNECTION_TEST_FAILED",
@@ -433,12 +482,12 @@ whatsappRouter.post("/accounts/:id/test", async (req, res) => {
   }
 });
 
-whatsappWebhookRouter.get("/", (req, res) => {
+whatsappWebhookRouter.get("/", async (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === config.whatsappVerifyToken) {
+  if (mode === "subscribe" && await hasMatchingVerifyToken(token)) {
     return res.status(200).send(challenge);
   }
 
@@ -462,6 +511,13 @@ async function findWebhookAccount(normalized, provider = "meta") {
 async function handleProviderWebhook({ normalized, provider, req, res }) {
   const account = await findWebhookAccount(normalized, provider);
 
+  if (provider === "meta" && account) {
+    const credentials = decodeCredentials(account);
+    if (!hasValidMetaSignature(req, credentials.appSecret)) {
+      return res.status(403).json({ error: "INVALID_SIGNATURE", message: "WhatsApp webhook signature verification failed." });
+    }
+  }
+
   const event = await WebhookEvent.findOneAndUpdate(
     { idempotencyKey: normalized.idempotencyKey },
     {
@@ -477,9 +533,25 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
 
   try {
     if (normalized.type === "message" && account) {
+      const existingMessage = normalized.providerMessageId
+        ? await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id conversationId")
+        : null;
+      if (existingMessage) {
+        event.status = "processed";
+        event.processedAt = new Date();
+        event.metadata = {
+          ...(event.metadata || {}),
+          duplicateMessage: true,
+          messageId: existingMessage._id,
+        };
+        await event.save();
+        await publishConversationChanged(existingMessage.conversationId);
+        return res.sendStatus(200);
+      }
+
       const isAdLead = isMetaAdReferral(normalized.referral);
       const attachments = await resolveInboundMedia({ account, normalized, baseUrl: absoluteBaseUrl(req) });
-      const messageBody = normalized.body || attachments[0]?.caption || (attachments.length ? "Attachment" : "");
+      const messageBody = normalized.body || attachments[0]?.caption || "";
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const found = await findReusableContactAndConversation({ account, phone: normalized.from });
       const waName = normalized.profile?.waName || found.contact?.waName || found.contact?.name || normalized.from;
@@ -560,20 +632,32 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
 
       conversation.lastMessageId = message._id;
       conversation.lastMessageAt = message.receivedAt || new Date();
-      const crmResult = await ensureConversationInCrm({
-        contact,
-        conversation,
-        inboundMessage: message,
+      const leadDetection = detectWhatsAppLead({
         normalized,
-        source: isAdLead ? "meta_ad" : "whatsapp_inbound",
+        message,
+        isAdLead,
+        isFirstConversation: !existingConversation,
       });
-      contact = crmResult.contact || contact;
-      if (isAdLead) {
-        try {
-          await syncLeadToGoogleSheet({ contact, conversation, message });
-        } catch (sheetError) {
-          event.error = `Google Sheet sync failed: ${sheetError.message}`;
-        }
+      if (leadDetection.isLead) {
+        const crmResult = await ensureConversationInCrm({
+          contact,
+          conversation,
+          inboundMessage: message,
+          normalized,
+          source: isAdLead ? "meta_ad" : "whatsapp_inbound",
+          stage: leadDetection.stage,
+          detection: leadDetection,
+        });
+        contact = crmResult.contact || contact;
+        syncLeadToGoogleSheetInBackground({
+          contact,
+          conversation,
+          message,
+          lead: crmResult.lead,
+          onError: (sheetError) => {
+            console.warn(`Google Sheet lead sync failed: ${sheetError.message}`);
+          },
+        });
       }
       const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
       for (const membership of memberships) {
@@ -590,6 +674,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
         conversation,
         inboundMessage: message,
         isNewConversation: !existingConversation,
+        isNewLead: Boolean(leadDetection.isLead),
       });
       if (automationResults.length) {
         event.metadata = {
@@ -600,13 +685,68 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
     }
 
     if (normalized.type === "status" && account) {
+      const status = ["sent", "delivered", "read", "failed"].includes(normalized.status) ? normalized.status : "delivered";
+      const now = new Date();
       const message = await Message.findOneAndUpdate(
         { workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId },
-        { status: normalized.status },
+        {
+          status,
+          ...(status === "delivered" || status === "read" ? { deliveredAt: now } : {}),
+          ...(status === "read" ? { readAt: now } : {}),
+          ...(status === "failed" ? { "metadata.statusError": normalized.raw?.errors || normalized.raw?.error || null } : {}),
+        },
         { new: true }
       );
 
       if (message) {
+        const campaignId = message.metadata?.campaignId;
+        if (campaignId) {
+          const campaign = await Campaign.findOne({ _id: campaignId, workspaceId: account.workspaceId });
+          if (campaign) {
+            const nowValue = now;
+            const updateRecipient = (recipient = {}) => {
+              if (recipient.providerMessageId !== normalized.providerMessageId) return recipient;
+              return {
+                ...recipient,
+                status,
+                error: status === "failed" ? JSON.stringify(normalized.raw?.errors || normalized.raw?.error || "") : recipient.error || "",
+                deliveredAt: status === "delivered" || status === "read" ? (recipient.deliveredAt || nowValue) : recipient.deliveredAt,
+                readAt: status === "read" ? (recipient.readAt || nowValue) : recipient.readAt,
+              };
+            };
+            const deliveryResults = (campaign.deliveryResults?.length ? campaign.deliveryResults : campaign.recipients || []).map(updateRecipient);
+            const counts = deliveryResults.reduce(
+              (acc, recipient) => {
+                const recipientStatus = recipient.status || "queued";
+                if (recipientStatus === "sent") acc.sent += 1;
+                if (recipientStatus === "delivered") acc.delivered += 1;
+                if (recipientStatus === "read") {
+                  acc.delivered += 1;
+                  acc.read += 1;
+                }
+                if (recipientStatus === "failed") acc.failed += 1;
+                return acc;
+              },
+              { sent: 0, delivered: 0, read: 0, failed: 0 }
+            );
+            campaign.deliveryResults = deliveryResults;
+            campaign.recipients = deliveryResults;
+            campaign.metrics = {
+              ...(campaign.metrics || {}),
+              recipients: deliveryResults.length || Number(campaign.metrics?.recipients || 0),
+              sent: Math.max(Number(campaign.metrics?.sent || 0), counts.sent + counts.delivered),
+              delivered: counts.delivered,
+              read: counts.read,
+              failed: counts.failed,
+            };
+            campaign.queue = {
+              ...(campaign.queue || {}),
+              failed: counts.failed,
+              completed: Math.max(Number(campaign.queue?.completed || 0), counts.sent + counts.delivered),
+            };
+            await campaign.save();
+          }
+        }
         await publishConversationChanged(message.conversationId);
       }
     }

@@ -23,10 +23,13 @@ interface WhatsAppBusinessInboxProps {
   crmSaving: boolean;
   assigning: boolean;
   mobileChatOpen: boolean;
+  loading: boolean;
+  error: string;
   onFilterChange: (filter: InboxFilter) => void;
   onSearchChange: (search: string) => void;
   onMessageSearchChange: (value: string) => void;
   onSelectConversation: (id: string) => void;
+  onRetryLoad: () => void;
   onBackToList: () => void;
   onInputChange: (value: string) => void;
   onComposerModeChange: (mode: "reply" | "note") => void;
@@ -40,7 +43,7 @@ interface WhatsAppBusinessInboxProps {
   onStatusChange: (status: Conversation["status"]) => void;
   onConversationSetting: (settings: { pinned?: boolean; muted?: boolean }) => void;
   onLoadOlderMessages: () => void;
-  onAddToCrm: () => void;
+  onAddToCrm: (stage?: string) => void;
 }
 
 export function WhatsAppBusinessInbox({
@@ -61,10 +64,13 @@ export function WhatsAppBusinessInbox({
   crmSaving,
   assigning,
   mobileChatOpen,
+  loading,
+  error,
   onFilterChange,
   onSearchChange,
   onMessageSearchChange,
   onSelectConversation,
+  onRetryLoad,
   onBackToList,
   onInputChange,
   onComposerModeChange,
@@ -102,8 +108,11 @@ export function WhatsAppBusinessInbox({
           search={search}
           currentUserId={currentUserId}
           typingIds={typingIds}
+          loading={loading}
+          error={error}
           onSearchChange={onSearchChange}
           onSelect={onSelectConversation}
+          onRetry={onRetryLoad}
         />
       </div>
 

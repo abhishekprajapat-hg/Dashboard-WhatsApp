@@ -2,7 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { conversations, dashboardSummary } from "../data/demoData.js";
 import { Contact, Conversation, Membership, Message } from "../models/index.js";
-import { hasPermission } from "../middleware/auth.js";
+import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { relativeTime } from "../utils/serializers.js";
 
 export const dashboardRouter = Router();
@@ -54,7 +54,7 @@ async function getTeamWorkload(workspaceId, today) {
   });
 }
 
-dashboardRouter.get("/summary", async (req, res) => {
+dashboardRouter.get("/summary", requirePermission("dashboard:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const workspaceId = req.user.workspaceId;
     const today = startOfToday();

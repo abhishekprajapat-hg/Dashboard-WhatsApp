@@ -2,7 +2,6 @@ import { DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -35,7 +34,9 @@ import {
   Hourglass,
   Mail,
   Map,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   MousePointer2,
   Network,
   Play,
@@ -52,6 +53,10 @@ import {
   Variable,
   Webhook,
   Zap,
+  ZoomIn,
+  ZoomOut,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -72,6 +77,7 @@ interface Flow {
   name: string;
   description: string;
   trigger: string;
+  triggerType?: string;
   keyword: string;
   keywords?: string[];
   actionSummary: string[];
@@ -87,6 +93,22 @@ interface Flow {
   versions?: { version: number; label: string; at: string }[];
   executionLogs?: { at: string; level: string; message: string; nodeId?: string }[];
 }
+
+const simpleTriggerOptions = [
+  { id: "new_message", label: "New message" },
+  { id: "new_lead", label: "New lead" },
+  { id: "keyword_match", label: "Keyword match" },
+  { id: "stage_changed", label: "Stage changed" },
+];
+
+const leadStageOptions = [
+  { id: "new_lead", label: "New lead" },
+  { id: "contacted", label: "Contacted" },
+  { id: "qualified", label: "Qualified" },
+  { id: "proposal_sent", label: "Proposal sent" },
+  { id: "won", label: "Won" },
+  { id: "lost", label: "Lost" },
+];
 
 interface ServerNode {
   id: string;
@@ -253,9 +275,11 @@ function defaultEdges(): Edge[] {
 function BuilderCanvas({
   selectedFlow,
   onFlowSaved,
+  canWrite = false,
 }: {
   selectedFlow?: Flow;
   onFlowSaved: (flow: Flow) => void;
+  canWrite?: boolean;
 }) {
   const reactFlow = useReactFlow();
   const [nodes, setNodes] = useState<Node<AutomationNodeData>[]>(defaultNodes);
@@ -266,6 +290,8 @@ function BuilderCanvas({
   const [testMessage, setTestMessage] = useState("price");
   const [testResult, setTestResult] = useState<TestResult | { error: string } | null>(null);
   const [debugMode, setDebugMode] = useState(true);
+  const [canvasMaximized, setCanvasMaximized] = useState(false);
+  const [canvasLocked, setCanvasLocked] = useState(false);
 
   useEffect(() => {
     if (!selectedFlow) return;
@@ -277,6 +303,11 @@ function BuilderCanvas({
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => reactFlow.fitView({ padding: 0.2, duration: 250 }), 80);
+    return () => window.clearTimeout(timer);
+  }, [canvasMaximized, reactFlow]);
+
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((items) => applyNodeChanges(changes, items)), []);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((items) => applyEdgeChanges(changes, items)), []);
   const onConnect = useCallback((connection: Connection) => {
@@ -284,12 +315,14 @@ function BuilderCanvas({
   }, []);
 
   function onDragStart(event: DragEvent, kind: string) {
+    if (!canWrite) return;
     event.dataTransfer.setData("application/automation-node", kind);
     event.dataTransfer.effectAllowed = "move";
   }
 
   function onDrop(event: DragEvent) {
     event.preventDefault();
+    if (!canWrite) return;
     const kind = event.dataTransfer.getData("application/automation-node");
     if (!kind) return;
     const item = catalogFor(kind);
@@ -306,7 +339,7 @@ function BuilderCanvas({
   }
 
   function updateSelectedConfig(key: string, value: string) {
-    if (!selectedNode) return;
+    if (!canWrite || !selectedNode) return;
     setNodes((items) =>
       items.map((node) =>
         node.id === selectedNode.id
@@ -317,14 +350,15 @@ function BuilderCanvas({
   }
 
   async function saveCanvas(status?: FlowStatus) {
+    if (!canWrite) return;
     setSaving(true);
     try {
       const payload = {
         name: selectedFlow?.name || "Visual Automation Flow",
         status: status || selectedFlow?.status || "draft",
         trigger: {
-          type: "visual",
-          label: "Visual workflow",
+          type: selectedFlow?.triggerType || "new_message",
+          label: selectedFlow?.trigger || "New message",
           description: selectedFlow?.description || "Visual automation builder flow",
           category: selectedFlow?.category || "Visual",
           keyword: "",
@@ -352,6 +386,7 @@ function BuilderCanvas({
   }
 
   async function testFlow() {
+    if (!canWrite) return;
     if (!selectedFlow) {
       await saveCanvas("active");
       return;
@@ -368,8 +403,18 @@ function BuilderCanvas({
     }
   }
 
+  const controlButtonClass =
+    "flex h-9 w-9 items-center justify-center border-b border-white/10 text-white transition last:border-b-0 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_330px] overflow-hidden">
+    <div
+      className={
+        canvasMaximized
+          ? "fixed inset-0 z-50 grid min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-background"
+          : "grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_330px] overflow-hidden"
+      }
+    >
+      {!canvasMaximized ? (
       <aside className="no-scrollbar border-r border-border bg-card/60 p-3 overflow-y-auto">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -382,9 +427,9 @@ function BuilderCanvas({
           {nodeCatalog.map((item) => (
             <button
               key={item.kind}
-              draggable
+              draggable={canWrite}
               onDragStart={(event) => onDragStart(event, item.kind)}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition hover:border-primary/40 hover:bg-secondary"
+              className={`flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition ${canWrite ? "hover:border-primary/40 hover:bg-secondary" : "cursor-not-allowed opacity-60"}`}
             >
               <span className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
                 {iconFor(item.icon)}
@@ -397,18 +442,36 @@ function BuilderCanvas({
           ))}
         </div>
       </aside>
+      ) : null}
 
       <main className="relative min-w-0 bg-[#0b0f14]">
         <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/50 p-2 backdrop-blur">
-          <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
+          {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
             <Save size={13} className="mr-1" /> {saving ? "Saving" : "Save"}
-          </Button>
-          <Button size="sm" variant="outline" className="h-8 border-white/15 bg-black/20 text-xs text-white" onClick={() => saveCanvas("active")} disabled={saving}>
+          </Button>}
+          {canWrite && <Button size="sm" variant="outline" className="h-8 border-white/15 bg-black/20 text-xs text-white" onClick={() => saveCanvas("active")} disabled={saving}>
             Publish
-          </Button>
+          </Button>}
           <Button size="sm" variant="outline" className="h-8 border-white/15 bg-black/20 text-xs text-white" onClick={() => setDebugMode((value) => !value)}>
             Debug {debugMode ? "On" : "Off"}
           </Button>
+        </div>
+        <div className="absolute left-3 bottom-3 z-10 overflow-hidden rounded-md border border-white/15 bg-[#111820]/95 shadow-xl backdrop-blur">
+          <button type="button" className={controlButtonClass} title="Zoom in" aria-label="Zoom in" onClick={() => reactFlow.zoomIn({ duration: 180 })}>
+            <ZoomIn size={16} strokeWidth={2.4} />
+          </button>
+          <button type="button" className={controlButtonClass} title="Zoom out" aria-label="Zoom out" onClick={() => reactFlow.zoomOut({ duration: 180 })}>
+            <ZoomOut size={16} strokeWidth={2.4} />
+          </button>
+          <button type="button" className={controlButtonClass} title="Fit canvas" aria-label="Fit canvas" onClick={() => reactFlow.fitView({ padding: 0.2, duration: 220 })}>
+            <Map size={16} strokeWidth={2.4} />
+          </button>
+          <button type="button" className={controlButtonClass} title={canvasLocked ? "Unlock canvas" : "Lock canvas"} aria-label={canvasLocked ? "Unlock canvas" : "Lock canvas"} onClick={() => setCanvasLocked((value) => !value)}>
+            {canvasLocked ? <Lock size={16} strokeWidth={2.4} /> : <Unlock size={16} strokeWidth={2.4} />}
+          </button>
+          <button type="button" className={controlButtonClass} title={canvasMaximized ? "Exit maximize" : "Maximize canvas"} aria-label={canvasMaximized ? "Exit maximize" : "Maximize canvas"} onClick={() => setCanvasMaximized((value) => !value)}>
+            {canvasMaximized ? <Minimize2 size={16} strokeWidth={2.4} /> : <Maximize2 size={16} strokeWidth={2.4} />}
+          </button>
         </div>
         <ReactFlow
           nodes={nodes}
@@ -424,14 +487,18 @@ function BuilderCanvas({
           minZoom={0.2}
           maxZoom={2}
           panOnScroll
-          selectionOnDrag
+          selectionOnDrag={!canvasLocked && canWrite}
+          panOnDrag={!canvasLocked}
+          nodesDraggable={!canvasLocked && canWrite}
+          nodesConnectable={!canvasLocked && canWrite}
+          elementsSelectable={!canvasLocked}
         >
           <Background color="#23313d" variant={BackgroundVariant.Dots} gap={18} size={1} />
-          <Controls className="!border-white/10 !bg-black/70 !text-white" />
           <MiniMap pannable zoomable nodeStrokeWidth={3} nodeColor={(node) => node.data?.color || "#22c55e"} />
         </ReactFlow>
       </main>
 
+      {!canvasMaximized ? (
       <aside className="no-scrollbar border-l border-border bg-card overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-border bg-card p-3">
           <div className="flex items-center justify-between gap-2">
@@ -464,6 +531,7 @@ function BuilderCanvas({
                     key={field}
                     value={String(selectedNode.data.config[field] || "")}
                     onChange={(event) => updateSelectedConfig(field, event.target.value)}
+                    disabled={!canWrite}
                     placeholder={field}
                     className="h-8 w-full rounded border border-border bg-card px-2 text-xs text-foreground"
                   />
@@ -478,7 +546,7 @@ function BuilderCanvas({
             </h3>
             <div className="space-y-2 rounded-md border border-border bg-background p-3">
               <input value={testMessage} onChange={(event) => setTestMessage(event.target.value)} className="h-8 w-full rounded border border-border bg-card px-2 text-xs text-foreground" />
-              <Button size="sm" className="h-8 w-full bg-primary text-xs text-primary-foreground" onClick={testFlow} disabled={testing}>
+              <Button size="sm" className="h-8 w-full bg-primary text-xs text-primary-foreground" onClick={testFlow} disabled={testing || !canWrite}>
                 {testing ? "Running test" : "Run test"}
               </Button>
               {testResult ? (
@@ -551,14 +619,31 @@ function BuilderCanvas({
           </section>
         </div>
       </aside>
+      ) : null}
     </div>
   );
 }
 
-export function AutomationView() {
+interface AutomationViewProps {
+  canWrite?: boolean;
+}
+
+export function AutomationView({ canWrite = false }: AutomationViewProps) {
   const [flowList, setFlowList] = useState<Flow[]>([]);
   const [summary, setSummary] = useState({ runsToday: 0, automatedMessages: 0, handoffs: 0 });
   const [selectedFlowId, setSelectedFlowId] = useState("");
+  const [simpleForm, setSimpleForm] = useState({
+    name: "Keyword auto-reply",
+    triggerType: "keyword_match",
+    keyword: "price",
+    actionMessage: "Thanks for your message. Our team will share details shortly.",
+    tagName: "Lead",
+    leadStage: "new_lead",
+    nextStatus: "open",
+    sendToGoogleSheet: false,
+    status: "active" as FlowStatus,
+  });
+  const [creatingSimple, setCreatingSimple] = useState(false);
 
   async function loadFlows() {
     const response = await getAutomationFlows<{
@@ -591,6 +676,7 @@ export function AutomationView() {
       name: `Visual Flow ${flowList.length + 1}`,
       description: "Visual automation builder flow",
       trigger: "Visual workflow",
+      triggerType: "new_message",
       category: "Visual",
       status: "draft",
       sendReply: false,
@@ -598,6 +684,33 @@ export function AutomationView() {
       edges: defaultEdges(),
     });
     upsertFlow(response.data);
+  }
+
+  async function createSimpleFlow(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canWrite) return;
+    setCreatingSimple(true);
+    try {
+      const response = await createAutomationFlow<{ data: Flow }>({
+        name: simpleForm.name,
+        description: "Simple WhatsApp automation",
+        trigger: simpleTriggerOptions.find((item) => item.id === simpleForm.triggerType)?.label || "New message",
+        triggerType: simpleForm.triggerType,
+        category: "WhatsApp",
+        status: simpleForm.status,
+        keyword: simpleForm.keyword,
+        actionMessage: simpleForm.actionMessage,
+        sendReply: Boolean(simpleForm.actionMessage.trim()),
+        tagName: simpleForm.tagName,
+        nextStatus: simpleForm.nextStatus,
+        addToCrm: simpleForm.triggerType === "new_lead" || Boolean(simpleForm.leadStage),
+        leadStage: simpleForm.leadStage,
+        sendToGoogleSheet: simpleForm.sendToGoogleSheet,
+      });
+      upsertFlow(response.data);
+    } finally {
+      setCreatingSimple(false);
+    }
   }
 
   async function toggleStatus(flow: Flow) {
@@ -623,9 +736,9 @@ export function AutomationView() {
             <Button size="sm" variant="outline" className="h-8 border-border text-xs" onClick={loadFlows}>
               <RefreshCcw size={13} className="mr-1.5" /> Refresh
             </Button>
-            <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground hover:bg-primary/90" onClick={newFlow}>
+            {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground hover:bg-primary/90" onClick={newFlow}>
               <Plus size={13} className="mr-1.5" /> New visual flow
-            </Button>
+            </Button>}
           </div>
         </div>
 
@@ -641,6 +754,108 @@ export function AutomationView() {
             </Card>
           ))}
         </div>
+
+        {canWrite && (
+          <form onSubmit={createSimpleFlow} className="border-b border-border bg-card/40 px-3 py-3 sm:px-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Simple WhatsApp automation</h2>
+                <p className="text-[11px] text-muted-foreground">Create a safe first flow without configuring the visual canvas.</p>
+              </div>
+              <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={creatingSimple}>
+                {creatingSimple ? "Creating" : "Create automation"}
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
+              <label className="space-y-1.5 lg:col-span-2">
+                <span className="text-[11px] font-medium text-muted-foreground">Name</span>
+                <input
+                  value={simpleForm.name}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, name: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                  required
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Trigger</span>
+                <select
+                  value={simpleForm.triggerType}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, triggerType: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                >
+                  {simpleTriggerOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Keyword</span>
+                <input
+                  value={simpleForm.keyword}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, keyword: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                  placeholder="price, demo"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Lead stage</span>
+                <select
+                  value={simpleForm.leadStage}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, leadStage: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                >
+                  {leadStageOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Status</span>
+                <select
+                  value={simpleForm.status}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, status: event.target.value as FlowStatus }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="draft">Draft</option>
+                </select>
+              </label>
+              <label className="space-y-1.5 lg:col-span-3">
+                <span className="text-[11px] font-medium text-muted-foreground">WhatsApp reply</span>
+                <input
+                  value={simpleForm.actionMessage}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, actionMessage: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Tag</span>
+                <input
+                  value={simpleForm.tagName}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, tagName: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Conversation</span>
+                <select
+                  value={simpleForm.nextStatus}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, nextStatus: event.target.value }))}
+                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
+                >
+                  <option value="open">Open</option>
+                  <option value="waiting">Waiting</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </label>
+              <label className="flex items-end gap-2 pb-1 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={simpleForm.sendToGoogleSheet}
+                  onChange={(event) => setSimpleForm((current) => ({ ...current, sendToGoogleSheet: event.target.checked }))}
+                />
+                Send to Google Sheet
+              </label>
+            </div>
+          </form>
+        )}
 
         <div className="flex min-h-0 flex-1">
           <aside className="hidden w-72 shrink-0 border-r border-border bg-card/70 lg:block">
@@ -661,12 +876,12 @@ export function AutomationView() {
                   </div>
                   <div className="mt-1 truncate text-[11px] text-muted-foreground">{flow.actionSummary?.join(" -> ") || "Visual workflow"}</div>
                   <div className="mt-2 flex gap-1">
-                    <button className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10" onClick={(event) => { event.stopPropagation(); toggleStatus(flow); }}>
+                    {canWrite && <button className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10" onClick={(event) => { event.stopPropagation(); toggleStatus(flow); }}>
                       {flow.status === "active" ? "Pause" : "Activate"}
-                    </button>
-                    <button className="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10" onClick={(event) => { event.stopPropagation(); removeFlow(flow); }}>
+                    </button>}
+                    {canWrite && <button className="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10" onClick={(event) => { event.stopPropagation(); removeFlow(flow); }}>
                       <Trash2 size={10} className="inline" /> Delete
-                    </button>
+                    </button>}
                   </div>
                 </button>
               ))}
@@ -678,7 +893,7 @@ export function AutomationView() {
             </div>
           </aside>
 
-          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} />
+          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} />
         </div>
       </div>
     </ReactFlowProvider>

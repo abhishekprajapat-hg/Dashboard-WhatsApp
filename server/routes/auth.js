@@ -9,8 +9,10 @@ import { serializeUser, serializeWorkspace, signSession } from "../utils/session
 
 export const authRouter = Router();
 
-async function buildSessionForUser(user) {
-  const membership = await Membership.findOne({ userId: user._id, status: "active" }).sort({ joinedAt: -1 });
+async function buildSessionForUser(user, workspaceId = "") {
+  const filter = { userId: user._id, status: "active" };
+  if (workspaceId && mongoose.Types.ObjectId.isValid(workspaceId)) filter.workspaceId = workspaceId;
+  const membership = await Membership.findOne(filter).sort({ joinedAt: -1 });
 
   if (!membership) {
     return null;
@@ -48,6 +50,9 @@ authRouter.get("/me", async (req, res) => {
   }
 
   if (mongoose.connection.readyState !== 1) {
+    if (config.demoMode && payload.sub === demoUser.id) {
+      return res.json({ token, user: demoUser, workspace: demoWorkspace });
+    }
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
@@ -56,7 +61,7 @@ authRouter.get("/me", async (req, res) => {
     return res.status(401).json({ error: "INVALID_TOKEN", message: "Session user is no longer active." });
   }
 
-  const session = await buildSessionForUser(user);
+  const session = await buildSessionForUser(user, payload.workspaceId);
   if (!session) {
     return res.status(403).json({ error: "NO_WORKSPACE", message: "No active workspace membership found." });
   }
@@ -91,7 +96,15 @@ authRouter.post("/login", async (req, res) => {
 
   if (config.demoMode && email.toLowerCase() === demoUser.email && password.length > 0) {
     const token = jwt.sign(
-      { sub: demoUser.id, email: demoUser.email, workspaceId: demoWorkspace.id, role: demoUser.role },
+      {
+        sub: demoUser.id,
+        email: demoUser.email,
+        workspaceId: demoWorkspace.id,
+        organizationId: "org_demo",
+        role: demoUser.role,
+        roleKey: demoUser.roleKey,
+        permissions: demoUser.permissions,
+      },
       config.jwtSecret,
       { expiresIn: config.jwtExpiresIn }
     );

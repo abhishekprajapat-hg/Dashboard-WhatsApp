@@ -10,13 +10,19 @@ interface ConversationListProps {
   search: string;
   currentUserId?: string;
   typingIds: string[];
+  loading: boolean;
+  error: string;
   onSearchChange: (search: string) => void;
   onSelect: (id: string) => void;
+  onRetry: () => void;
 }
 
 function matchesFilter(conversation: Conversation, filter: InboxFilter, currentUserId?: string) {
   if (filter === "unread") return conversation.unread > 0;
   if (filter === "assigned") return Boolean(conversation.agentId) && (!currentUserId || conversation.agentId === currentUserId);
+  if (filter === "open") return conversation.status === "open";
+  if (filter === "waiting") return conversation.status === "waiting";
+  if (filter === "resolved") return conversation.status === "resolved";
   if (filter === "archived") return conversation.status === "archived";
   if (filter === "labels") return conversation.tags.length > 0;
   return conversation.status !== "archived";
@@ -29,8 +35,11 @@ export function ConversationList({
   search,
   currentUserId,
   typingIds,
+  loading,
+  error,
   onSearchChange,
   onSelect,
+  onRetry,
 }: ConversationListProps) {
   const filtered = conversations.filter((conversation) => {
     const text = `${conversation.name} ${conversation.phone} ${conversation.preview} ${conversation.tags.join(" ")}`.toLowerCase();
@@ -61,6 +70,30 @@ export function ConversationList({
       </div>
 
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="space-y-3 px-4 py-4">
+            {[0, 1, 2, 3, 4].map((item) => (
+              <div key={item} className="flex gap-3">
+                <div className="h-12 w-12 shrink-0 rounded-full bg-zinc-100 dark:bg-[#202c33]" />
+                <div className="min-w-0 flex-1 space-y-2 py-1">
+                  <div className="h-3 w-2/3 rounded bg-zinc-100 dark:bg-[#202c33]" />
+                  <div className="h-3 w-full rounded bg-zinc-100 dark:bg-[#202c33]" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center text-zinc-500 dark:text-zinc-400">
+            <MessageSquareText size={24} />
+            <div>
+              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Inbox could not load</div>
+              <p className="mt-1 text-xs">{error}</p>
+            </div>
+            <button className="h-8 rounded border border-zinc-200 px-3 text-xs text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-800 dark:text-zinc-300" onClick={onRetry}>
+              Retry
+            </button>
+          </div>
+        ) : (
         <AnimatePresence initial={false}>
           {filtered.map((conversation, index) => {
             const isTyping = typingIds.includes(conversation.id);
@@ -120,8 +153,9 @@ export function ConversationList({
             );
           })}
         </AnimatePresence>
+        )}
 
-        {filtered.length === 0 ? (
+        {!loading && !error && filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center text-zinc-500 dark:text-zinc-400">
             <MessageSquareText size={24} />
             <div className="text-sm font-medium">No conversations found</div>

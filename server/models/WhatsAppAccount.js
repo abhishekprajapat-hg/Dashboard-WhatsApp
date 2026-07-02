@@ -15,6 +15,9 @@ const whatsAppAccountSchema = new mongoose.Schema(
     templateSyncStatus: { type: String, default: "pending" },
     status: { type: String, enum: ["connected", "disconnected", "needs_attention"], default: "disconnected" },
     lastSyncedAt: Date,
+    lastTestedAt: Date,
+    lastError: { type: String, default: "" },
+    credentialsUpdatedAt: Date,
   },
   { timestamps: true }
 );

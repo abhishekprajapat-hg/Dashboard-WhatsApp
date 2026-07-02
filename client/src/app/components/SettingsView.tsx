@@ -50,6 +50,14 @@ interface WhatsAppAccount {
   status: "connected" | "disconnected" | "needs_attention";
   webhookStatus: string;
   templateSyncStatus: string;
+  credentials?: {
+    accessTokenConfigured?: boolean;
+    verifyTokenConfigured?: boolean;
+    appSecretConfigured?: boolean;
+    credentialsUpdatedAt?: string | null;
+    lastTestedAt?: string | null;
+    lastError?: string;
+  };
 }
 
 interface Template {
@@ -176,7 +184,11 @@ const providerProfiles = {
   },
 } as const;
 
-export function SettingsView() {
+interface SettingsViewProps {
+  canWrite?: boolean;
+}
+
+export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("workspace");
   const [settings, setSettings] = useState<SettingsPayload>(initialSettings);
   const [whatsappConsole, setWhatsappConsole] = useState<WhatsAppConsolePayload>(initialConsole);
@@ -200,6 +212,8 @@ export function SettingsView() {
     apiKey: "",
     apiBaseUrl: "",
     tenantId: "",
+    verifyToken: "",
+    appSecret: "",
   });
   const [templateForm, setTemplateForm] = useState({
     accountId: "",
@@ -236,6 +250,7 @@ export function SettingsView() {
 
   async function handleWorkspaceSave(event: React.FormEvent) {
     event.preventDefault();
+    if (!canWrite) return;
     setWorkspaceSaving(true);
     try {
       const response = await updateCurrentWorkspace<{ workspace: { name: string; timezone: string } }>(workspaceForm);
@@ -247,6 +262,7 @@ export function SettingsView() {
 
   async function handleCreateAccount(event: React.FormEvent) {
     event.preventDefault();
+    if (!canWrite) return;
     setSaving(true);
     try {
       await createWhatsAppAccount<{ data: WhatsAppAccount }>({
@@ -266,6 +282,8 @@ export function SettingsView() {
         apiKey: "",
         apiBaseUrl: "",
         tenantId: "",
+        verifyToken: "",
+        appSecret: "",
       });
       setShowAccountForm(false);
       await loadSettings();
@@ -275,6 +293,7 @@ export function SettingsView() {
   }
 
   async function handleDeleteAccount(id: string) {
+    if (!canWrite) return;
     setSettings((current) => ({
       ...current,
       whatsappAccounts: current.whatsappAccounts.filter((account) => account.id !== id),
@@ -285,6 +304,7 @@ export function SettingsView() {
   }
 
   async function handleSyncTemplates(id: string) {
+    if (!canWrite) return;
     try {
       await syncWhatsAppTemplates(id);
       await loadSettings();
@@ -296,6 +316,7 @@ export function SettingsView() {
   }
 
   async function handleAccountTest(id: string) {
+    if (!canWrite) return;
     setAccountTesting(id);
     setAccountNotice((current) => ({ ...current, [id]: "" }));
     try {
@@ -319,6 +340,7 @@ export function SettingsView() {
 
   async function handleCreateTemplate(event: React.FormEvent) {
     event.preventDefault();
+    if (!canWrite) return;
     setTemplateSaving(true);
     setTemplateNotice("");
     try {
@@ -338,6 +360,7 @@ export function SettingsView() {
 
   async function handleIntegrationsSave(event: React.FormEvent) {
     event.preventDefault();
+    if (!canWrite) return;
     setIntegrationSaving(true);
     setIntegrationNotice("");
     try {
@@ -353,6 +376,7 @@ export function SettingsView() {
   }
 
   async function handleWebhookTest() {
+    if (!canWrite) return;
     setIntegrationSaving(true);
     setIntegrationNotice("");
     try {
@@ -419,9 +443,9 @@ export function SettingsView() {
                 <Label>Timezone</Label>
                 <Input value={workspaceForm.timezone} onChange={(e) => setWorkspaceForm((current) => ({ ...current, timezone: e.target.value }))} className="bg-secondary border-transparent focus:border-border" />
               </div>
-              <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" disabled={workspaceSaving}>
+              {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" disabled={workspaceSaving}>
                 {workspaceSaving ? "Saving..." : "Save changes"}
-              </Button>
+              </Button>}
             </Card>
             </form>
           </div>
@@ -434,10 +458,10 @@ export function SettingsView() {
                 <h2 className="text-foreground">WhatsApp Console</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Monitor account health, delivery, templates, and webhook traffic.</p>
               </div>
-              <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground" onClick={() => setShowAccountForm((value) => !value)}>
+              {canWrite && <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground" onClick={() => setShowAccountForm((value) => !value)}>
                 <Plus size={13} className="mr-1.5" />
                 Add account
-              </Button>
+              </Button>}
             </div>
 
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
@@ -545,7 +569,7 @@ export function SettingsView() {
               </div>
             </Card>
 
-            {showAccountForm && (
+            {canWrite && showAccountForm && (
               <form onSubmit={handleCreateAccount} className="space-y-4 rounded-md border border-border bg-card p-4">
                 <div className="space-y-1.5 md:col-span-2">
                   <div className="flex items-center gap-2">
@@ -608,6 +632,7 @@ export function SettingsView() {
                     <div className="space-y-1.5 md:col-span-2">
                       <Label>{providerProfile.tokenLabel}</Label>
                       <Input
+                        type={form.provider === "meta" ? "password" : "text"}
                         value={form.provider === "twilio" ? form.authToken : form.provider === "wati" ? form.apiKey : form.accessToken}
                         onChange={(e) => setForm((current) => ({
                           ...current,
@@ -620,6 +645,28 @@ export function SettingsView() {
                         placeholder="Use local-placeholder-token for local testing"
                       />
                     </div>
+                    {form.provider === "meta" && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label>Webhook verify token</Label>
+                          <Input
+                            type="password"
+                            value={form.verifyToken}
+                            onChange={(e) => setForm((current) => ({ ...current, verifyToken: e.target.value }))}
+                            placeholder="Must match Meta webhook setup"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>App secret</Label>
+                          <Input
+                            type="password"
+                            value={form.appSecret}
+                            onChange={(e) => setForm((current) => ({ ...current, appSecret: e.target.value }))}
+                            placeholder="Optional, used for signature checks"
+                          />
+                        </div>
+                      </>
+                    )}
                     {form.provider === "wati" && (
                       <div className="space-y-1.5 md:col-span-2">
                         <Label>Wati API endpoint</Label>
@@ -677,11 +724,30 @@ export function SettingsView() {
                         <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">{account.status}</Badge>
                         <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">webhook {account.webhookStatus}</Badge>
                         <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">templates {account.templateSyncStatus}</Badge>
+                        <Badge variant="outline" className={`text-[10px] ${account.credentials?.accessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                          token {account.credentials?.accessTokenConfigured ? "saved" : "missing"}
+                        </Badge>
+                        {account.provider === "meta" && (
+                          <>
+                            <Badge variant="outline" className={`text-[10px] ${account.credentials?.verifyTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                              verify {account.credentials?.verifyTokenConfigured ? "saved" : "missing"}
+                            </Badge>
+                            <Badge variant="outline" className={`text-[10px] ${account.credentials?.appSecretConfigured ? "border-primary/30 text-primary" : "border-border text-muted-foreground"}`}>
+                              signature {account.credentials?.appSecretConfigured ? "on" : "off"}
+                            </Badge>
+                          </>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">{account.phoneNumber}</p>
                       <p className="text-[11px] text-muted-foreground mt-1">Phone ID: {account.phoneNumberId} | Business ID: {account.businessAccountId}</p>
+                      {account.credentials?.lastTestedAt && (
+                        <p className="text-[11px] text-muted-foreground mt-1">Last tested: {new Date(account.credentials.lastTestedAt).toLocaleString()}</p>
+                      )}
+                      {account.credentials?.lastError && (
+                        <p className="text-[11px] text-destructive mt-1">{account.credentials.lastError}</p>
+                      )}
                     </div>
-                    <div className="flex gap-1">
+                    {canWrite && <div className="flex gap-1">
                       <Button variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => handleAccountTest(account.id)} disabled={accountTesting === account.id}>
                         {accountTesting === account.id ? "Testing" : "Test"}
                       </Button>
@@ -692,7 +758,7 @@ export function SettingsView() {
                       <Button variant="outline" size="sm" className="h-8 text-xs border-destructive/30 text-destructive" onClick={() => handleDeleteAccount(account.id)}>
                         <Trash2 size={12} />
                       </Button>
-                    </div>
+                    </div>}
                   </div>
                   {accountNotice[account.id] && (
                     <div className={`mt-3 rounded border px-3 py-2 text-xs ${
@@ -712,7 +778,7 @@ export function SettingsView() {
                 <h3 className="text-sm font-medium text-foreground">Templates</h3>
                 <span className="text-xs text-muted-foreground">{settings.templates.length} total</span>
               </div>
-              <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 md:grid-cols-4 gap-3 border-b border-border p-4">
+              {canWrite && <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 md:grid-cols-4 gap-3 border-b border-border p-4">
                 <div className="space-y-1.5 md:col-span-2">
                   <Label>Approved template name</Label>
                   <Input
@@ -756,7 +822,7 @@ export function SettingsView() {
                   </Button>
                   {templateNotice && <span className="text-xs text-muted-foreground">{templateNotice}</span>}
                 </div>
-              </form>
+              </form>}
               <div className="divide-y divide-border">
                 {settings.templates.map((template) => (
                   <div key={template.id} className="px-4 py-3 flex items-center justify-between">
@@ -850,6 +916,7 @@ export function SettingsView() {
                     <input
                       type="checkbox"
                       checked={integrationForm.outboundWebhook.enabled}
+                      disabled={!canWrite}
                       onChange={(event) => setIntegrationForm((current) => ({
                         ...current,
                         outboundWebhook: { ...current.outboundWebhook, enabled: event.target.checked },
@@ -869,6 +936,7 @@ export function SettingsView() {
                       }))}
                       placeholder="https://hooks.zapier.com/..."
                       className="bg-secondary border-transparent focus:border-border"
+                      disabled={!canWrite}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -881,13 +949,14 @@ export function SettingsView() {
                       }))}
                       placeholder="Optional HMAC secret"
                       className="bg-secondary border-transparent focus:border-border"
+                      disabled={!canWrite}
                     />
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs border-border" onClick={handleWebhookTest} disabled={integrationSaving || !integrationForm.outboundWebhook.url}>
+                  {canWrite && <Button type="button" variant="outline" size="sm" className="h-8 text-xs border-border" onClick={handleWebhookTest} disabled={integrationSaving || !integrationForm.outboundWebhook.url}>
                     Test webhook
-                  </Button>
+                  </Button>}
                 </div>
               </Card>
 
@@ -901,6 +970,7 @@ export function SettingsView() {
                     <input
                       type="checkbox"
                       checked={integrationForm.googleSheets.enabled}
+                      disabled={!canWrite}
                       onChange={(event) => setIntegrationForm((current) => ({
                         ...current,
                         googleSheets: { ...current.googleSheets, enabled: event.target.checked },
@@ -920,6 +990,7 @@ export function SettingsView() {
                       }))}
                       placeholder="https://script.google.com/macros/s/..."
                       className="bg-secondary border-transparent focus:border-border"
+                      disabled={!canWrite}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -932,15 +1003,16 @@ export function SettingsView() {
                       }))}
                       placeholder="Optional shared secret"
                       className="bg-secondary border-transparent focus:border-border"
+                      disabled={!canWrite}
                     />
                   </div>
                 </div>
               </Card>
 
               <div className="flex items-center gap-3">
-                <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={integrationSaving}>
+                {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={integrationSaving}>
                   {integrationSaving ? "Saving..." : "Save integrations"}
-                </Button>
+                </Button>}
                 {integrationNotice && <span className="text-xs text-muted-foreground">{integrationNotice}</span>}
               </div>
             </form>

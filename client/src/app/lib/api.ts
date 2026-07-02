@@ -6,6 +6,7 @@ export interface AuthSession {
     email: string;
     role: string;
     roleKey?: string;
+    permissions?: string[];
   };
   workspace: {
     id: string;
@@ -16,9 +17,24 @@ export interface AuthSession {
   };
 }
 
-export type ApiError = Error & { status?: number };
+export type ApiError = Error & { status?: number; code?: string };
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const DEFAULT_API_URL = "http://localhost:4000/api";
+
+function normalizeApiUrl(value: string | undefined) {
+  const rawUrl = String(value || "").trim() || DEFAULT_API_URL;
+
+  try {
+    const url = new URL(rawUrl, window.location.origin);
+    const path = url.pathname.replace(/\/+$/, "");
+    url.pathname = path.endsWith("/api") ? path : `${path}/api`.replace(/\/{2,}/g, "/");
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return DEFAULT_API_URL;
+  }
+}
+
+const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const TOKEN_KEY = "whatscrm_token";
 const SESSION_KEY = "whatscrm_session";
 
@@ -74,6 +90,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const error = new Error(payload.message || "Request failed.") as ApiError;
     error.status = response.status;
+    error.code = payload.error;
+    if (response.status === 401 || response.status === 403) {
+      clearToken();
+      window.dispatchEvent(new CustomEvent("auth:invalid", { detail: { status: response.status, code: payload.error } }));
+    }
     throw error;
   }
 
@@ -164,12 +185,30 @@ export function fileToDataUrl(file: File) {
   });
 }
 
-export function getAnalyticsSummary<T>(days = 14) {
-  return request<T>(`/analytics/summary?days=${days}`);
+export function getAnalyticsSummary<T>(params: number | { days?: number; from?: string; to?: string; memberId?: string } = 14) {
+  const query = new URLSearchParams();
+  if (typeof params === "number") {
+    query.set("days", String(params));
+  } else {
+    if (params.days) query.set("days", String(params.days));
+    if (params.from) query.set("from", params.from);
+    if (params.to) query.set("to", params.to);
+    if (params.memberId && params.memberId !== "all") query.set("memberId", params.memberId);
+  }
+  return request<T>(`/analytics/summary?${query.toString() || "days=14"}`);
 }
 
-export function getAnalyticsExportUrl(type: "pdf" | "excel", days = 30) {
-  return `${API_URL}/analytics/export/${type}?days=${days}`;
+export function getAnalyticsExportUrl(type: "pdf" | "excel", params: number | { days?: number; from?: string; to?: string; memberId?: string } = 30) {
+  const query = new URLSearchParams();
+  if (typeof params === "number") {
+    query.set("days", String(params));
+  } else {
+    if (params.days) query.set("days", String(params.days));
+    if (params.from) query.set("from", params.from);
+    if (params.to) query.set("to", params.to);
+    if (params.memberId && params.memberId !== "all") query.set("memberId", params.memberId);
+  }
+  return `${API_URL}/analytics/export/${type}?${query.toString() || "days=30"}`;
 }
 
 export function getContacts<T>(search = "", lifecycle = "") {
@@ -203,12 +242,13 @@ export function deleteContact(id: string) {
   });
 }
 
-export function getConversations<T>(params: { status?: string; search?: string } = {}) {
+export function getConversations<T>(params: { status?: string; search?: string; unread?: boolean; cursor?: string; limit?: number } = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
   if (params.search) query.set("search", params.search);
-  if ((params as { cursor?: string }).cursor) query.set("cursor", (params as { cursor?: string }).cursor || "");
-  if ((params as { limit?: number }).limit) query.set("limit", String((params as { limit?: number }).limit));
+  if (params.unread) query.set("unread", "true");
+  if (params.cursor) query.set("cursor", params.cursor);
+  if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query}` : "";
   return request<T>(`/conversations${suffix}`);
 }
@@ -224,7 +264,7 @@ export function getConversationMessages<T>(conversationId: string, params: { bef
 export function sendConversationMessage<T>(
   conversationId: string,
   content: string,
-  options: { attachments?: { name: string; url: string; type?: string; mimeType?: string; size?: number }[]; replyToMessageId?: string } = {}
+  options: { attachments?: { name: string; url: string; path?: string; storage?: string; providerMediaId?: string; metaMediaId?: string; type?: string; mimeType?: string; size?: number }[]; replyToMessageId?: string } = {}
 ) {
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -236,7 +276,7 @@ export function sendConversationMessageQueued<T>(
   conversationId: string,
   content: string,
   options: {
-    attachments?: { name: string; url: string; type?: string; mimeType?: string; size?: number }[];
+    attachments?: { name: string; url: string; path?: string; storage?: string; providerMediaId?: string; metaMediaId?: string; type?: string; mimeType?: string; size?: number }[];
     replyToMessageId?: string;
     clientMessageId?: string;
   } = {}
@@ -308,9 +348,10 @@ export function assignConversation<T>(conversationId: string, userId: string) {
   });
 }
 
-export function addConversationToCrm<T>(conversationId: string) {
+export function addConversationToCrm<T>(conversationId: string, stage?: string) {
   return request<T>(`/conversations/${conversationId}/add-to-crm`, {
     method: "POST",
+    body: JSON.stringify({ stage }),
   });
 }
 
@@ -408,6 +449,8 @@ export function createWhatsAppAccount<T>(account: {
   apiKey?: string;
   apiBaseUrl?: string;
   tenantId?: string;
+  verifyToken?: string;
+  appSecret?: string;
 }) {
   return request<T>("/whatsapp/accounts", {
     method: "POST",
@@ -462,12 +505,41 @@ export function getCampaignReport<T>(id: string) {
   return request<T>(`/campaigns/${id}`);
 }
 
+export function previewCampaignAudience<T>(payload: {
+  audienceType?: string;
+  audienceFilters?: {
+    audienceType?: string;
+    leadStage?: string;
+    tags?: string[];
+    tagIds?: string[];
+    createdFrom?: string;
+    createdTo?: string;
+  };
+  leadStage?: string;
+  tags?: string[];
+  createdFrom?: string;
+  createdTo?: string;
+}) {
+  return request<T>("/campaigns/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createCampaign<T>(campaign: {
   name: string;
   type?: string;
   campaignKind?: string;
   audience?: string;
   audienceType?: string;
+  audienceFilters?: {
+    audienceType?: string;
+    leadStage?: string;
+    tags?: string[];
+    tagIds?: string[];
+    createdFrom?: string;
+    createdTo?: string;
+  };
   templateId?: string;
   templateBId?: string;
   status?: string;
@@ -484,7 +556,7 @@ export function createCampaign<T>(campaign: {
   });
 }
 
-export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; campaignKind?: string; audience?: string; audienceType?: string; templateId?: string; scheduledAt?: string; rateLimit?: { perMinute?: number; batchSize?: number } }) {
+export function updateCampaign<T>(id: string, campaign: { name?: string; status?: string; type?: string; campaignKind?: string; audience?: string; audienceType?: string; audienceFilters?: Record<string, unknown>; templateId?: string; scheduledAt?: string; rateLimit?: { perMinute?: number; batchSize?: number } }) {
   return request<T>(`/campaigns/${id}`, {
     method: "PATCH",
     body: JSON.stringify(campaign),
@@ -505,9 +577,10 @@ export function importCampaignContacts<T>(payload: { csv?: string; contacts?: { 
   });
 }
 
-export function sendCampaign<T>(id: string) {
+export function sendCampaign<T>(id: string, payload: { sendNow?: boolean; limit?: number } = {}) {
   return request<T>(`/campaigns/${id}/send`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
@@ -525,6 +598,9 @@ export function createAutomationFlow<T>(flow: {
   name: string;
   description?: string;
   trigger?: string;
+  triggerType?: string;
+  conditions?: unknown[];
+  actions?: unknown[];
   nodes?: unknown[];
   edges?: unknown[];
   category?: string;
@@ -536,6 +612,8 @@ export function createAutomationFlow<T>(flow: {
   nextStatus?: string;
   tagName?: string;
   addToCrm?: boolean;
+  leadStage?: string;
+  sendToGoogleSheet?: boolean;
   callWebhook?: boolean;
   webhookUrl?: string;
   webhookSecret?: string;

@@ -25,6 +25,7 @@ import {
   Flame,
   MessageCircle,
   ReceiptText,
+  Send,
   Target,
   Users,
   Zap,
@@ -36,6 +37,23 @@ import { getAnalyticsExportUrl, getAnalyticsSummary, getStoredToken } from "../l
 
 interface EnterpriseAnalytics {
   kpis: { label: string; value: string; delta: string; up: boolean }[];
+  metrics: {
+    totalContacts: number;
+    newLeads: number;
+    openConversations: number;
+    unreadMessages: number;
+    responseTimeMinutes: number;
+    responseTimeLabel: string;
+    leadConversionRate: number;
+    campaign: { sent: number; delivered: number; read: number; failed: number };
+    automationRuns: number;
+  };
+  filters: {
+    from: string;
+    to: string;
+    memberId: string;
+    teamMembers: { id: string; name: string; role: string }[];
+  };
   messageVolume: { date: string; inbound: number; outbound: number; resolved: number }[];
   agentPerformance: { name: string; role: string; resolved: number; assigned: number; avg: number; csat: number }[];
   sourceBreakdown: { name: string; value: number; color: string }[];
@@ -73,6 +91,18 @@ interface EnterpriseAnalytics {
 
 const emptyAnalytics: EnterpriseAnalytics = {
   kpis: [],
+  metrics: {
+    totalContacts: 0,
+    newLeads: 0,
+    openConversations: 0,
+    unreadMessages: 0,
+    responseTimeMinutes: 0,
+    responseTimeLabel: "0m",
+    leadConversionRate: 0,
+    campaign: { sent: 0, delivered: 0, read: 0, failed: 0 },
+    automationRuns: 0,
+  },
+  filters: { from: "", to: "", memberId: "all", teamMembers: [] },
   messageVolume: [],
   agentPerformance: [],
   sourceBreakdown: [],
@@ -118,6 +148,12 @@ function num(value: number) {
   return Number(value || 0).toLocaleString();
 }
 
+function isoDate(offsetDays = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
 function downloadFromUrl(url: string) {
   const token = getStoredToken();
   fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
@@ -146,6 +182,15 @@ function KpiCard({ item, icon }: { item: { label: string; value: string; delta: 
         <div className="flex size-11 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div>
       </CardContent>
     </Card>
+  );
+}
+
+function MiniMetric({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="rounded-md border border-border bg-card px-3 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${danger ? "text-destructive" : "text-foreground"}`}>{value}</div>
+    </div>
   );
 }
 
@@ -186,26 +231,30 @@ function HeatMap({ data }: { data: { day: number; hour: number; value: number }[
 
 export function AnalyticsView() {
   const [days, setDays] = useState(30);
+  const [fromDate, setFromDate] = useState(() => isoDate(-30));
+  const [toDate, setToDate] = useState(() => isoDate(0));
+  const [memberId, setMemberId] = useState("all");
   const [analytics, setAnalytics] = useState<EnterpriseAnalytics>(emptyAnalytics);
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState("executive");
+  const query = useMemo(() => ({ days, from: fromDate, to: toDate, memberId }), [days, fromDate, toDate, memberId]);
 
   useEffect(() => {
     setLoading(true);
-    getAnalyticsSummary<EnterpriseAnalytics>(days)
+    getAnalyticsSummary<EnterpriseAnalytics>(query)
       .then(setAnalytics)
       .catch(() => setAnalytics(emptyAnalytics))
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [query]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      getAnalyticsSummary<EnterpriseAnalytics>(days).then(setAnalytics).catch(() => undefined);
+      getAnalyticsSummary<EnterpriseAnalytics>(query).then(setAnalytics).catch(() => undefined);
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [days]);
+  }, [query]);
 
-  const kpiIcons = [<MessageCircle size={19} />, <Users size={19} />, <Clock3 size={19} />, <Target size={19} />];
+  const kpiIcons = [<Users size={19} />, <Target size={19} />, <MessageCircle size={19} />, <Clock3 size={19} />, <BarChart3 size={19} />, <Send size={19} />, <Zap size={19} />, <Activity size={19} />];
   const sourceTotal = analytics.sourceBreakdown.reduce((sum, item) => sum + item.value, 0);
   const peakHour = useMemo(() => [...analytics.peakHours].sort((a, b) => b.messages - a.messages)[0], [analytics.peakHours]);
   const selectedReport = analytics.customReports.find((item) => item.id === report) || analytics.customReports[0];
@@ -227,17 +276,27 @@ export function AnalyticsView() {
             {[7, 14, 30, 90].map((period) => (
               <button
                 key={period}
-                onClick={() => setDays(period)}
+                onClick={() => {
+                  setDays(period);
+                  setFromDate(isoDate(-period));
+                  setToDate(isoDate(0));
+                }}
                 className={`h-8 rounded-md border px-3 text-xs transition-colors ${days === period ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
               >
                 {period}d
               </button>
             ))}
-            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", days))}>
+            <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground" />
+            <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground" />
+            <select value={memberId} onChange={(event) => setMemberId(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+              <option value="all">All team</option>
+              {analytics.filters.teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+            </select>
+            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
               <Download size={15} />
               PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", days))}>
+            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
               <FileSpreadsheet size={15} />
               Excel
             </Button>
@@ -249,6 +308,15 @@ export function AnalyticsView() {
             <KpiCard key={kpi.label} item={kpi} icon={kpiIcons[index] || <Activity size={19} />} />
           ))}
         </div>
+
+        <Card className="rounded-lg border-border/70">
+          <CardContent className="grid gap-3 p-4 md:grid-cols-4">
+            <MiniMetric label="Campaign delivered/read" value={`${num(analytics.metrics.campaign.delivered)} / ${num(analytics.metrics.campaign.read)}`} />
+            <MiniMetric label="Campaign failed" value={num(analytics.metrics.campaign.failed)} danger={analytics.metrics.campaign.failed > 0} />
+            <MiniMetric label="Unread messages" value={num(analytics.metrics.unreadMessages)} />
+            <MiniMetric label="Automation runs" value={num(analytics.metrics.automationRuns)} />
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
           <Card className="rounded-lg border-border/70">
@@ -416,6 +484,7 @@ export function AnalyticsView() {
                       <td className="text-destructive">{campaign.failed}</td>
                     </tr>
                   ))}
+                  {!analytics.campaignPerformance.length && <tr><td className="py-3 text-muted-foreground" colSpan={8}>No campaign activity in this range.</td></tr>}
                 </tbody>
               </table>
             </CardContent>
@@ -435,6 +504,7 @@ export function AnalyticsView() {
                       <Badge variant="outline">{item.count}</Badge>
                     </div>
                   ))}
+                  {!analytics.leadAnalytics.byStage.length && <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">No leads in this range.</div>}
                 </div>
               </div>
               <div>
@@ -446,6 +516,7 @@ export function AnalyticsView() {
                       <Badge variant="outline">{item.count}</Badge>
                     </div>
                   ))}
+                  {!analytics.leadAnalytics.bySource.length && <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">No lead sources in this range.</div>}
                 </div>
               </div>
             </CardContent>
@@ -470,6 +541,7 @@ export function AnalyticsView() {
                   </div>
                 </div>
               ))}
+              {!analytics.automationPerformance.length && <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">No automation runs in this range.</div>}
             </CardContent>
           </Card>
 
@@ -490,6 +562,7 @@ export function AnalyticsView() {
                   </div>
                 </div>
               ))}
+              {!analytics.templatePerformance.length && <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">No template performance yet.</div>}
             </CardContent>
           </Card>
         </div>

@@ -17,6 +17,7 @@ import {
   Workspace,
 } from "../models/index.js";
 import { hashPassword } from "../utils/password.js";
+import { roleDefinitions } from "../utils/rbac.js";
 
 const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/whatscrm";
 
@@ -76,25 +77,29 @@ async function seed() {
     settings: { whatsappHealth: savedMetaAccounts.length > 0 ? "connected" : "disconnected" },
   });
 
-  const adminRole = await Role.create({
-    organizationId: organization._id,
-    workspaceId: workspace._id,
-    name: "Workspace Admin",
-    key: "workspace_admin",
-    description: "Full access to workspace settings, team, inbox, campaigns, and automations.",
-    permissions: ["*"],
-    isSystemRole: true,
-  });
+  const createdRoles = {};
+  for (const [key, definition] of Object.entries(roleDefinitions)) {
+    createdRoles[key] = await Role.create({
+      organizationId: organization._id,
+      workspaceId: workspace._id,
+      key,
+      ...definition,
+      isSystemRole: true,
+    });
+  }
 
-  await Role.create({
+  const adminRole = createdRoles.admin;
+
+  await Role.findOneAndUpdate({
+    workspaceId: workspace._id,
+    key: "workspace_admin",
+  }, {
     organizationId: organization._id,
     workspaceId: workspace._id,
-    name: "Agent",
-    key: "agent",
-    description: "Inbox and contact access for daily support work.",
-    permissions: ["inbox:read", "inbox:write", "contacts:read", "contacts:write"],
+    key: "workspace_admin",
+    ...roleDefinitions.admin,
     isSystemRole: true,
-  });
+  }, { upsert: true, new: true, setDefaultsOnInsert: true });
 
   await Membership.create({
     organizationId: organization._id,

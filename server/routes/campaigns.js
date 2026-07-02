@@ -1,6 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
-import { Campaign, Contact, Conversation, Message, Template, WhatsAppAccount } from "../models/index.js";
+import { requirePermission } from "../middleware/auth.js";
+import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
 import { sendWhatsAppTemplate } from "../services/whatsappProvider.js";
 import { publishConversationChanged } from "../realtime/events.js";
 
@@ -10,6 +11,7 @@ function serializeCampaign(campaign) {
   const metrics = campaign.metrics || {};
   const queue = campaign.queue || {};
   const approval = campaign.approval || {};
+  const filters = campaign.audienceFilters || campaign.audienceFilter || {};
   const sent = Number(metrics.sent || 0);
   const delivered = Number(metrics.delivered || 0);
   const read = Number(metrics.read || 0);
@@ -24,8 +26,9 @@ function serializeCampaign(campaign) {
     status,
     type: campaign.type || campaign.audienceFilter?.type || "template",
     campaignKind: campaign.audienceFilter?.type || "broadcast",
-    audience: campaign.audienceFilter?.label || "All Contacts",
-    audienceType: campaign.audienceFilter?.audienceType || "all",
+    audience: campaign.audienceFilter?.label || getAudienceLabel(filters),
+    audienceType: filters.audienceType || campaign.audienceFilter?.audienceType || "all",
+    audienceFilters: filters,
     recipients: Number(metrics.recipients || 0),
     sent,
     delivered,
@@ -35,7 +38,9 @@ function serializeCampaign(campaign) {
     conversions,
     scheduledAt: campaign.scheduledAt ? campaign.scheduledAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : undefined,
     sentAt: campaign.sentAt ? campaign.sentAt.toLocaleString("en-US", { month: "short", day: "numeric" }) : undefined,
-    template: campaign.templateId?.name || "No template",
+    template: campaign.templateId?.name || campaign.templateName || "No template",
+    templateName: campaign.templateId?.name || campaign.templateName || "",
+    language: campaign.templateId?.language || campaign.language || "en",
     templateId: campaign.templateId?._id?.toString?.() || campaign.templateId?.toString?.() || "",
     failed: Number(metrics.failed || 0),
     failures: Number(metrics.failed || 0),
@@ -49,6 +54,7 @@ function serializeCampaign(campaign) {
     abTest: campaign.abTest || {},
     schedule: campaign.schedule || {},
     history: campaign.history || [],
+    deliveryResults: campaign.deliveryResults || campaign.recipients || [],
   };
 }
 
@@ -81,7 +87,7 @@ function serializeRecipient(recipient = {}) {
   };
 }
 
-function getAudienceFilter(workspaceId, type = "all") {
+function getLegacyAudienceFilter(workspaceId, type = "all") {
   const filter = { workspaceId };
   if (type === "opted_in") filter.optInStatus = "opted_in";
   if (type === "leads") filter.lifecycleStatus = "lead";
@@ -91,7 +97,69 @@ function getAudienceFilter(workspaceId, type = "all") {
   return filter;
 }
 
-function getAudienceLabel(type = "all") {
+function normalizeAudienceFilters(input = {}) {
+  const raw = input && typeof input === "object" ? input : {};
+  const audienceType = String(raw.audienceType || raw.type || "all");
+  const createdFrom = raw.createdFrom ? new Date(raw.createdFrom) : null;
+  const createdTo = raw.createdTo ? new Date(raw.createdTo) : null;
+  const tagIds = Array.isArray(raw.tagIds) ? raw.tagIds.filter((id) => mongoose.Types.ObjectId.isValid(id)) : [];
+  const tags = Array.isArray(raw.tags) ? raw.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20) : [];
+
+  return {
+    audienceType,
+    leadStage: raw.leadStage ? String(raw.leadStage) : "",
+    tagIds,
+    tags,
+    createdFrom: createdFrom && !Number.isNaN(createdFrom.getTime()) ? createdFrom : null,
+    createdTo: createdTo && !Number.isNaN(createdTo.getTime()) ? createdTo : null,
+  };
+}
+
+function serializeAudienceFilters(filters = {}) {
+  return {
+    audienceType: filters.audienceType || "all",
+    leadStage: filters.leadStage || "",
+    tagIds: filters.tagIds || [],
+    tags: filters.tags || [],
+    createdFrom: filters.createdFrom ? new Date(filters.createdFrom).toISOString() : "",
+    createdTo: filters.createdTo ? new Date(filters.createdTo).toISOString() : "",
+  };
+}
+
+async function buildAudienceQuery(workspaceId, filters = {}) {
+  const normalized = normalizeAudienceFilters(filters);
+  const query = getLegacyAudienceFilter(workspaceId, normalized.audienceType);
+
+  if (normalized.leadStage) {
+    const leadContactIds = await Lead.distinct("contactId", {
+      workspaceId,
+      stage: normalized.leadStage,
+      status: { $ne: "archived" },
+    });
+    query._id = { $in: leadContactIds };
+  }
+
+  const tagObjectIds = [...normalized.tagIds];
+  if (normalized.tags.length) {
+    const tagDocs = await Tag.find({
+      workspaceId,
+      name: { $in: normalized.tags },
+    }).select("_id");
+    tagObjectIds.push(...tagDocs.map((tag) => tag._id));
+  }
+  if (tagObjectIds.length) query.tagIds = { $in: tagObjectIds };
+
+  if (normalized.createdFrom || normalized.createdTo) {
+    query.createdAt = {};
+    if (normalized.createdFrom) query.createdAt.$gte = normalized.createdFrom;
+    if (normalized.createdTo) query.createdAt.$lte = normalized.createdTo;
+  }
+
+  return query;
+}
+
+function getAudienceLabel(filters = "all") {
+  const type = typeof filters === "string" ? filters : filters.audienceType || "all";
   const labels = {
     all: "All Contacts",
     opted_in: "Opted-in Contacts",
@@ -100,7 +168,11 @@ function getAudienceLabel(type = "all") {
     hot_leads: "Hot Leads",
     imported: "Imported Contacts",
   };
-  return labels[type] || "All Contacts";
+  const parts = [labels[type] || "All Contacts"];
+  if (typeof filters === "object" && filters.leadStage) parts.push(`stage ${String(filters.leadStage).replace(/_/g, " ")}`);
+  if (typeof filters === "object" && (filters.tags?.length || filters.tagIds?.length)) parts.push("tagged contacts");
+  if (typeof filters === "object" && (filters.createdFrom || filters.createdTo)) parts.push("date filtered");
+  return parts.join(" - ");
 }
 
 function dbStatus(status = "draft") {
@@ -132,16 +204,38 @@ function parseCsvContacts(csv = "") {
 }
 
 async function getCampaignDefaults(workspaceId, audienceType = "all") {
+  const audienceFilters = normalizeAudienceFilters(typeof audienceType === "object" ? audienceType : { audienceType });
+  const audienceQuery = await buildAudienceQuery(workspaceId, audienceFilters);
   const [account, template, recipients] = await Promise.all([
     WhatsAppAccount.findOne({ workspaceId, status: "connected" }).sort({ createdAt: -1 }),
     Template.findOne({ workspaceId, status: "approved" }).sort({ name: 1 }),
-    Contact.countDocuments(getAudienceFilter(workspaceId, audienceType)),
+    Contact.countDocuments(audienceQuery),
   ]);
 
   return { account, template, recipients };
 }
 
-campaignsRouter.get("/", async (req, res) => {
+async function previewAudience(workspaceId, filters = {}, limit = 10) {
+  const query = await buildAudienceQuery(workspaceId, filters);
+  const [count, contacts] = await Promise.all([
+    Contact.countDocuments(query),
+    Contact.find(query).sort({ createdAt: -1 }).limit(Math.max(1, Math.min(25, Number(limit || 10)))),
+  ]);
+
+  return {
+    count,
+    sample: contacts.map((contact) => ({
+      id: contact._id.toString(),
+      name: contact.name,
+      phone: contact.phone,
+      email: contact.email || "",
+      lifecycleStatus: contact.lifecycleStatus || "",
+      createdAt: contact.createdAt,
+    })),
+  };
+}
+
+campaignsRouter.get("/", requirePermission("campaigns:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0, summary: { totalSent: 0, deliveryRate: 0, readRate: 0, replyRate: 0 } });
   }
@@ -181,7 +275,25 @@ campaignsRouter.get("/", async (req, res) => {
   });
 });
 
-campaignsRouter.get("/:id", async (req, res) => {
+campaignsRouter.post("/preview", requirePermission("campaigns:read"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const filters = normalizeAudienceFilters({
+    ...(req.body?.audienceFilters || {}),
+    audienceType: req.body?.audienceType || req.body?.audienceFilters?.audienceType || "all",
+    leadStage: req.body?.leadStage || req.body?.audienceFilters?.leadStage,
+    tags: req.body?.tags || req.body?.audienceFilters?.tags,
+    tagIds: req.body?.tagIds || req.body?.audienceFilters?.tagIds,
+    createdFrom: req.body?.createdFrom || req.body?.audienceFilters?.createdFrom,
+    createdTo: req.body?.createdTo || req.body?.audienceFilters?.createdTo,
+  });
+  const preview = await previewAudience(req.user.workspaceId, filters, req.body?.limit || 10);
+  res.json({ data: { ...preview, label: getAudienceLabel(filters), filters: serializeAudienceFilters(filters) } });
+});
+
+campaignsRouter.get("/:id", requirePermission("campaigns:read"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -234,7 +346,7 @@ campaignsRouter.get("/:id", async (req, res) => {
   });
 });
 
-campaignsRouter.post("/", async (req, res) => {
+campaignsRouter.post("/", requirePermission("campaigns:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -254,12 +366,27 @@ campaignsRouter.post("/", async (req, res) => {
     requireApproval = false,
     rateLimit = {},
     abTest = {},
+    audienceFilters: rawAudienceFilters = {},
+    leadStage = "",
+    tags = [],
+    tagIds = [],
+    createdFrom,
+    createdTo,
   } = req.body || {};
   if (!name?.trim()) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Campaign name is required." });
   }
 
-  const { account, template: defaultTemplate, recipients } = await getCampaignDefaults(req.user.workspaceId, audienceType);
+  const audienceFilters = normalizeAudienceFilters({
+    ...rawAudienceFilters,
+    audienceType: rawAudienceFilters.audienceType || audienceType,
+    leadStage: rawAudienceFilters.leadStage || leadStage,
+    tags: rawAudienceFilters.tags || tags,
+    tagIds: rawAudienceFilters.tagIds || tagIds,
+    createdFrom: rawAudienceFilters.createdFrom || createdFrom,
+    createdTo: rawAudienceFilters.createdTo || createdTo,
+  });
+  const { account, template: defaultTemplate, recipients } = await getCampaignDefaults(req.user.workspaceId, audienceFilters);
   const template = templateId && mongoose.Types.ObjectId.isValid(templateId)
     ? await Template.findOne({ _id: templateId, workspaceId: req.user.workspaceId, status: "approved" })
     : defaultTemplate;
@@ -276,9 +403,12 @@ campaignsRouter.post("/", async (req, res) => {
     name: name.trim(),
     whatsappAccountId: account._id,
     templateId: template._id,
+    templateName: template.name,
+    language: template.language || "en",
     templateIds: [template._id, ...(templateBId && mongoose.Types.ObjectId.isValid(templateBId) ? [templateBId] : [])],
     type,
-    audienceFilter: { type: campaignKind, label: audience || getAudienceLabel(audienceType), audienceType },
+    audienceFilter: { type: campaignKind, label: audience || getAudienceLabel(audienceFilters), audienceType: audienceFilters.audienceType },
+    audienceFilters: serializeAudienceFilters(audienceFilters),
     status: cleanStatus,
     scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
     schedule: {
@@ -316,7 +446,7 @@ campaignsRouter.post("/", async (req, res) => {
   res.status(201).json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/send", async (req, res) => {
+campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -339,15 +469,27 @@ campaignsRouter.post("/:id/send", async (req, res) => {
     return res.status(400).json({ error: "WHATSAPP_REQUIRED", message: "Campaign account and template are required." });
   }
 
-  const audienceType = campaign.audienceFilter?.audienceType || "all";
-  const contacts = await Contact.find(getAudienceFilter(req.user.workspaceId, audienceType))
+  const audienceFilters = normalizeAudienceFilters(campaign.audienceFilters || { audienceType: campaign.audienceFilter?.audienceType || "all" });
+  const audienceQuery = await buildAudienceQuery(req.user.workspaceId, audienceFilters);
+  const contacts = await Contact.find(audienceQuery)
     .sort({ createdAt: -1 })
     .limit(Math.max(1, Math.min(5000, Number(req.body?.limit || 1000))));
+
+  if (campaign.scheduledAt && campaign.scheduledAt > new Date() && !req.body?.sendNow) {
+    campaign.status = "scheduled";
+    campaign.metrics = { ...(campaign.metrics || {}), recipients: contacts.length };
+    campaign.queue = { ...(campaign.queue || {}), queued: contacts.length, processing: 0 };
+    campaign.history = [...(campaign.history || []), historyEvent("scheduled", req.user.sub, { recipients: contacts.length, scheduledAt: campaign.scheduledAt })];
+    await campaign.save();
+    await campaign.populate("templateId");
+    return res.json({ data: serializeCampaign(campaign), recipients: [] });
+  }
 
   campaign.status = "sending";
   campaign.metrics = { ...(campaign.metrics || {}), recipients: contacts.length, sent: 0, delivered: 0, read: 0, replied: 0, clicks: 0, conversions: 0, failed: 0 };
   campaign.queue = { ...(campaign.queue || {}), queued: contacts.length, processing: 0, completed: 0, failed: 0 };
   campaign.recipients = [];
+  campaign.deliveryResults = [];
   campaign.history = [...(campaign.history || []), historyEvent("send_started", req.user.sub, { recipients: contacts.length })];
   await campaign.save();
 
@@ -355,8 +497,22 @@ campaignsRouter.post("/:id/send", async (req, res) => {
   let delivered = 0;
   let failed = 0;
   const recipientLogs = [];
+  const rateLimit = campaign.rateLimit || {};
+  const batchSize = Math.max(1, Math.min(250, Number(rateLimit.batchSize || 50)));
+  const perMinute = Math.max(1, Math.min(1000, Number(rateLimit.perMinute || 60)));
 
   for (const [index, contact] of contacts.entries()) {
+    if (index > 0 && index % batchSize === 0) {
+      campaign.queue = {
+        ...(campaign.queue || {}),
+        queued: Math.max(0, contacts.length - index),
+        processing: Math.min(batchSize, contacts.length - index),
+        completed: sent,
+        failed,
+      };
+      await campaign.save();
+    }
+
     let providerResult;
     let errorMessage = "";
     const variant = campaign.abTest?.enabled && campaign.abTest?.variants?.length > 1 && index % 100 >= Number(campaign.abTest.split || 50) ? "B" : "A";
@@ -368,7 +524,7 @@ campaignsRouter.post("/:id/send", async (req, res) => {
     try {
       providerResult = await sendWhatsAppTemplate({ account, to: contact.phone, template: sendTemplate, parameters: [] });
       sent += 1;
-      if (["sent", "delivered", "read"].includes(providerResult.status)) delivered += 1;
+      if (["delivered", "read"].includes(providerResult.status)) delivered += 1;
     } catch (error) {
       failed += 1;
       errorMessage = error.message || "Send failed.";
@@ -411,6 +567,7 @@ campaignsRouter.post("/:id/send", async (req, res) => {
         campaignEvent: "send",
         variant,
         providerMode: providerResult.mode,
+        rateLimit: { perMinute, batchSize },
         templateId: sendTemplate._id,
         templateName: sendTemplate.name,
         ...(errorMessage ? { error: errorMessage } : {}),
@@ -441,6 +598,7 @@ campaignsRouter.post("/:id/send", async (req, res) => {
   campaign.metrics = { recipients: contacts.length, sent, delivered, read: 0, replied: 0, clicks: 0, conversions: 0, failed };
   campaign.queue = { ...(campaign.queue || {}), queued: 0, processing: 0, completed: sent, failed, retries: Number(campaign.queue?.retries || 0) };
   campaign.recipients = recipientLogs;
+  campaign.deliveryResults = recipientLogs;
   campaign.history = [...(campaign.history || []), historyEvent("send_completed", req.user.sub, { sent, failed })];
   await campaign.save();
   await campaign.populate("templateId");
@@ -448,7 +606,7 @@ campaignsRouter.post("/:id/send", async (req, res) => {
   res.json({ data: serializeCampaign(campaign), recipients: recipientLogs });
 });
 
-campaignsRouter.patch("/:id", async (req, res) => {
+campaignsRouter.patch("/:id", requirePermission("campaigns:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -467,12 +625,22 @@ campaignsRouter.patch("/:id", async (req, res) => {
       batchSize: Math.max(1, Math.min(500, Number(req.body.rateLimit.batchSize || 50))),
     };
   }
-  if (req.body?.type || req.body?.audience) {
+  if (req.body?.type || req.body?.audience || req.body?.audienceFilters || req.body?.leadStage || req.body?.tags || req.body?.tagIds || req.body?.createdFrom || req.body?.createdTo) {
+    const filters = normalizeAudienceFilters({
+      ...(req.body.audienceFilters || {}),
+      audienceType: req.body.audienceType || req.body.audienceFilters?.audienceType || "all",
+      leadStage: req.body.leadStage || req.body.audienceFilters?.leadStage,
+      tags: req.body.tags || req.body.audienceFilters?.tags,
+      tagIds: req.body.tagIds || req.body.audienceFilters?.tagIds,
+      createdFrom: req.body.createdFrom || req.body.audienceFilters?.createdFrom,
+      createdTo: req.body.createdTo || req.body.audienceFilters?.createdTo,
+    });
     updates.audienceFilter = {
       type: req.body.campaignKind || req.body.type || "broadcast",
-      label: req.body.audience || getAudienceLabel(req.body.audienceType),
-      audienceType: req.body.audienceType || "all",
+      label: req.body.audience || getAudienceLabel(filters),
+      audienceType: filters.audienceType || "all",
     };
+    updates.audienceFilters = serializeAudienceFilters(filters);
   }
 
   const campaign = await Campaign.findOneAndUpdate(
@@ -485,7 +653,7 @@ campaignsRouter.patch("/:id", async (req, res) => {
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/action", async (req, res) => {
+campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -537,7 +705,7 @@ campaignsRouter.post("/:id/action", async (req, res) => {
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/import", async (req, res) => {
+campaignsRouter.post("/import", requirePermission("campaigns:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -579,7 +747,7 @@ campaignsRouter.post("/import", async (req, res) => {
   res.status(201).json({ created, updated, failed: failures.length, failures });
 });
 
-campaignsRouter.delete("/:id", async (req, res) => {
+campaignsRouter.delete("/:id", requirePermission("campaigns:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }

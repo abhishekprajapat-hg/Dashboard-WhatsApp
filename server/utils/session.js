@@ -1,7 +1,9 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
+import { normalizeRoleKey } from "./rbac.js";
 
 export function signSession({ user, workspace, role }) {
+  const roleKey = normalizeRoleKey(role.key);
   return jwt.sign(
     {
       sub: user._id.toString(),
@@ -9,7 +11,7 @@ export function signSession({ user, workspace, role }) {
       workspaceId: workspace._id.toString(),
       organizationId: workspace.organizationId.toString(),
       role: role.name,
-      roleKey: role.key,
+      roleKey,
       permissions: role.permissions,
     },
     config.jwtSecret,
@@ -18,12 +20,14 @@ export function signSession({ user, workspace, role }) {
 }
 
 export function serializeUser(user, role) {
+  const roleKey = normalizeRoleKey(role.key);
   return {
     id: user._id.toString(),
     name: user.name,
     email: user.email,
     role: role.name,
-    roleKey: role.key,
+    roleKey,
+    permissions: role.permissions || [],
   };
 }
 

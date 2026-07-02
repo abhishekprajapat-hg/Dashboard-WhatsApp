@@ -5,6 +5,7 @@ import { config, validateProductionConfig } from "./config.js";
 import { connectDatabase } from "./db.js";
 import { auditMiddleware } from "./middleware/audit.js";
 import { requireAuth } from "./middleware/auth.js";
+import { requireWorkspaceContext } from "./middleware/workspace.js";
 import { rateLimiter } from "./middleware/rateLimiter.js";
 import { authRouter } from "./routes/auth.js";
 import { analyticsRouter } from "./routes/analytics.js";
@@ -42,7 +43,12 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: false,
 }));
-app.use(express.json({ limit: "16mb" }));
+app.use(express.json({
+  limit: "16mb",
+  verify: (req, _res, buffer) => {
+    req.rawBody = buffer;
+  },
+}));
 app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   const origin = req.headers.origin || "";
@@ -73,20 +79,20 @@ app.get("/metrics", async (_req, res) => {
 });
 
 app.use("/api/auth", authRouter);
-app.use("/api/analytics", requireAuth, analyticsRouter);
-app.use("/api/admin", requireAuth, adminRouter);
-app.use("/api/assistant", requireAuth, assistantRouter);
-app.use("/api/infrastructure", requireAuth, infrastructureRouter);
-app.use("/api/workspaces", requireAuth, workspaceRouter);
-app.use("/api/dashboard", requireAuth, dashboardRouter);
-app.use("/api/contacts", requireAuth, contactsRouter);
-app.use("/api/conversations", requireAuth, conversationsRouter);
-app.use("/api/campaigns", requireAuth, campaignsRouter);
-app.use("/api/automation", requireAuth, automationRouter);
-app.use("/api/team", requireAuth, teamRouter);
+app.use("/api/analytics", requireAuth, requireWorkspaceContext, analyticsRouter);
+app.use("/api/admin", requireAuth, requireWorkspaceContext, adminRouter);
+app.use("/api/assistant", requireAuth, requireWorkspaceContext, assistantRouter);
+app.use("/api/infrastructure", requireAuth, requireWorkspaceContext, infrastructureRouter);
+app.use("/api/workspaces", requireAuth, requireWorkspaceContext, workspaceRouter);
+app.use("/api/dashboard", requireAuth, requireWorkspaceContext, dashboardRouter);
+app.use("/api/contacts", requireAuth, requireWorkspaceContext, contactsRouter);
+app.use("/api/conversations", requireAuth, requireWorkspaceContext, conversationsRouter);
+app.use("/api/campaigns", requireAuth, requireWorkspaceContext, campaignsRouter);
+app.use("/api/automation", requireAuth, requireWorkspaceContext, automationRouter);
+app.use("/api/team", requireAuth, requireWorkspaceContext, teamRouter);
 app.use("/api/events", eventsRouter);
-app.use("/api/settings", requireAuth, settingsRouter);
-app.use("/api/media", requireAuth, mediaRouter);
+app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
+app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);
 app.use("/webhooks/whatsapp", whatsappWebhookRouter);
 app.use("/api/uploads", express.static(uploadRoot, {
@@ -112,6 +118,13 @@ connectDatabase()
     await connectRedis();
     await connectRabbitMQ();
     startWorkers();
+    httpServer.on("error", (error) => {
+      if (error.code === "EADDRINUSE") {
+        console.error(`Port ${config.port} is already in use. Stop the existing server or run with PORT=<free-port>.`);
+        process.exit(1);
+      }
+      throw error;
+    });
     httpServer.listen(config.port, () => {
       console.log(`WhatsCRM API listening on http://localhost:${config.port}`);
     });

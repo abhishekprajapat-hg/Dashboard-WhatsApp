@@ -1,14 +1,16 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { demoWorkspace } from "../data/demoData.js";
+import { requirePermission } from "../middleware/auth.js";
 import { Membership, Organization, Role, Workspace } from "../models/index.js";
+import { roleDefinitionFor } from "../utils/rbac.js";
 import { serializeWorkspace } from "../utils/session.js";
 
 export const workspaceRouter = Router();
 
-workspaceRouter.get("/current", async (req, res) => {
+workspaceRouter.get("/current", requirePermission("settings:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1 && req.user?.workspaceId) {
-    const workspace = await Workspace.findById(req.user.workspaceId);
+    const workspace = await Workspace.findOne({ _id: req.user.workspaceId, organizationId: req.user.organizationId });
 
     if (!workspace) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
@@ -20,7 +22,7 @@ workspaceRouter.get("/current", async (req, res) => {
   res.json({ workspace: demoWorkspace });
 });
 
-workspaceRouter.post("/", async (req, res) => {
+workspaceRouter.post("/", requirePermission("admin:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required to create workspaces." });
   }
@@ -50,9 +52,8 @@ workspaceRouter.post("/", async (req, res) => {
   const role = await Role.create({
     organizationId: organization._id,
     workspaceId: workspace._id,
-    name: "Workspace Admin",
-    key: "workspace_admin",
-    permissions: ["*"],
+    key: "admin",
+    ...roleDefinitionFor("admin"),
     isSystemRole: true,
   });
 
@@ -68,7 +69,7 @@ workspaceRouter.post("/", async (req, res) => {
   res.status(201).json({ workspace: serializeWorkspace(workspace) });
 });
 
-workspaceRouter.put("/current", async (req, res) => {
+workspaceRouter.put("/current", requirePermission("settings:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !req.user?.workspaceId) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required to update workspaces." });
   }
@@ -83,7 +84,7 @@ workspaceRouter.put("/current", async (req, res) => {
   if (businessCategory?.trim()) updates.businessCategory = businessCategory.trim();
 
   const workspace = await Workspace.findOneAndUpdate(
-    { _id: req.user.workspaceId },
+    { _id: req.user.workspaceId, organizationId: req.user.organizationId },
     updates,
     { new: true }
   );

@@ -13,11 +13,15 @@ export type MessageKind =
   | "contact"
   | "system";
 
-export type MessageStatus = "sent" | "delivered" | "read" | "failed";
+export type MessageStatus = "queued" | "sent" | "delivered" | "read" | "failed";
 
 export interface Attachment {
   name: string;
   url: string;
+  path?: string;
+  storage?: string;
+  providerMediaId?: string;
+  metaMediaId?: string;
   type?: string;
   mimeType?: string;
   size?: number;
@@ -60,7 +64,9 @@ export interface Conversation {
   source?: string;
   lifecycleStatus?: string;
   crmStage?: string;
+  leadScore?: number;
   crmAddedAt?: string;
+  syncStatus?: { googleSheet?: { status?: string; lastSyncedAt?: string; error?: string } };
   campaign?: string;
   lastSeen?: string;
   lastMessageAt?: string;
@@ -91,7 +97,7 @@ export interface PendingMedia {
   kind: "image" | "video" | "audio" | "document";
 }
 
-export type InboxFilter = "all" | "unread" | "assigned" | "teams" | "archived" | "labels";
+export type InboxFilter = "all" | "unread" | "assigned" | "open" | "waiting" | "resolved" | "archived" | "labels";
 
 export interface PageState {
   loading: boolean;

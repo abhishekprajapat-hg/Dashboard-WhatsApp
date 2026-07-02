@@ -2,7 +2,9 @@ export const demoUser = {
   id: "usr_admin",
   name: "Admin",
   email: "admin@test.com",
-  role: "Workspace Admin",
+  role: "Admin",
+  roleKey: "admin",
+  permissions: ["*"],
 };
 
 export const demoWorkspace = {

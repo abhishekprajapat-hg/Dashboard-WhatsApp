@@ -1,7 +1,9 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { requirePermission } from "../middleware/auth.js";
 import { AutomationFlow, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
+import { encodeCredentials } from "../services/whatsappProvider.js";
 import { formatKeywords, parseKeywords } from "../utils/keywords.js";
 import { relativeTime } from "../utils/serializers.js";
 
@@ -19,24 +21,78 @@ function toDbStatus(status) {
   return "draft";
 }
 
+const triggerTypeMap = {
+  "new message": "new_message",
+  new_message: "new_message",
+  "new lead": "new_lead",
+  new_lead: "new_lead",
+  "keyword match": "keyword_match",
+  keyword_match: "keyword_match",
+  "stage changed": "stage_changed",
+  stage_changed: "stage_changed",
+  "new conversation": "new_conversation",
+  new_conversation: "new_conversation",
+};
+
+function normalizeTriggerType(trigger = "new_message") {
+  const key = String(trigger || "new_message").trim().toLowerCase().replace(/\s+/g, " ");
+  return triggerTypeMap[key] || triggerTypeMap[key.replace(/\s+/g, "_")] || "new_message";
+}
+
+function labelForTrigger(type = "new_message") {
+  const labels = {
+    new_message: "New message",
+    new_lead: "New lead",
+    keyword_match: "Keyword match",
+    stage_changed: "Stage changed",
+    new_conversation: "New conversation",
+  };
+  return labels[type] || type.replace(/_/g, " ");
+}
+
+function canonicalActionType(type = "") {
+  const aliases = {
+    send_whatsapp_message: "send_message",
+    assign_team_member: "assign_user",
+    update_lead_stage: "lead_stage",
+    send_to_google_sheet: "google_sheets",
+  };
+  const value = String(type || "").toLowerCase();
+  return aliases[value] || value;
+}
+
 function serializeFlow(flow) {
-  const actions = (flow.nodes || []).filter((node) => node.type !== "trigger");
+  const actions = [
+    ...(flow.nodes || []).filter((node) => node.type !== "trigger"),
+    ...(flow.actions || []).map((action, index) => ({ id: action.id || `action_${index}`, type: action.type, config: action.config || action })),
+  ];
   const keywords = parseKeywords(flow.trigger?.keywords || flow.trigger?.keyword || "");
+  const runLogs = Array.isArray(flow.runLogs)
+    ? flow.runLogs.flatMap((run) => (run.logs || []).map((log) => ({
+        ...log,
+        runAt: run.at,
+        conversationId: run.conversationId,
+      })))
+    : [];
   return {
     id: flow._id.toString(),
     name: flow.name,
     description: flow.trigger?.description || "",
     trigger: flow.trigger?.label || flow.trigger?.type || "Manual",
+    triggerType: flow.trigger?.type || "new_message",
     keyword: keywords.join(", "),
     keywords,
     actions: actions.length,
     actionSummary: actions.map((node) => {
-      if (node.type === "send_message") return "Reply";
-      if (node.type === "assign_user") return "Assign";
-      if (node.type === "set_status") return `Status: ${node.config?.status || "open"}`;
-      if (node.type === "add_tag") return `Tag: ${node.config?.name || "Lead"}`;
-      if (node.type === "add_to_crm") return "Add to CRM";
-      if (node.type === "call_webhook") return "Webhook";
+      const type = canonicalActionType(node.type);
+      if (type === "send_message") return "Reply";
+      if (type === "assign_user") return "Assign";
+      if (type === "set_status") return `Status: ${node.config?.status || "open"}`;
+      if (type === "add_tag") return `Tag: ${node.config?.name || "Lead"}`;
+      if (type === "add_to_crm") return "Add to CRM";
+      if (type === "lead_stage") return `Lead: ${node.config?.stage || "new_lead"}`;
+      if (type === "google_sheets") return "Google Sheets";
+      if (type === "call_webhook") return "Webhook";
       return node.type;
     }),
     status: toClientStatus(flow.status),
@@ -45,6 +101,8 @@ function serializeFlow(flow) {
     category: flow.trigger?.category || "General",
     nodes: flow.nodes || [],
     edges: flow.edges || [],
+    conditions: flow.conditions || [],
+    simpleActions: flow.actions || [],
     version: flow.version || 1,
     publishedAt: flow.publishedAt,
     updatedAt: flow.updatedAt,
@@ -55,11 +113,11 @@ function serializeFlow(flow) {
       errorRate: Number(flow.trigger?.errorRate || 0),
     },
     versions: flow.trigger?.versions || [],
-    executionLogs: flow.trigger?.executionLogs || [],
+    executionLogs: runLogs.length ? runLogs.slice(-100) : flow.trigger?.executionLogs || [],
   };
 }
 
-automationRouter.get("/", async (req, res) => {
+automationRouter.get("/", requirePermission("automation:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0, summary: { runsToday: 0, automatedMessages: 0, handoffs: 0 } });
   }
@@ -78,7 +136,7 @@ automationRouter.get("/", async (req, res) => {
   });
 });
 
-automationRouter.post("/", async (req, res) => {
+automationRouter.post("/", requirePermission("automation:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -91,11 +149,16 @@ automationRouter.post("/", async (req, res) => {
     status = "draft",
     actionMessage = "Thanks for reaching out. Our team will reply shortly.",
     keyword = "",
+    triggerType: incomingTriggerType = "",
+    conditions = [],
+    actions: incomingActions = [],
     sendReply = true,
     assignmentUserId = "",
     nextStatus = "",
     tagName = "",
     addToCrm = false,
+    leadStage = "new_lead",
+    sendToGoogleSheet = false,
     callWebhook = false,
     webhookUrl = "",
     webhookSecret = "",
@@ -107,7 +170,7 @@ automationRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Flow name is required." });
   }
 
-  const triggerType = trigger.toLowerCase().replace(/\s+/g, "_");
+  const triggerType = normalizeTriggerType(incomingTriggerType || trigger);
   const keywords = parseKeywords(keyword);
   const cleanKeyword = formatKeywords(keywords);
 
@@ -130,10 +193,15 @@ automationRouter.post("/", async (req, res) => {
   if (assignmentUserId && mongoose.Types.ObjectId.isValid(assignmentUserId)) addActionNode("assign_user", { userId: assignmentUserId });
   if (nextStatus) addActionNode("set_status", { status: nextStatus });
   if (tagName?.trim()) addActionNode("add_tag", { name: tagName.trim() });
-  if (addToCrm) addActionNode("add_to_crm", { source: "automation", stage: "new_lead" });
+  if (addToCrm) addActionNode("add_to_crm", { source: "automation", stage: leadStage || "new_lead" });
+  if (sendToGoogleSheet) addActionNode("google_sheets", { source: "automation", stage: leadStage || "new_lead" });
   if (callWebhook) addActionNode("call_webhook", { url: webhookUrl.trim(), secret: webhookSecret, event: "automation.triggered" });
 
-  if (nodes.length === 1) {
+  const simpleActions = Array.isArray(incomingActions)
+    ? incomingActions.map((action) => ({ ...action, type: canonicalActionType(action?.type), config: action?.config || action })).filter((action) => action.type)
+    : [];
+
+  if (nodes.length === 1 && simpleActions.length === 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "At least one automation action is required." });
   }
 
@@ -143,7 +211,7 @@ automationRouter.post("/", async (req, res) => {
     name: name.trim(),
     trigger: {
       type: triggerType,
-      label: trigger,
+      label: labelForTrigger(triggerType),
       description,
       category,
       keyword: cleanKeyword,
@@ -153,6 +221,8 @@ automationRouter.post("/", async (req, res) => {
       versions: [{ version: 1, label: "Initial draft", at: new Date(), userId: req.user.sub }],
       executionLogs: [],
     },
+    conditions: Array.isArray(conditions) ? conditions : [],
+    actions: simpleActions,
     nodes,
     edges,
     status: toDbStatus(status),
@@ -164,7 +234,7 @@ automationRouter.post("/", async (req, res) => {
   res.status(201).json({ data: serializeFlow(flow) });
 });
 
-automationRouter.patch("/:id", async (req, res) => {
+automationRouter.patch("/:id", requirePermission("automation:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
@@ -173,7 +243,12 @@ automationRouter.patch("/:id", async (req, res) => {
   if (req.body?.name) updates.$set.name = req.body.name.trim();
   if (Array.isArray(req.body?.nodes)) updates.$set.nodes = req.body.nodes;
   if (Array.isArray(req.body?.edges)) updates.$set.edges = req.body.edges;
+  if (Array.isArray(req.body?.conditions)) updates.$set.conditions = req.body.conditions;
+  if (Array.isArray(req.body?.actions)) {
+    updates.$set.actions = req.body.actions.map((action) => ({ ...action, type: canonicalActionType(action?.type), config: action?.config || action }));
+  }
   if (req.body?.trigger && typeof req.body.trigger === "object") updates.$set.trigger = req.body.trigger;
+  if (req.body?.triggerType) updates.$set["trigger.type"] = normalizeTriggerType(req.body.triggerType);
   if (req.body?.description) updates.$set["trigger.description"] = req.body.description;
   if (req.body?.category) updates.$set["trigger.category"] = req.body.category;
   if (req.body?.status) {
@@ -202,7 +277,7 @@ automationRouter.patch("/:id", async (req, res) => {
   res.json({ data: serializeFlow(flow) });
 });
 
-automationRouter.post("/:id/test", async (req, res) => {
+automationRouter.post("/:id/test", requirePermission("automation:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
@@ -216,7 +291,7 @@ automationRouter.post("/:id/test", async (req, res) => {
 
   const account = await WhatsAppAccount.findOne({
     workspaceId: req.user.workspaceId,
-    status: { $in: ["connected", "needs_attention"] },
+    status: mongoose.trusted({ $in: ["connected", "needs_attention"] }),
   }).sort({ createdAt: -1 });
 
   if (!account) {
@@ -274,12 +349,12 @@ automationRouter.post("/:id/test", async (req, res) => {
     await conversation.save();
 
     const localAccount = account.toObject();
-    localAccount.encryptedCredentials = Buffer.from(JSON.stringify({
+    localAccount.encryptedCredentials = encodeCredentials({
       provider: account.provider || "meta",
       accessToken: "local-placeholder-token",
       authToken: "local-placeholder-token",
       apiKey: "local-placeholder-token",
-    })).toString("base64");
+    });
 
     const results = await runInboundAutomations({
       account: localAccount,
@@ -287,6 +362,7 @@ automationRouter.post("/:id/test", async (req, res) => {
       conversation,
       inboundMessage: message,
       isNewConversation: true,
+      isNewLead: true,
       flowId: flow._id,
     });
 
@@ -311,7 +387,7 @@ automationRouter.post("/:id/test", async (req, res) => {
   }
 });
 
-automationRouter.delete("/:id", async (req, res) => {
+automationRouter.delete("/:id", requirePermission("automation:write"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }

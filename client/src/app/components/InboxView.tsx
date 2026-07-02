@@ -74,10 +74,13 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
         crmSaving={engine.crmSaving}
         assigning={engine.assigning}
         mobileChatOpen={engine.store.mobileChatOpen}
+        loading={engine.store.loading}
+        error={engine.store.error}
         onFilterChange={engine.store.setFilter}
         onSearchChange={engine.store.setSearch}
         onMessageSearchChange={engine.setMessageSearch}
         onSelectConversation={engine.store.selectConversation}
+        onRetryLoad={engine.loadConversations}
         onBackToList={() => engine.store.setMobileChatOpen(false)}
         onInputChange={engine.handleTyping}
         onComposerModeChange={engine.setComposerMode}

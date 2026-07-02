@@ -31,6 +31,7 @@ interface ActivityBarProps {
   onViewChange: (view: ViewId) => void;
   onLogout: () => void;
   unreadCount?: number;
+  visibleViews?: ViewId[];
 }
 
 const NAV_ITEMS: { id: ViewId; icon: React.ReactNode; label: string }[] = [
@@ -45,8 +46,11 @@ const NAV_ITEMS: { id: ViewId; icon: React.ReactNode; label: string }[] = [
   { id: "admin", icon: <ShieldCheck size={18} />, label: "Admin" },
 ];
 
-export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 0 }: ActivityBarProps) {
+export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 0, visibleViews }: ActivityBarProps) {
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+  const allowed = new Set(visibleViews || NAV_ITEMS.map((item) => item.id));
+  const navItems = NAV_ITEMS.filter((item) => allowed.has(item.id));
+  const canOpenSettings = allowed.has("settings");
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -58,7 +62,7 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
 
         {/* Nav */}
         <nav className="flex min-w-0 flex-1 items-center justify-around gap-0.5 md:flex-col md:justify-start">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive = activeView === item.id;
             return (
               <Tooltip key={item.id}>
@@ -92,23 +96,25 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
 
         {/* Bottom items */}
         <div className="flex items-center gap-0.5 md:mt-auto md:flex-col">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => onViewChange("settings")}
-                className={`h-10 w-10 rounded-md flex items-center justify-center transition-colors md:h-9 md:w-9 ${
-                  activeView === "settings"
-                    ? "bg-sidebar-accent text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
-                }`}
-              >
-                <Settings size={18} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="bg-popover text-popover-foreground border-border">
-              Settings
-            </TooltipContent>
-          </Tooltip>
+          {canOpenSettings && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onViewChange("settings")}
+                  className={`h-10 w-10 rounded-md flex items-center justify-center transition-colors md:h-9 md:w-9 ${
+                    activeView === "settings"
+                      ? "bg-sidebar-accent text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+                  }`}
+                >
+                  <Settings size={18} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="bg-popover text-popover-foreground border-border">
+                Settings
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>

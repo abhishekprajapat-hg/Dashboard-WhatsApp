@@ -1,4 +1,4 @@
-import { Archive, Bell, BriefcaseBusiness, Inbox, MessageSquareText, Search, Settings, Tag, Users } from "lucide-react";
+import { Archive, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Inbox, MessageSquareText, Search, Settings, Tag } from "lucide-react";
 import type { InboxFilter } from "./types";
 import { cn } from "./utils";
 
@@ -13,8 +13,10 @@ interface InboxSidebarProps {
 const filters: Array<{ id: InboxFilter; label: string; icon: typeof Inbox }> = [
   { id: "all", label: "Inbox", icon: Inbox },
   { id: "unread", label: "Unread", icon: Bell },
-  { id: "assigned", label: "Assigned", icon: BriefcaseBusiness },
-  { id: "teams", label: "Teams", icon: Users },
+  { id: "assigned", label: "Mine", icon: BriefcaseBusiness },
+  { id: "open", label: "Open", icon: Inbox },
+  { id: "waiting", label: "Waiting", icon: Clock3 },
+  { id: "resolved", label: "Resolved", icon: CheckCircle2 },
   { id: "archived", label: "Archived", icon: Archive },
   { id: "labels", label: "Labels", icon: Tag },
 ];

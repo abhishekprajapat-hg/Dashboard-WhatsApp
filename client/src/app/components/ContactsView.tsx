@@ -57,9 +57,10 @@ const crmFilters = [
 
 interface ContactsViewProps {
   onOpenContactChat?: (contactId: string) => void;
+  canWrite?: boolean;
 }
 
-export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
+export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsViewProps) {
   const [search, setSearch] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -142,17 +143,19 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
           <Button variant="outline" size="sm" className="hidden h-8 text-xs border-border text-muted-foreground hover:text-foreground sm:inline-flex">
             <Download size={13} className="mr-1.5" /> Export
           </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setShowCreate((current) => !current)}
-          >
-            <Plus size={13} className="mr-1.5" /> New lead
-          </Button>
+          {canWrite && (
+            <Button
+              size="sm"
+              className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => setShowCreate((current) => !current)}
+            >
+              <Plus size={13} className="mr-1.5" /> New lead
+            </Button>
+          )}
         </div>
       </div>
 
-      {showCreate && (
+      {canWrite && showCreate && (
         <form onSubmit={handleCreateContact} className="grid grid-cols-1 md:grid-cols-5 gap-2 px-3 sm:px-6 py-3 border-b border-border bg-secondary/20 shrink-0">
           <Input
             value={form.name}
@@ -214,7 +217,7 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
         <Button variant="outline" size="sm" className="h-8 w-fit text-xs border-border text-muted-foreground hover:text-foreground">
           <Filter size={13} className="mr-1.5" /> Filter
         </Button>
-        {selectedIds.length > 0 && (
+        {canWrite && selectedIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 sm:ml-2">
             <span className="text-xs text-muted-foreground">{selectedIds.length} selected</span>
             <Button variant="outline" size="sm" className="h-7 text-xs border-border text-muted-foreground hover:text-foreground">
@@ -245,13 +248,15 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
               className={`w-full px-3 py-3 text-left transition-colors hover:bg-secondary/30 ${selectedIds.includes(contact.id) ? "bg-primary/5" : ""}`}
             >
               <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(contact.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={() => toggleSelect(contact.id)}
-                  className="mt-1 rounded"
-                />
+                {canWrite && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(contact.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => toggleSelect(contact.id)}
+                    className="mt-1 rounded"
+                  />
+                )}
                 <div className="h-9 w-9 shrink-0 rounded-full bg-secondary flex items-center justify-center">
                   <span className="text-xs font-medium text-foreground">
                     {contact.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
@@ -286,14 +291,16 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-secondary/50 sticky top-0">
-              <th className="pl-6 pr-3 py-2.5 text-left w-8">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.length === filtered.length && filtered.length > 0}
-                  onChange={toggleAll}
-                  className="rounded"
-                />
-              </th>
+              {canWrite && (
+                <th className="pl-6 pr-3 py-2.5 text-left w-8">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.length === filtered.length && filtered.length > 0}
+                    onChange={toggleAll}
+                    className="rounded"
+                  />
+                </th>
+              )}
               <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Phone</th>
               <th className="px-3 py-2.5 text-left font-medium text-muted-foreground hidden md:table-cell">Email</th>
@@ -315,15 +322,17 @@ export function ContactsView({ onOpenContactChat }: ContactsViewProps) {
                   selectedIds.includes(contact.id) ? "bg-primary/5" : ""
                 }`}
               >
-                <td className="pl-6 pr-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(contact.id)}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={() => toggleSelect(contact.id)}
-                    className="rounded"
-                  />
-                </td>
+                {canWrite && (
+                  <td className="pl-6 pr-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(contact.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelect(contact.id)}
+                      className="rounded"
+                    />
+                  </td>
+                )}
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center shrink-0">

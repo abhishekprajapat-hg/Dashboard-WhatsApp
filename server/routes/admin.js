@@ -12,29 +12,12 @@ import {
   WhatsAppAccount,
   Workspace,
 } from "../models/index.js";
+import { requirePermission } from "../middleware/auth.js";
+import { allPermissions } from "../utils/rbac.js";
 
 export const adminRouter = Router();
 
-const defaultPermissions = [
-  "admin:read",
-  "admin:write",
-  "inbox:read",
-  "inbox:write",
-  "contacts:read",
-  "contacts:write",
-  "campaigns:read",
-  "campaigns:write",
-  "automation:read",
-  "automation:write",
-  "team:read",
-  "team:write",
-  "settings:read",
-  "settings:write",
-  "billing:read",
-  "security:write",
-  "reports:read",
-  "assignment:write",
-];
+const defaultPermissions = allPermissions();
 
 function compactDate(date) {
   if (!date) return "";
@@ -52,7 +35,7 @@ function settingsObject(value) {
   return value && typeof value === "object" ? value : {};
 }
 
-adminRouter.get("/overview", async (req, res) => {
+adminRouter.get("/overview", requirePermission("admin:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({
       companies: [],
@@ -96,10 +79,10 @@ adminRouter.get("/overview", async (req, res) => {
     auditLogs,
   ] = await Promise.all([
     Organization.findById(organizationId),
-    Workspace.find({ organizationId }).sort({ createdAt: 1 }),
-    Membership.find({ organizationId }).populate("userId").populate("roleId").populate("workspaceId").sort({ createdAt: 1 }),
-    Role.find({ organizationId }).populate("workspaceId", "name slug").sort({ workspaceId: 1, name: 1 }),
-    WhatsAppAccount.find({ organizationId }).populate("workspaceId", "name slug").sort({ createdAt: -1 }),
+    Workspace.find({ _id: workspaceId, organizationId }).sort({ createdAt: 1 }),
+    Membership.find({ workspaceId }).populate("userId").populate("roleId").populate("workspaceId").sort({ createdAt: 1 }),
+    Role.find({ workspaceId }).populate("workspaceId", "name slug").sort({ workspaceId: 1, name: 1 }),
+    WhatsAppAccount.find({ workspaceId }).populate("workspaceId", "name slug").sort({ createdAt: -1 }),
     Template.find({ workspaceId }).sort({ updatedAt: -1 }).limit(100),
     AutomationFlow.find({ workspaceId }).sort({ updatedAt: -1 }).limit(100),
     Campaign.find({ workspaceId }).sort({ updatedAt: -1 }).limit(100),
@@ -157,7 +140,7 @@ adminRouter.get("/overview", async (req, res) => {
           ownerUserId: organization.ownerUserId?.toString?.() || "",
           plan: organization.plan,
           billingStatus: organization.billingStatus,
-          tenants: workspaces.length,
+          tenants: 1,
           createdAt: compactDate(organization.createdAt),
         }]
       : [],
@@ -284,12 +267,12 @@ adminRouter.get("/overview", async (req, res) => {
   });
 });
 
-adminRouter.put("/settings", async (req, res) => {
+adminRouter.put("/settings", requirePermission("admin:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
-  const workspace = await Workspace.findById(req.user.workspaceId);
+  const workspace = await Workspace.findOne({ _id: req.user.workspaceId, organizationId: req.user.organizationId });
   const organization = await Organization.findById(req.user.organizationId);
   if (!workspace || !organization) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });

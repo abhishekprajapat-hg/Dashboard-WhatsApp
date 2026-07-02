@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { AiDocument, AiMemory, Contact, Conversation, Lead, Message } from "../models/index.js";
 
 const providerConfig = {
@@ -214,7 +215,7 @@ export async function getConversationContext({ workspaceId, conversationId }) {
   if (!conversation) return null;
 
   const [messages, lead, memories] = await Promise.all([
-    Message.find({ conversationId, workspaceId, deletedAt: { $exists: false } }).sort({ createdAt: -1 }).limit(80),
+    Message.find({ conversationId, workspaceId, deletedAt: mongoose.trusted({ $exists: false }) }).sort({ createdAt: -1 }).limit(80),
     Lead.findOne({ conversationId, workspaceId, status: "open" }).sort({ updatedAt: -1 }),
     AiMemory.find({ conversationId, workspaceId }).sort({ updatedAt: -1 }).limit(20),
   ]);

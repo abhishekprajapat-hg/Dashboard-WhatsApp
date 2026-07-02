@@ -10,7 +10,7 @@ interface TeamMember {
   id: string;
   name: string;
   email: string;
-  role: "super_admin" | "admin" | "manager" | "agent";
+  role: "super_admin" | "admin" | "manager" | "agent" | "viewer";
   status: "online" | "offline" | "busy" | "away";
   assignedConversations: number;
   resolvedToday: number;
@@ -24,6 +24,7 @@ const roleStyle: Record<string, string> = {
   admin: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   manager: "bg-primary/20 text-primary border-primary/30",
   agent: "bg-secondary text-muted-foreground border-border",
+  viewer: "bg-secondary text-muted-foreground border-border",
 };
 
 const roleLabel: Record<string, string> = {
@@ -31,6 +32,7 @@ const roleLabel: Record<string, string> = {
   admin: "Admin",
   manager: "Manager",
   agent: "Agent",
+  viewer: "Viewer",
 };
 
 const statusDot: Record<string, string> = {
@@ -47,7 +49,11 @@ const statusLabel: Record<string, string> = {
   offline: "Offline",
 };
 
-export function TeamView() {
+interface TeamViewProps {
+  canManage?: boolean;
+}
+
+export function TeamView({ canManage = false }: TeamViewProps) {
   const [search, setSearch] = useState("");
   const [showInvite, setShowInvite] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -113,12 +119,14 @@ export function TeamView() {
           <h1 className="text-foreground">Team</h1>
           <p className="text-xs text-muted-foreground mt-0.5">{members.length} members - {onlineCount} online now</p>
         </div>
-        <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setShowInvite(!showInvite)}>
-          <Plus size={13} className="mr-1.5" /> Invite member
-        </Button>
+        {canManage && (
+          <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setShowInvite(!showInvite)}>
+            <Plus size={13} className="mr-1.5" /> Invite member
+          </Button>
+        )}
       </div>
 
-      {showInvite && (
+      {canManage && showInvite && (
         <form onSubmit={handleInvite} className="mx-3 mt-3 p-3 rounded-lg bg-card border border-border sm:mx-6 sm:mt-4 sm:p-4">
           <h3 className="text-sm font-medium text-foreground mb-3">Invite a team member</h3>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -128,6 +136,7 @@ export function TeamView() {
             <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} className="h-8 text-xs bg-secondary border border-border rounded-md px-2 text-foreground">
               <option value="agent">Agent</option>
               <option value="manager">Manager</option>
+              <option value="viewer">Viewer</option>
               <option value="admin">Admin</option>
             </select>
             <div className="flex gap-2">
@@ -196,7 +205,7 @@ export function TeamView() {
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <button onClick={() => handleRole(member, member.role === "admin" ? "manager" : member.role === "manager" ? "agent" : "admin")}>
+                  <button disabled={!canManage} onClick={() => canManage && handleRole(member, member.role === "admin" ? "manager" : member.role === "manager" ? "agent" : "admin")}>
                     <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${roleStyle[member.role]}`}>
                       {roleLabel[member.role]}
                     </Badge>
@@ -216,9 +225,11 @@ export function TeamView() {
                 <td className="px-3 py-3 text-muted-foreground hidden lg:table-cell">{member.joinedAt}</td>
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-1">
-                    <button className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors" onClick={() => handleDelete(member.id)}>
-                      <Trash2 size={13} />
-                    </button>
+                    {canManage && (
+                      <button className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors" onClick={() => handleDelete(member.id)}>
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                     <button className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
                       <MoreHorizontal size={13} />
                     </button>

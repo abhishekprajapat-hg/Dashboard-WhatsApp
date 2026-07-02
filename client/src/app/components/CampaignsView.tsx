@@ -32,6 +32,7 @@ import {
   getCampaigns,
   getWhatsAppTemplates,
   importCampaignContacts,
+  previewCampaignAudience,
   sendCampaign,
   updateCampaign,
 } from "../lib/api";
@@ -44,6 +45,13 @@ interface Campaign {
   campaignKind?: string;
   audience: string;
   audienceType: string;
+  audienceFilters?: {
+    audienceType?: string;
+    leadStage?: string;
+    tags?: string[];
+    createdFrom?: string;
+    createdTo?: string;
+  };
   recipients: number;
   sent: number;
   delivered: number;
@@ -122,12 +130,26 @@ const audienceLabels: Record<string, string> = {
   imported: "Imported Contacts",
 };
 
+const leadStageLabels: Record<string, string> = {
+  "": "Any lead stage",
+  new_lead: "New lead",
+  contacted: "Contacted",
+  qualified: "Qualified",
+  proposal_sent: "Proposal sent",
+  won: "Won",
+  lost: "Lost",
+};
+
 function percent(part: number, total: number) {
   if (!total) return "-";
   return `${Math.round((part / total) * 100)}%`;
 }
 
-export function CampaignsView() {
+interface CampaignsViewProps {
+  canWrite?: boolean;
+}
+
+export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [summary, setSummary] = useState({ totalSent: 0, deliveryRate: 0, readRate: 0, replyRate: 0, clickRate: 0, conversionRate: 0, failures: 0 });
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
@@ -138,6 +160,8 @@ export function CampaignsView() {
   const [notice, setNotice] = useState("");
   const [report, setReport] = useState<CampaignReport | null>(null);
   const [csvText, setCsvText] = useState("");
+  const [previewing, setPreviewing] = useState(false);
+  const [audiencePreview, setAudiencePreview] = useState<{ count: number; label: string; sample: { id: string; name: string; phone: string }[] } | null>(null);
   const [form, setForm] = useState({
     name: "",
     type: "template",
@@ -154,6 +178,10 @@ export function CampaignsView() {
     batchSize: 50,
     abTest: false,
     split: 50,
+    leadStage: "",
+    tags: "",
+    createdFrom: "",
+    createdTo: "",
   });
 
   async function loadCampaigns() {
@@ -186,12 +214,20 @@ export function CampaignsView() {
     setSaving(true);
     setNotice("");
     try {
+      const audienceFilters = {
+        audienceType: form.audienceType,
+        leadStage: form.leadStage || undefined,
+        tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        createdFrom: form.createdFrom || undefined,
+        createdTo: form.createdTo || undefined,
+      };
       const response = await createCampaign<{ data: Campaign }>({
         name: form.name.trim(),
         type: form.type,
         campaignKind: form.campaignKind,
         audience: audienceLabels[form.audienceType],
         audienceType: form.audienceType,
+        audienceFilters,
         templateId: form.templateId,
         templateBId: form.abTest ? form.templateBId : undefined,
         status: form.status,
@@ -205,11 +241,35 @@ export function CampaignsView() {
       setCampaigns((items) => [response.data, ...items]);
       setShowCreate(false);
       setNotice("Campaign created.");
+      setAudiencePreview(null);
       await loadCampaigns();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Campaign could not be created.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function previewAudience() {
+    setPreviewing(true);
+    setNotice("");
+    try {
+      const response = await previewCampaignAudience<{ data: { count: number; label: string; sample: { id: string; name: string; phone: string }[] } }>({
+        audienceType: form.audienceType,
+        audienceFilters: {
+          audienceType: form.audienceType,
+          leadStage: form.leadStage || undefined,
+          tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+          createdFrom: form.createdFrom || undefined,
+          createdTo: form.createdTo || undefined,
+        },
+      });
+      setAudiencePreview(response.data);
+      setNotice(`Preview matched ${response.data.count} contacts.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Audience preview failed.");
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -261,6 +321,7 @@ export function CampaignsView() {
       campaignKind: campaign.campaignKind,
       audience: campaign.audience,
       audienceType: campaign.audienceType || "all",
+      audienceFilters: campaign.audienceFilters,
       templateId: campaign.templateId,
       status: "draft",
       requireApproval: Boolean(campaign.approval?.required),
@@ -295,13 +356,15 @@ export function CampaignsView() {
           <Button size="sm" variant="outline" className="h-8 border-border text-xs" onClick={loadCampaigns}>
             <RefreshCcw size={13} className="mr-1.5" /> Refresh
           </Button>
-          <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => setShowCreate((value) => !value)}>
-            <Plus size={13} className="mr-1.5" /> New campaign
-          </Button>
+          {canWrite && (
+            <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => setShowCreate((value) => !value)}>
+              <Plus size={13} className="mr-1.5" /> New campaign
+            </Button>
+          )}
         </div>
       </div>
 
-      {showCreate && (
+      {canWrite && showCreate && (
         <form onSubmit={handleCreate} className="grid grid-cols-1 gap-2 border-b border-border bg-secondary/20 px-3 py-3 shrink-0 md:grid-cols-8 sm:px-6">
           <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Campaign name" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
           <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
@@ -346,6 +409,21 @@ export function CampaignsView() {
             <option value="monthly">Monthly</option>
           </select>
           <input type="number" value={form.batchSize} onChange={(event) => setForm((current) => ({ ...current, batchSize: Number(event.target.value) }))} placeholder="Batch size" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <select value={form.leadStage} onChange={(event) => setForm((current) => ({ ...current, leadStage: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground">
+            {Object.entries(leadStageLabels).map(([value, label]) => <option key={value || "any"} value={value}>{label}</option>)}
+          </select>
+          <input value={form.tags} onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))} placeholder="Tags, comma separated" className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <input type="date" value={form.createdFrom} onChange={(event) => setForm((current) => ({ ...current, createdFrom: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <input type="date" value={form.createdTo} onChange={(event) => setForm((current) => ({ ...current, createdTo: event.target.value }))} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground" />
+          <Button type="button" size="sm" variant="outline" className="h-8 border-border text-xs" onClick={previewAudience} disabled={previewing}>
+            <Eye size={13} className="mr-1.5" /> {previewing ? "Previewing" : "Preview"}
+          </Button>
+          {audiencePreview && (
+            <div className="md:col-span-3 rounded border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground">
+              {audiencePreview.label}: <span className="text-foreground">{audiencePreview.count}</span>
+              {audiencePreview.sample.length > 0 && <span> - {audiencePreview.sample.slice(0, 3).map((contact) => contact.name || contact.phone).join(", ")}</span>}
+            </div>
+          )}
         </form>
       )}
 
@@ -366,6 +444,7 @@ export function CampaignsView() {
         ))}
       </div>
 
+      {canWrite && (
       <div className="border-b border-border bg-secondary/20 px-3 py-2 shrink-0 sm:px-6">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
           <textarea value={csvText} onChange={(event) => setCsvText(event.target.value)} placeholder="CSV import: name,phone,email" className="h-10 rounded border border-border bg-background px-2 py-1 text-xs text-foreground" />
@@ -375,6 +454,7 @@ export function CampaignsView() {
         </div>
         {notice && <div className="mt-2 text-xs text-muted-foreground">{notice}</div>}
       </div>
+      )}
 
       <div className="no-scrollbar flex gap-1 overflow-x-auto border-b border-border px-3 pt-3 shrink-0 sm:px-6">
         {tabs.map((tab) => (
@@ -425,17 +505,17 @@ export function CampaignsView() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1 xl:justify-end">
-                  {campaign.status === "draft" && <IconButton title="Submit approval" icon={<ShieldCheck size={13} />} onClick={() => runAction(campaign, "submit_approval")} />}
-                  {campaign.status === "pending_approval" && <IconButton title="Approve" icon={<CheckCircle2 size={13} />} onClick={() => runAction(campaign, "approve")} />}
-                  {campaign.status === "pending_approval" && <IconButton title="Reject" icon={<AlertTriangle size={13} />} onClick={() => runAction(campaign, "reject")} />}
-                  {["approved", "draft", "scheduled", "queued", "paused", "failed"].includes(campaign.status) && <IconButton title="Send" icon={<Send size={13} />} onClick={() => sendNow(campaign)} disabled={busyId === campaign.id} />}
-                  {campaign.status === "running" && <IconButton title="Pause" icon={<Pause size={13} />} onClick={() => runAction(campaign, "pause")} />}
-                  {campaign.status === "paused" && <IconButton title="Resume" icon={<Play size={13} />} onClick={() => runAction(campaign, "resume")} />}
-                  {campaign.failed > 0 && <IconButton title="Retry failures" icon={<RotateCcw size={13} />} onClick={() => runAction(campaign, "retry")} />}
-                  {!["sent", "cancelled"].includes(campaign.status) && <IconButton title="Cancel" icon={<X size={13} />} onClick={() => runAction(campaign, "cancel")} />}
+                  {canWrite && campaign.status === "draft" && <IconButton title="Submit approval" icon={<ShieldCheck size={13} />} onClick={() => runAction(campaign, "submit_approval")} />}
+                  {canWrite && campaign.status === "pending_approval" && <IconButton title="Approve" icon={<CheckCircle2 size={13} />} onClick={() => runAction(campaign, "approve")} />}
+                  {canWrite && campaign.status === "pending_approval" && <IconButton title="Reject" icon={<AlertTriangle size={13} />} onClick={() => runAction(campaign, "reject")} />}
+                  {canWrite && ["approved", "draft", "scheduled", "queued", "paused", "failed"].includes(campaign.status) && <IconButton title="Send" icon={<Send size={13} />} onClick={() => sendNow(campaign)} disabled={busyId === campaign.id} />}
+                  {canWrite && campaign.status === "running" && <IconButton title="Pause" icon={<Pause size={13} />} onClick={() => runAction(campaign, "pause")} />}
+                  {canWrite && campaign.status === "paused" && <IconButton title="Resume" icon={<Play size={13} />} onClick={() => runAction(campaign, "resume")} />}
+                  {canWrite && campaign.failed > 0 && <IconButton title="Retry failures" icon={<RotateCcw size={13} />} onClick={() => runAction(campaign, "retry")} />}
+                  {canWrite && !["sent", "cancelled"].includes(campaign.status) && <IconButton title="Cancel" icon={<X size={13} />} onClick={() => runAction(campaign, "cancel")} />}
                   <IconButton title="Report" icon={<Eye size={13} />} onClick={() => openReport(campaign.id)} />
-                  <IconButton title="Duplicate" icon={<Copy size={13} />} onClick={() => duplicate(campaign)} />
-                  <IconButton title="Delete" icon={<Trash2 size={13} />} danger onClick={() => remove(campaign.id)} />
+                  {canWrite && <IconButton title="Duplicate" icon={<Copy size={13} />} onClick={() => duplicate(campaign)} />}
+                  {canWrite && <IconButton title="Delete" icon={<Trash2 size={13} />} danger onClick={() => remove(campaign.id)} />}
                 </div>
               </div>
             </Card>

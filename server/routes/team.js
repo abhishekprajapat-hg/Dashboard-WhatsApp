@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Conversation, Membership, Role, User } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { hashPassword } from "../utils/password.js";
+import { normalizeRoleKey, roleDefinitionFor } from "../utils/rbac.js";
 import { relativeTime } from "../utils/serializers.js";
 import { isEmail, passwordPolicy, requiredString } from "../utils/validation.js";
 
@@ -17,38 +18,13 @@ function initials(name) {
     .toUpperCase();
 }
 
-function normalizeRoleKey(role = "agent") {
-  if (role === "admin" || role === "workspace_admin") return "workspace_admin";
-  if (role === "manager") return "manager";
-  return "agent";
-}
-
 function roleKeyToClient(key = "agent") {
-  if (key === "workspace_admin") return "admin";
-  if (key === "manager") return "manager";
-  return "agent";
+  return normalizeRoleKey(key);
 }
 
 async function ensureRole({ organizationId, workspaceId, key }) {
   const normalized = normalizeRoleKey(key);
-  const roleMap = {
-    workspace_admin: {
-      name: "Workspace Admin",
-      description: "Full access to workspace settings, team, inbox, campaigns, and automations.",
-      permissions: ["*"],
-    },
-    manager: {
-      name: "Manager",
-      description: "Can monitor team performance, assign conversations, and manage inbox operations.",
-      permissions: ["inbox:read", "inbox:write", "contacts:read", "contacts:write", "team:read", "reports:read", "assignment:write"],
-    },
-    agent: {
-      name: "Agent",
-      description: "Inbox and contact access for daily support work.",
-      permissions: ["inbox:read", "inbox:write", "contacts:read", "contacts:write"],
-    },
-  };
-  const next = roleMap[normalized];
+  const next = roleDefinitionFor(normalized);
   return Role.findOneAndUpdate(
     { workspaceId, key: normalized },
     { organizationId, workspaceId, key: normalized, ...next, isSystemRole: true },

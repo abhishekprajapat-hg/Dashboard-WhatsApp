@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { requirePermission } from "../middleware/auth.js";
 import { absoluteBaseUrl, saveMediaBuffer } from "../services/mediaStorage.js";
 
 export const mediaRouter = Router();
@@ -22,7 +23,7 @@ const allowedMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
-mediaRouter.post("/upload", async (req, res) => {
+mediaRouter.post("/upload", requirePermission("media:write"), async (req, res) => {
   const { name = "attachment", mimeType = "application/octet-stream", data = "" } = req.body || {};
   if (!data || typeof data !== "string") {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "File data is required." });

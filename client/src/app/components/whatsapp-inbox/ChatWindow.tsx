@@ -29,7 +29,7 @@ interface ChatWindowProps {
   onClearContext: () => void;
   onToggleRecording: () => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
-  onAddToCrm: () => void;
+  onAddToCrm: (stage?: string) => void;
   onResolve: () => void;
   onLoadOlder: () => void;
 }
@@ -160,6 +160,13 @@ export function ChatWindow({
             );
           })}
         </AnimatePresence>
+        {filteredMessages.length === 0 && !typing ? (
+          <div className="flex min-h-[280px] items-center justify-center px-6 text-center">
+            <div className="rounded-md bg-white/90 px-4 py-3 text-sm text-zinc-500 shadow-sm dark:bg-[#182229] dark:text-zinc-300">
+              {messageSearch ? "No messages match this search." : "No messages in this conversation yet."}
+            </div>
+          </div>
+        ) : null}
         {typing ? (
           <div className="px-4 py-2">
             <div className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-2 shadow-sm dark:bg-[#202c33]">

@@ -15,6 +15,8 @@ interface InboxState {
   unreadTotal: number;
   connected: boolean;
   reconnecting: boolean;
+  loading: boolean;
+  error: string;
   uploadById: Record<string, UploadState>;
   queueById: Record<string, QueuedMessage>;
   setConversations: (conversations: Conversation[], page?: { hasMore?: boolean; nextCursor?: string | null }) => void;
@@ -32,6 +34,7 @@ interface InboxState {
   setTyping: (conversationId: string, typing: boolean) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setConnectionState: (state: { connected?: boolean; reconnecting?: boolean }) => void;
+  setLoadingState: (state: { loading?: boolean; error?: string }) => void;
   setUpload: (upload: UploadState) => void;
   removeUpload: (id: string) => void;
   upsertQueuedMessage: (message: QueuedMessage) => void;
@@ -41,7 +44,7 @@ interface InboxState {
 function uniqueMessages(messages: WhatsAppMessage[]) {
   const seen = new Set<string>();
   return messages.filter((message) => {
-    const key = message.clientMessageId || message.id;
+    const key = message.providerMessageId || message.clientMessageId || message.id;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -71,6 +74,8 @@ export const useWhatsAppInboxStore = create<InboxState>((set) => ({
   unreadTotal: 0,
   connected: false,
   reconnecting: false,
+  loading: false,
+  error: "",
   uploadById: {},
   queueById: {},
   setConversations: (conversations) =>
@@ -199,6 +204,7 @@ export const useWhatsAppInboxStore = create<InboxState>((set) => ({
     })),
   setOnlineUsers: (onlineUserIds) => set({ onlineUserIds }),
   setConnectionState: (connectionState) => set(connectionState),
+  setLoadingState: (loadingState) => set(loadingState),
   setUpload: (upload) => set((state) => ({ uploadById: { ...state.uploadById, [upload.id]: upload } })),
   removeUpload: (id) =>
     set((state) => {

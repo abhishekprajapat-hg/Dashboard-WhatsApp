@@ -1,9 +1,22 @@
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import { config } from "../config.js";
+import { Membership, Role, User } from "../models/index.js";
+import { normalizeRoleKey } from "../utils/rbac.js";
 
 export function hasPermission(user, permission) {
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
-  return permissions.includes("*") || permissions.includes(permission);
+  return user?.roleKey === "super_admin" || permissions.includes("*") || permissions.includes(permission);
+}
+
+export function requireRole(...roles) {
+  const allowed = roles.map(normalizeRoleKey);
+  return (req, res, next) => {
+    if (!allowed.includes(normalizeRoleKey(req.user?.roleKey))) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Your role cannot access this resource." });
+    }
+    next();
+  };
 }
 
 export function requirePermission(permission) {
@@ -15,7 +28,7 @@ export function requirePermission(permission) {
   };
 }
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
@@ -23,10 +36,45 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: "AUTH_REQUIRED", message: "Authentication is required." });
   }
 
+  let payload;
   try {
-    req.user = jwt.verify(token, config.jwtSecret);
-    next();
+    payload = jwt.verify(token, config.jwtSecret);
   } catch {
-    res.status(401).json({ error: "INVALID_TOKEN", message: "Session is invalid or expired." });
+    return res.status(401).json({ error: "INVALID_TOKEN", message: "Session is invalid or expired." });
   }
+
+  if (mongoose.connection.readyState !== 1) {
+    req.user = payload;
+    return next();
+  }
+
+  const user = await User.findOne({ _id: payload.sub, status: "active" }).select("_id email status");
+  if (!user) {
+    return res.status(401).json({ error: "INVALID_TOKEN", message: "Session user is no longer active." });
+  }
+
+  const membership = await Membership.findOne({
+    userId: user._id,
+    workspaceId: payload.workspaceId,
+    status: "active",
+  });
+  if (!membership) {
+    return res.status(403).json({ error: "FORBIDDEN", message: "No active workspace membership found." });
+  }
+
+  const role = await Role.findById(membership.roleId);
+  if (!role) {
+    return res.status(403).json({ error: "FORBIDDEN", message: "No active role found for this workspace." });
+  }
+
+  req.user = {
+    ...payload,
+    email: user.email,
+    workspaceId: membership.workspaceId.toString(),
+    organizationId: membership.organizationId.toString(),
+    role: role.name,
+    roleKey: normalizeRoleKey(role.key),
+    permissions: role.permissions || [],
+  };
+  next();
 }

@@ -1,11 +1,14 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { Role, Template, WhatsAppAccount, Workspace } from "../models/index.js";
+import { requirePermission } from "../middleware/auth.js";
+import { roleDefinitions } from "../utils/rbac.js";
 import { callOutboundWebhook } from "../services/integrations.js";
+import { credentialSummary } from "../services/whatsappProvider.js";
 
 export const settingsRouter = Router();
 
-settingsRouter.get("/", async (req, res) => {
+settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1) {
     const [accounts, roles, templates, workspace] = await Promise.all([
       WhatsAppAccount.find({ workspaceId: req.user.workspaceId }).sort({ createdAt: -1 }),
@@ -27,6 +30,7 @@ settingsRouter.get("/", async (req, res) => {
         webhookStatus: account.webhookStatus,
         templateSyncStatus: account.templateSyncStatus,
         lastSyncedAt: account.lastSyncedAt,
+        credentials: credentialSummary(account),
       })),
       templates: templates.map((template) => ({
         id: template._id.toString(),
@@ -38,6 +42,7 @@ settingsRouter.get("/", async (req, res) => {
       roles: roles.map((role) => ({
         id: role._id.toString(),
         name: role.name,
+        key: role.key,
         permissions: role.permissions,
       })),
       integrations: workspace?.settings?.integrations || {
@@ -54,14 +59,11 @@ settingsRouter.get("/", async (req, res) => {
       outboundWebhook: { enabled: false, url: "", secret: "" },
       googleSheets: { enabled: false, webhookUrl: "", secret: "" },
     },
-    roles: [
-      { id: "role_admin", name: "Workspace Admin", permissions: ["*"] },
-      { id: "role_agent", name: "Agent", permissions: ["inbox:read", "inbox:write", "contacts:read"] },
-    ],
+    roles: Object.entries(roleDefinitions).map(([key, role]) => ({ id: `role_${key}`, key, ...role })),
   });
 });
 
-settingsRouter.put("/integrations", async (req, res) => {
+settingsRouter.put("/integrations", requirePermission("settings:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -94,7 +96,7 @@ settingsRouter.put("/integrations", async (req, res) => {
   res.json({ integrations });
 });
 
-settingsRouter.post("/integrations/test-webhook", async (req, res) => {
+settingsRouter.post("/integrations/test-webhook", requirePermission("settings:write"), async (req, res) => {
   const { url = "", secret = "" } = req.body || {};
   if (!String(url).trim()) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Webhook URL is required." });

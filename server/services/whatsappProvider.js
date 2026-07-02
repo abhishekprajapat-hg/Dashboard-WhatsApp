@@ -1,16 +1,97 @@
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
 import { config } from "../config.js";
-import { saveMediaBuffer } from "./mediaStorage.js";
+import { saveMediaBuffer, uploadRoot } from "./mediaStorage.js";
+
+const encryptedCredentialPrefix = "v1";
+
+function credentialEncryptionKey() {
+  const secret = process.env.WHATSAPP_CREDENTIAL_SECRET || process.env.CREDENTIAL_ENCRYPTION_KEY || config.jwtSecret;
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+function decodeStoredCredentials(stored = "") {
+  if (stored.startsWith(`${encryptedCredentialPrefix}:`)) {
+    const [, ivValue, tagValue, encryptedValue] = stored.split(":");
+    if (!ivValue || !tagValue || !encryptedValue) return "";
+    const decipher = crypto.createDecipheriv("aes-256-gcm", credentialEncryptionKey(), Buffer.from(ivValue, "base64"));
+    decipher.setAuthTag(Buffer.from(tagValue, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(encryptedValue, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  }
+
+  return Buffer.from(stored || "", "base64").toString("utf8");
+}
 
 export function decodeCredentials(account) {
-  const raw = Buffer.from(account.encryptedCredentials || "", "base64").toString("utf8");
-  if (!raw) return {};
+  const fallback = {
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken || "",
+    appSecret: process.env.WHATSAPP_APP_SECRET || "",
+  };
+
+  let raw = "";
+  try {
+    raw = decodeStoredCredentials(account.encryptedCredentials || "");
+  } catch {
+    return fallback;
+  }
+
+  if (!raw) return fallback;
 
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : { accessToken: raw };
+    return parsed && typeof parsed === "object" ? mergeCredentialFallbacks(parsed, fallback) : { ...fallback, accessToken: raw };
   } catch {
-    return { accessToken: raw };
+    return { ...fallback, accessToken: raw };
   }
+}
+
+function mergeCredentialFallbacks(credentials, fallback) {
+  return Object.fromEntries(
+    Object.entries({ ...fallback, ...credentials }).map(([key, value]) => [
+      key,
+      value === "" || value === undefined || value === null ? fallback[key] || "" : value,
+    ])
+  );
+}
+
+export function encodeCredentials(credentials = {}) {
+  const safeCredentials = Object.fromEntries(
+    Object.entries(credentials)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
+  );
+
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", credentialEncryptionKey(), iv);
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(safeCredentials), "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return [
+    encryptedCredentialPrefix,
+    iv.toString("base64"),
+    tag.toString("base64"),
+    encrypted.toString("base64"),
+  ].join(":");
+}
+
+export function credentialSummary(account) {
+  const credentials = decodeCredentials(account);
+  return {
+    accessTokenConfigured: Boolean(primaryCredential(credentials)),
+    verifyTokenConfigured: Boolean(credentials.verifyToken),
+    appSecretConfigured: Boolean(credentials.appSecret),
+    credentialsUpdatedAt: account.credentialsUpdatedAt || account.updatedAt || null,
+    lastTestedAt: account.lastTestedAt || null,
+    lastError: account.lastError || "",
+  };
 }
 
 function normalizeMetaAttachments(message = {}) {
@@ -128,11 +209,17 @@ function normalizeRecipient(phone = "") {
   return String(phone).replace(/[^\d]/g, "");
 }
 
+function attachmentMediaId(attachment = {}) {
+  if (!attachment) return "";
+  return attachment.providerMediaId || attachment.metaMediaId || "";
+}
+
 function firstAttachment(attachments = []) {
-  return Array.isArray(attachments) ? attachments.find((item) => item?.url) : null;
+  return Array.isArray(attachments) ? attachments.find((item) => item?.url || attachmentMediaId(item)) : null;
 }
 
 function metaMediaType(attachment = {}) {
+  attachment = attachment || {};
   if (["image", "video", "audio", "document"].includes(attachment.type)) return attachment.type;
   const mimeType = String(attachment.mimeType || "");
   if (mimeType.startsWith("image/")) return "image";
@@ -142,7 +229,8 @@ function metaMediaType(attachment = {}) {
 }
 
 function buildMetaMessagePayload({ recipient, body, attachment }) {
-  if (!attachment?.url) {
+  const mediaId = attachmentMediaId(attachment);
+  if (!attachment?.url && !mediaId) {
     return {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -153,7 +241,9 @@ function buildMetaMessagePayload({ recipient, body, attachment }) {
   }
 
   const type = metaMediaType(attachment);
-  const mediaPayload = { link: attachment.url };
+  const mediaPayload = mediaId
+    ? { id: mediaId }
+    : { link: attachment.url };
   if (type === "document") {
     mediaPayload.filename = attachment.name || "Attachment";
     if (body) mediaPayload.caption = body;
@@ -168,6 +258,63 @@ function buildMetaMessagePayload({ recipient, body, attachment }) {
     type,
     [type]: mediaPayload,
   };
+}
+
+function localUploadPath(attachment = {}) {
+  const storedPath = String(attachment.path || "");
+  const uploadPrefix = "/api/uploads/";
+  if (!storedPath.startsWith(uploadPrefix)) return "";
+  const relativePath = storedPath.slice(uploadPrefix.length).replace(/\\/g, "/");
+  const absolutePath = path.resolve(uploadRoot, relativePath);
+  const relativeFromRoot = path.relative(uploadRoot, absolutePath);
+  if (relativeFromRoot.startsWith("..") || path.isAbsolute(relativeFromRoot)) return "";
+  return absolutePath;
+}
+
+async function attachmentBytes(attachment = {}) {
+  const localPath = localUploadPath(attachment);
+  if (localPath) {
+    const buffer = await fs.readFile(localPath);
+    return { buffer, name: attachment.name || path.basename(localPath) || "attachment", mimeType: attachment.mimeType || "application/octet-stream" };
+  }
+
+  if (!attachment.url) return null;
+  const response = await fetch(attachment.url);
+  if (!response.ok) return null;
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return {
+    buffer,
+    name: attachment.name || "attachment",
+    mimeType: attachment.mimeType || response.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
+async function uploadMetaAttachment({ account, accessToken, attachment }) {
+  if (!attachment?.url || attachmentMediaId(attachment)) return attachment;
+
+  const bytes = await attachmentBytes(attachment).catch(() => null);
+  if (!bytes?.buffer?.length) return attachment;
+
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", bytes.mimeType);
+  form.append("file", new Blob([bytes.buffer], { type: bytes.mimeType }), bytes.name);
+
+  const response = await fetch(`https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/media`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.id) {
+    const error = new Error(payload?.error?.message || "Meta media upload failed.");
+    error.meta = payload;
+    error.code = payload?.error?.code || "META_MEDIA_UPLOAD_FAILED";
+    error.status = response.status;
+    throw error;
+  }
+
+  return { ...attachment, providerMediaId: payload.id, metaMediaId: payload.id };
 }
 
 export async function sendWhatsAppText({ account, to, body, attachments = [] }) {
@@ -256,6 +403,9 @@ export async function sendWhatsAppText({ account, to, body, attachments = [] }) 
   }
 
   const accessToken = credentials.accessToken;
+  const metaAttachment = attachment
+    ? await uploadMetaAttachment({ account, accessToken, attachment })
+    : null;
   const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`;
   const response = await fetch(url, {
     method: "POST",
@@ -263,7 +413,7 @@ export async function sendWhatsAppText({ account, to, body, attachments = [] }) 
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildMetaMessagePayload({ recipient, body, attachment })),
+    body: JSON.stringify(buildMetaMessagePayload({ recipient, body, attachment: metaAttachment })),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -283,7 +433,7 @@ export async function sendWhatsAppText({ account, to, body, attachments = [] }) 
     mode: "meta",
     to: recipient,
     body,
-    attachment,
+    attachment: metaAttachment,
   };
 }
 

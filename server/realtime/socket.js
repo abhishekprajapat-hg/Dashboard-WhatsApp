@@ -54,6 +54,7 @@ export function createRealtimeServer(httpServer) {
 
     try {
       socket.user = jwt.verify(token, config.jwtSecret);
+      if (!socket.user.workspaceId || !socket.user.organizationId) return next(new Error("WORKSPACE_REQUIRED"));
       return next();
     } catch {
       return next(new Error("INVALID_TOKEN"));
@@ -102,7 +103,7 @@ export async function publishSocketWorkspaceUserEvent(workspaceId, event, buildP
   if (!io || !workspaceId) return;
   const sockets = await io.in(workspaceRoom(workspaceId)).fetchSockets();
   for (const socket of sockets) {
-    socket.emit(event, buildPayload(socket.user));
+    socket.emit(event, await buildPayload(socket.user));
   }
 }
 

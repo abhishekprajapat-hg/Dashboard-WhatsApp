@@ -23,6 +23,7 @@ export function serializeContact(contact, { conversationCount = 0 } = {}) {
     ? contact.tagIds.map((tag) => tag?.name).filter(Boolean)
     : [];
   const crm = contact.customFields?.crm || {};
+  const googleSheet = contact.customFields?.googleSheet || {};
   const lifecycleStatus = contact.lifecycleStatus || "lead";
 
   return {
@@ -43,6 +44,13 @@ export function serializeContact(contact, { conversationCount = 0 } = {}) {
     leadScore: crm.leadScore || 0,
     followUpAt: crm.followUpAt,
     crmAddedAt: crm.addedToCrmAt,
+    syncStatus: {
+      googleSheet: {
+        status: googleSheet.status || (googleSheet.syncedAt ? "synced" : googleSheet.error ? "failed" : "pending"),
+        lastSyncedAt: googleSheet.syncedAt,
+        error: googleSheet.error || "",
+      },
+    },
     customFields: contact.customFields || {},
   };
 }
@@ -70,6 +78,17 @@ export function serializeMessage(message) {
   };
 }
 
+function messagePreview(message) {
+  if (!message) return "No messages yet";
+  if (message.body) return message.body;
+  const attachment = message.attachments?.[0];
+  if (!attachment) return "No messages yet";
+  if (attachment.type === "image" || attachment.mimeType?.startsWith?.("image/")) return "Photo";
+  if (attachment.type === "video" || attachment.mimeType?.startsWith?.("video/")) return "Video";
+  if (attachment.type === "audio" || attachment.mimeType?.startsWith?.("audio/")) return "Audio";
+  return attachment.name || "Document";
+}
+
 export function serializeConversation(conversation, messages = [], { userId } = {}) {
   const contact = conversation.contactId || {};
   const conversationTags = Array.isArray(conversation.tagIds)
@@ -83,6 +102,7 @@ export function serializeConversation(conversation, messages = [], { userId } = 
   const lastVisibleMessage = messages[messages.length - 1];
   const unread = userId ? Number(conversation.unreadCountByUser?.get?.(userId.toString()) || 0) : 0;
   const crm = contact.customFields?.crm || {};
+  const googleSheet = contact.customFields?.googleSheet || {};
   const currentUserId = userId?.toString?.() || userId || "";
   const pinnedByUserIds = conversation.pinnedByUserIds || [];
   const mutedByUserIds = conversation.mutedByUserIds || [];
@@ -94,7 +114,7 @@ export function serializeConversation(conversation, messages = [], { userId } = 
     waName: contact.waName || "",
     profilePhoto: contact.profilePhoto || "",
     phone: contact.phone || "",
-    preview: lastVisibleMessage?.body || "No messages yet",
+    preview: messagePreview(lastVisibleMessage),
     time: relativeTime(conversation.lastMessageAt || conversation.updatedAt).replace(" ago", ""),
     unread,
     status: conversation.status === "pending" ? "waiting" : conversation.status,
@@ -107,6 +127,13 @@ export function serializeConversation(conversation, messages = [], { userId } = 
     leadScore: crm.leadScore || 0,
     followUpAt: crm.followUpAt,
     crmAddedAt: crm.addedToCrmAt,
+    syncStatus: {
+      googleSheet: {
+        status: googleSheet.status || (googleSheet.syncedAt ? "synced" : googleSheet.error ? "failed" : "pending"),
+        lastSyncedAt: googleSheet.syncedAt,
+        error: googleSheet.error || "",
+      },
+    },
     customFields: contact.customFields || {},
     pinned: currentUserId ? pinnedByUserIds.some((id) => id?.toString?.() === currentUserId) : false,
     muted: currentUserId ? mutedByUserIds.some((id) => id?.toString?.() === currentUserId) : false,

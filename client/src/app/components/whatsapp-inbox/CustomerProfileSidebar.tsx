@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Activity, BriefcaseBusiness, CalendarClock, CircleUserRound, Edit3, Flag, Megaphone, Tag, UserRoundCheck } from "lucide-react";
 import type { Conversation, TeamMember } from "./types";
 import { conversationMeta, initials } from "./utils";
@@ -10,8 +11,17 @@ interface CustomerProfileSidebarProps {
   onAssign: (userId: string) => void;
   onStatusChange: (status: Conversation["status"]) => void;
   onConversationSetting: (settings: { pinned?: boolean; muted?: boolean }) => void;
-  onAddToCrm: () => void;
+  onAddToCrm: (stage?: string) => void;
 }
+
+const leadStages = [
+  { id: "new_lead", label: "New lead" },
+  { id: "contacted", label: "Contacted" },
+  { id: "qualified", label: "Qualified" },
+  { id: "proposal_sent", label: "Proposal sent" },
+  { id: "won", label: "Won" },
+  { id: "lost", label: "Lost" },
+];
 
 export function CustomerProfileSidebar({
   conversation,
@@ -24,6 +34,10 @@ export function CustomerProfileSidebar({
   onAddToCrm,
 }: CustomerProfileSidebarProps) {
   const meta = conversationMeta(conversation);
+  const [leadStage, setLeadStage] = useState(meta.crmStage === "lead" ? "new_lead" : meta.crmStage || "new_lead");
+  useEffect(() => {
+    setLeadStage(meta.crmStage === "lead" ? "new_lead" : meta.crmStage || "new_lead");
+  }, [conversation.id, meta.crmStage]);
   const customFields = [
     ["Phone", conversation.phone],
     ["Source", conversation.source || "WhatsApp"],
@@ -68,8 +82,20 @@ export function CustomerProfileSidebar({
               <span className="text-zinc-500 dark:text-zinc-400">Lead stage</span>
               <span className="font-medium capitalize text-zinc-900 dark:text-zinc-100">{meta.crmStage}</span>
             </div>
-            <button className="mt-2 h-8 w-full rounded bg-emerald-500 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-60" onClick={onAddToCrm} disabled={savingCrm || meta.isInCrm}>
-              {meta.isInCrm ? "Saved in CRM" : savingCrm ? "Saving..." : "Add to CRM"}
+            <select
+              value={leadStage}
+              onChange={(event) => setLeadStage(event.target.value)}
+              className="mt-2 h-8 w-full rounded border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none dark:border-zinc-800 dark:bg-[#202c33] dark:text-zinc-100"
+            >
+              {leadStages.map((stage) => (
+                <option key={stage.id} value={stage.id}>{stage.label}</option>
+              ))}
+            </select>
+            <div className="mt-2 rounded bg-zinc-50 px-2 py-1 text-[11px] text-zinc-500 dark:bg-[#202c33] dark:text-zinc-400">
+              Sheet sync: {conversation.syncStatus?.googleSheet?.status || "pending"}
+            </div>
+            <button className="mt-2 h-8 w-full rounded bg-emerald-500 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-60" onClick={() => onAddToCrm(leadStage)} disabled={savingCrm}>
+              {savingCrm ? "Saving..." : meta.isInCrm ? "Update lead" : "Mark as lead"}
             </button>
           </div>
         </section>

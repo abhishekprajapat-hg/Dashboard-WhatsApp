@@ -1,6 +1,7 @@
 ﻿import { Router } from "express";
 import mongoose from "mongoose";
 import { contacts } from "../data/demoData.js";
+import { requirePermission } from "../middleware/auth.js";
 import { Contact, Conversation, Message, Tag } from "../models/index.js";
 import { serializeContact } from "../utils/serializers.js";
 
@@ -22,7 +23,7 @@ async function ensureTags({ organizationId, workspaceId, names }) {
   return tags;
 }
 
-contactsRouter.get("/", async (req, res) => {
+contactsRouter.get("/", requirePermission("contacts:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const workspaceId = req.user.workspaceId;
     const search = String(req.query.search || "").trim();
@@ -71,7 +72,7 @@ contactsRouter.get("/", async (req, res) => {
   res.json({ data: results, total: results.length });
 });
 
-contactsRouter.post("/", async (req, res) => {
+contactsRouter.post("/", requirePermission("contacts:write"), async (req, res) => {
   const { name, phone, email = "", tags = [] } = req.body || {};
 
   if (!name || !phone) {
@@ -118,7 +119,7 @@ contactsRouter.post("/", async (req, res) => {
   res.status(201).json({ data: contact });
 });
 
-contactsRouter.put("/:id", async (req, res) => {
+contactsRouter.put("/:id", requirePermission("contacts:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }
@@ -154,7 +155,7 @@ contactsRouter.put("/:id", async (req, res) => {
   res.json({ data: serializeContact(contact) });
 });
 
-contactsRouter.delete("/:id", async (req, res) => {
+contactsRouter.delete("/:id", requirePermission("contacts:write"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }

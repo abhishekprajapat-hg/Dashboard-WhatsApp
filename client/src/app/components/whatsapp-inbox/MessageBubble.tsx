@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Check, CheckCheck, Copy, Download, FileText, Forward, MapPin, MoreVertical, Reply, RotateCcw, Star, Trash2 } from "lucide-react";
+import { Check, CheckCheck, Clock3, Copy, Download, FileText, Forward, MapPin, MoreVertical, Reply, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { WhatsAppMessage } from "./types";
 import { cn, displayAttachmentUrl, primaryAttachment, visibleStatus } from "./utils";
 
@@ -12,6 +12,7 @@ interface MessageBubbleProps {
 
 function StatusIcon({ status }: { status?: WhatsAppMessage["status"] }) {
   if (status === "failed") return <RotateCcw size={13} className="text-red-400" />;
+  if (status === "queued") return <Clock3 size={13} className="text-zinc-400" />;
   if (status === "read") return <CheckCheck size={13} className="text-sky-400" />;
   if (status === "delivered") return <CheckCheck size={13} className="text-zinc-400" />;
   return <Check size={13} className="text-zinc-400" />;
@@ -20,7 +21,7 @@ function StatusIcon({ status }: { status?: WhatsAppMessage["status"] }) {
 export function MessageBubble({ message, replyLabel, selected, onAction }: MessageBubbleProps) {
   const fromAgent = message.from === "agent";
   const attachment = primaryAttachment(message);
-  const attachmentUrl = attachment ? displayAttachmentUrl(attachment.url) : "";
+  const attachmentUrl = attachment ? displayAttachmentUrl(attachment) : "";
   const type = message.type || (attachment?.mimeType?.includes("pdf") ? "pdf" : "text");
 
   return (
@@ -50,7 +51,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
         {attachment ? (
           <div className="mb-2 overflow-hidden rounded bg-black/5 dark:bg-black/20">
             {(type === "image" || attachment.mimeType?.startsWith("image/")) && (
-              <img src={attachmentUrl} alt={attachment.name} className="max-h-80 w-full object-cover" />
+              <img src={attachmentUrl} alt="" className="max-h-80 w-full object-cover" />
             )}
             {(type === "video" || attachment.mimeType?.startsWith("video/")) && (
               <video src={attachmentUrl} controls className="max-h-80 w-full bg-black" />

@@ -1,4 +1,36 @@
 import { AuditLog, Lead, Membership, Tag } from "../models/index.js";
+import { leadStages } from "../models/Lead.js";
+
+const requirementPattern = /\b(need|require|requirement|looking|interested|want|buy|purchase|price|pricing|quote|quotation|demo|plan|package|service|proposal|call back|callback)\b/i;
+const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const phonePattern = /(?:\+?\d[\d\s().-]{7,}\d)/;
+const namePattern = /\b(my name is|i am|i'm|this is)\s+[a-z][a-z\s]{1,40}\b/i;
+
+export function normalizeLeadStage(stage = "new_lead") {
+  const value = String(stage || "").trim().toLowerCase();
+  return leadStages.includes(value) ? value : "new_lead";
+}
+
+export function detectWhatsAppLead({ normalized, message, isAdLead = false, isFirstConversation = false } = {}) {
+  const body = String(message?.body || normalized?.body || "").trim();
+  const reasons = [];
+
+  if (isAdLead && isFirstConversation) reasons.push("click_to_whatsapp_ad");
+  if (emailPattern.test(body)) reasons.push("email");
+  if (phonePattern.test(body)) reasons.push("phone");
+  if (namePattern.test(body)) reasons.push("name");
+  if (requirementPattern.test(body)) reasons.push("requirement");
+
+  return {
+    isLead: reasons.length > 0,
+    reasons,
+    stage: "new_lead",
+    extracted: {
+      email: body.match(emailPattern)?.[0] || "",
+      phone: body.match(phonePattern)?.[0] || "",
+    },
+  };
+}
 
 function getId(value) {
   return value?._id || value;
@@ -66,6 +98,8 @@ export async function ensureConversationInCrm({
   normalized,
   source = "conversation",
   stage = "new_lead",
+  detection = null,
+  manual = false,
 }) {
   if (!contact || !conversation) return { contact, lead: null };
 
@@ -76,8 +110,10 @@ export async function ensureConversationInCrm({
   const ownerUserId = await chooseOwner({ workspaceId, contact, conversation });
   const campaign = extractCampaign({ normalized, source });
   const location = extractLocation(normalized);
+  const normalizedStage = normalizeLeadStage(stage);
   const firstMessage = inboundMessage?.body || conversation.lastMessageId?.body || "";
-  const messageId = inboundMessage?._id?.toString?.() || normalized?.providerMessageId || conversation._id.toString();
+  const providerMessageId = inboundMessage?.providerMessageId || normalized?.providerMessageId || "";
+  const messageId = inboundMessage?._id?.toString?.() || providerMessageId || conversation._id.toString();
 
   const tagIds = (contact.tagIds || []).map(getId).filter(Boolean);
   if (!tagIds.some((tagId) => tagId.toString() === leadTag._id.toString())) {
@@ -115,10 +151,11 @@ export async function ensureConversationInCrm({
       campaign,
       location: location || whatsapp.location || null,
       duplicateDetected: Boolean(customFields.crm?.addedToCrmAt),
+      leadDetection: detection || whatsapp.leadDetection || null,
     },
     crm: {
       ...crm,
-      stage: crm.stage || stage,
+      stage: normalizeLeadStage(crm.stage || normalizedStage),
       leadScore: Number(crm.leadScore || 10),
       source,
       campaign,
@@ -128,6 +165,7 @@ export async function ensureConversationInCrm({
       lastConversationAt: conversation.lastMessageAt || now,
       ownerUserId: ownerUserId || crm.ownerUserId || null,
       followUpAt: crm.followUpAt || null,
+      lastManualLeadAt: manual ? now : crm.lastManualLeadAt,
       customFields: crm.customFields || {},
     },
     notes: customFields.notes || [],
@@ -155,8 +193,16 @@ export async function ensureConversationInCrm({
     };
   }
 
+  const leadFilter = providerMessageId
+    ? {
+        workspaceId,
+        status: "open",
+        $or: [{ providerMessageId }, { contactId: contact._id }],
+      }
+    : { workspaceId, contactId: contact._id, status: "open" };
+
   const lead = await Lead.findOneAndUpdate(
-    { workspaceId, contactId: contact._id, status: "open" },
+    leadFilter,
     {
       $setOnInsert: {
         organizationId,
@@ -165,23 +211,35 @@ export async function ensureConversationInCrm({
         firstMessage,
         firstMessageAt: inboundMessage?.receivedAt || now,
         status: "open",
+        providerMessageId: providerMessageId || undefined,
+        syncStatus: {
+          googleSheet: {
+            status: "pending",
+            lastAttemptAt: null,
+            lastSyncedAt: null,
+            error: "",
+          },
+        },
       },
       $set: {
         conversationId: conversation._id,
         ownerUserId: ownerUserId || undefined,
         source,
         campaign,
-        stage: crm.stage || stage,
+        stage: normalizeLeadStage(crm.stage || normalizedStage),
+        status: ["won", "lost"].includes(normalizeLeadStage(crm.stage || normalizedStage)) ? normalizeLeadStage(crm.stage || normalizedStage) : "open",
         score: Number(crm.leadScore || 10),
         lastActivityAt: conversation.lastMessageAt || now,
         followUpAt: crm.followUpAt || undefined,
         location: location || undefined,
+        providerMessageId: providerMessageId || undefined,
         customFields: {
           phone: contact.phone,
           waName: contact.waName || contact.name,
           profilePhoto: contact.profilePhoto || "",
           source,
           campaign,
+          detection: detection || undefined,
         },
       },
       $push: {

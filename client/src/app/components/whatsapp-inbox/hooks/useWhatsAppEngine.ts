@@ -68,15 +68,38 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
   const selected = conversations.find((conversation) => conversation.id === store.selectedId) || conversations[0];
   const selectedMessages = selected ? store.messagesByConversationId[selected.id] || [] : [];
 
-  useEffect(() => {
-    getConversations<ConversationPage>({ limit: 50 } as { limit: number })
-      .then((response) => store.setConversations(response.data, response.page))
-      .catch(() => store.setConversations([]));
+  const loadConversations = useCallback(async () => {
+    store.setLoadingState({ loading: true, error: "" });
+    const status = ["open", "waiting", "resolved", "archived"].includes(store.filter) ? store.filter : undefined;
+    try {
+      const response = await getConversations<ConversationPage>({
+        limit: 50,
+        search: store.search,
+        status,
+        unread: store.filter === "unread",
+      });
+      store.setConversations(response.data, response.page);
+      store.setLoadingState({ loading: false, error: "" });
+    } catch (error) {
+      store.setLoadingState({
+        loading: false,
+        error: error instanceof Error ? error.message : "Could not load conversations.",
+      });
+    }
+  }, [store.filter, store.search]);
 
+  useEffect(() => {
     getTeamMembers<{ data: TeamMember[]; total: number }>()
       .then((response) => setMembers(response.data.filter((member) => member.userId)))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadConversations();
+    }, store.search ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [loadConversations, store.search]);
 
   useEffect(() => {
     whatsAppRealtimeService.connect(getApiBaseUrl().replace(/\/api\/?$/, ""), {
@@ -205,7 +228,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
       const optimistic: WhatsAppMessage = {
         id: `local_${id}`,
         clientMessageId: id,
-        content: content || "Attachment",
+        content,
         from: "agent",
         type: composerMode === "note" ? "note" : attachments[0]?.type === "audio" ? "audio" : "text",
         time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
@@ -216,7 +239,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
       };
       store.appendOptimisticMessage(selected.id, optimistic);
       store.updateConversation(selected.id, {
-        preview: composerMode === "note" ? selected.preview : optimistic.content,
+        preview: composerMode === "note" ? selected.preview : optimistic.content || "Media",
         unread: 0,
         lastMessageAt: new Date().toISOString(),
       });
@@ -316,10 +339,10 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
       .catch(() => undefined);
   }, [selected]);
 
-  const handleAddToCrm = useCallback(async () => {
+  const handleAddToCrm = useCallback(async (stage?: string) => {
     if (!selected) return;
     setCrmSaving(true);
-    addConversationToCrm<{ data: Conversation }>(selected.id)
+    addConversationToCrm<{ data: Conversation }>(selected.id, stage)
       .then((response) => store.upsertConversation(response.data))
       .finally(() => setCrmSaving(false));
   }, [selected]);
@@ -339,6 +362,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
     crmSaving,
     assigning,
     loadOlderMessages,
+    loadConversations,
     addMediaFiles,
     removePendingMedia,
     clearDraftContext,

@@ -8,7 +8,10 @@ const campaignSchema = new mongoose.Schema(
     whatsappAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "WhatsAppAccount", required: true },
     templateId: { type: mongoose.Schema.Types.ObjectId, ref: "Template", required: true },
     templateIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Template" }],
+    templateName: { type: String, trim: true },
+    language: { type: String, default: "en" },
     audienceFilter: { type: mongoose.Schema.Types.Mixed, default: {} },
+    audienceFilters: { type: mongoose.Schema.Types.Mixed, default: {} },
     type: { type: String, enum: ["template", "bulk", "scheduled", "recurring", "ab_test"], default: "template", index: true },
     status: {
       type: String,
@@ -29,6 +32,7 @@ const campaignSchema = new mongoose.Schema(
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     metrics: { type: mongoose.Schema.Types.Mixed, default: {} },
     recipients: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    deliveryResults: { type: [mongoose.Schema.Types.Mixed], default: [] },
     imports: { type: [mongoose.Schema.Types.Mixed], default: [] },
     history: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
