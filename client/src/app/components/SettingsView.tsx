@@ -22,6 +22,10 @@ import {
   Inbox,
   Activity,
   FileText,
+  AlertTriangle,
+  Database,
+  ExternalLink,
+  LockKeyhole,
 } from "lucide-react";
 import {
   createWhatsAppAccount,
@@ -184,6 +188,26 @@ const providerProfiles = {
   },
 } as const;
 
+const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
+const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
+
+function statusBadgeClass(status = "") {
+  if (status === "connected" || status === "healthy" || status === "processed" || status === "synced") return "border-primary/30 bg-primary/10 text-primary";
+  if (status === "needs_attention" || status === "pending" || status === "syncing") return "border-yellow-500/30 bg-yellow-500/10 text-yellow-300";
+  if (status === "disconnected" || status === "failed" || status === "error") return "border-destructive/30 bg-destructive/10 text-destructive";
+  return "border-border bg-secondary text-muted-foreground";
+}
+
+function statusDotClass(status = "") {
+  if (status === "connected" || status === "healthy" || status === "processed") return "bg-primary shadow-[0_0_14px_rgba(34,197,94,0.45)]";
+  if (status === "needs_attention" || status === "pending") return "bg-yellow-400 shadow-[0_0_14px_rgba(250,204,21,0.35)]";
+  return "bg-destructive";
+}
+
+function maskSecret(value?: string) {
+  return value ? "••••••••••••" : "Not configured";
+}
+
 interface SettingsViewProps {
   canWrite?: boolean;
 }
@@ -193,6 +217,8 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [settings, setSettings] = useState<SettingsPayload>(initialSettings);
   const [whatsappConsole, setWhatsappConsole] = useState<WhatsAppConsolePayload>(initialConsole);
   const [showAccountForm, setShowAccountForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [settingsNotice, setSettingsNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceForm, setWorkspaceForm] = useState({
@@ -232,17 +258,26 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
 
   async function loadSettings() {
-    const [settingsResponse, consoleResponse] = await Promise.all([
-      getSettings<SettingsPayload>(),
-      getWhatsAppConsole<WhatsAppConsolePayload>(),
-    ]);
-    setSettings(settingsResponse);
-    setWhatsappConsole(consoleResponse);
-    setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
+    setLoading(true);
+    setSettingsNotice("");
+    try {
+      const [settingsResponse, consoleResponse] = await Promise.all([
+        getSettings<SettingsPayload>(),
+        getWhatsAppConsole<WhatsAppConsolePayload>(),
+      ]);
+      setSettings(settingsResponse);
+      setWhatsappConsole(consoleResponse);
+      setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
+    } catch (error) {
+      setSettingsNotice(error instanceof Error ? error.message : "Settings could not be loaded.");
+      setSettings(initialSettings);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    loadSettings().catch(() => setSettings(initialSettings));
+    loadSettings().catch(() => undefined);
     getCurrentWorkspace<{ workspace: { name: string; timezone: string } }>()
       .then((response) => setWorkspaceForm((current) => ({ ...current, name: response.workspace.name, timezone: response.workspace.timezone })))
       .catch(() => undefined);
@@ -403,20 +438,21 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   ];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden md:flex-row">
-      <div className="shrink-0 border-b border-border py-2 md:w-48 md:border-b-0 md:border-r md:py-4">
+    <div className="flex-1 flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
+      <div className="shrink-0 border-b border-border bg-card/70 py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
         <div className="hidden px-4 mb-3 md:block">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Settings</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Workspace, WhatsApp, integrations, and security controls.</p>
         </div>
         <nav className="no-scrollbar flex gap-1 overflow-x-auto px-2 md:block md:space-y-0.5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-2.5 px-2.5 py-2 rounded text-xs transition-colors text-left md:w-full ${
+              className={`flex shrink-0 items-center gap-2.5 px-2.5 py-2 rounded-md text-xs transition-colors text-left md:w-full ${
                 activeTab === tab.id
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_rgba(34,197,94,0.16)]"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
               }`}
             >
               {tab.icon}
@@ -427,21 +463,27 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
+        {settingsNotice && (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle size={13} className="mr-1 inline" /> {settingsNotice}
+          </div>
+        )}
         {activeTab === "workspace" && (
-          <div className="max-w-xl space-y-6">
-            <div>
-              <h2 className="text-foreground">Workspace Settings</h2>
+          <div className="max-w-2xl space-y-6">
+            <div className="rounded-lg border border-border bg-card/80 p-4">
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Workspace</Badge>
+              <h2 className="mt-2 text-foreground">Workspace Settings</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Manage organization profile and operating defaults.</p>
             </div>
             <form onSubmit={handleWorkspaceSave}>
-            <Card className="p-4 bg-card border-border space-y-4">
+            <Card className={`p-4 ${cardClass} space-y-4`}>
               <div className="space-y-1.5">
                 <Label>Workspace name</Label>
-                <Input value={workspaceForm.name} onChange={(e) => setWorkspaceForm((current) => ({ ...current, name: e.target.value }))} className="bg-secondary border-transparent focus:border-border" />
+                <Input value={workspaceForm.name} onChange={(e) => setWorkspaceForm((current) => ({ ...current, name: e.target.value }))} className={fieldClass} />
               </div>
               <div className="space-y-1.5">
                 <Label>Timezone</Label>
-                <Input value={workspaceForm.timezone} onChange={(e) => setWorkspaceForm((current) => ({ ...current, timezone: e.target.value }))} className="bg-secondary border-transparent focus:border-border" />
+                <Input value={workspaceForm.timezone} onChange={(e) => setWorkspaceForm((current) => ({ ...current, timezone: e.target.value }))} className={fieldClass} />
               </div>
               {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" disabled={workspaceSaving}>
                 {workspaceSaving ? "Saving..." : "Save changes"}
@@ -452,9 +494,10 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         )}
 
         {activeTab === "whatsapp" && (
-          <div className="max-w-3xl space-y-6">
-            <div className="flex items-start justify-between gap-4">
+          <div className="max-w-5xl space-y-6">
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-card/80 p-4">
               <div>
+                <Badge variant="outline" className={statusBadgeClass(whatsappConsole.health.status)}>{whatsappConsole.health.status}</Badge>
                 <h2 className="text-foreground">WhatsApp Console</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Monitor account health, delivery, templates, and webhook traffic.</p>
               </div>
@@ -471,37 +514,41 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                 { label: "Outbound messages", value: whatsappConsole.messageStats.outbound, icon: <Send size={15} />, tone: "text-primary" },
                 { label: "Failed sends", value: whatsappConsole.messageStats.failed, icon: <AlertCircle size={15} />, tone: whatsappConsole.messageStats.failed ? "text-destructive" : "text-muted-foreground" },
               ].map((item) => (
-                <Card key={item.label} className="p-3 bg-card border-border">
-                  <div className={`mb-2 ${item.tone}`}>{item.icon}</div>
-                  <div className="text-xl font-semibold text-foreground">{item.value.toLocaleString()}</div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">{item.label}</div>
+                <Card key={item.label} className={`p-3 ${cardClass}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xl font-semibold text-foreground">{item.value.toLocaleString()}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{item.label}</div>
+                    </div>
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-background/70 ${item.tone}`}>{item.icon}</div>
+                  </div>
                 </Card>
               ))}
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-              <Card className="p-4 bg-card border-border">
+              <Card className={`p-4 ${cardClass}`}>
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-medium text-foreground">Provider Health</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">{whatsappConsole.health.healthyWebhooks} healthy webhooks</p>
                   </div>
-                  <Badge variant="outline" className={`text-[10px] ${whatsappConsole.health.status === "healthy" ? "bg-primary/10 text-primary border-primary/30" : "bg-yellow-500/10 text-yellow-400 border-yellow-500/30"}`}>
+                  <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(whatsappConsole.health.status)}`}>
                     {whatsappConsole.health.status}
                   </Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-4">
-                  <div className="rounded border border-border p-2">
+                    <div className="rounded border border-border bg-background/60 p-2">
                     <div className="text-sm text-foreground">{whatsappConsole.health.needsAttention}</div>
                     <div className="text-[10px] text-muted-foreground">Needs attention</div>
                   </div>
-                  <div className="rounded border border-border p-2">
+                    <div className="rounded border border-border bg-background/60 p-2">
                     <div className="text-sm text-foreground">{whatsappConsole.messageStats.delivered}</div>
                     <div className="text-[10px] text-muted-foreground">Delivered</div>
                   </div>
                 </div>
               </Card>
-              <Card className="p-4 bg-card border-border xl:col-span-2">
+              <Card className={`p-4 ${cardClass} xl:col-span-2`}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="text-sm font-medium text-foreground">Template Status</h3>
@@ -516,7 +563,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     ["Pending", whatsappConsole.templateStats.pending],
                     ["Rejected", whatsappConsole.templateStats.rejected],
                   ].map(([label, value]) => (
-                    <div key={label} className="rounded border border-border p-2">
+                    <div key={label} className="rounded border border-border bg-background/60 p-2">
                       <div className="text-sm text-foreground">{Number(value).toLocaleString()}</div>
                       <div className="text-[10px] text-muted-foreground">{label}</div>
                     </div>
@@ -525,13 +572,13 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               </Card>
             </div>
 
-            <Card className="p-4 bg-card border-border">
+            <Card className={`p-4 ${cardClass}`}>
               <h3 className="text-sm font-medium text-foreground mb-2">Webhook</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {webhookItems.map((item) => (
                   <div key={item.label}>
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{item.label}</p>
-                    <div className="flex min-w-0 items-center gap-1 rounded bg-secondary px-2 py-2">
+                    <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-background/70 px-2 py-2">
                       <code className="min-w-0 flex-1 truncate text-xs text-foreground">{item.value}</code>
                       <button type="button" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" onClick={() => handleCopy(item.value)} title="Copy">
                         {copiedValue === item.value ? <CheckCircle2 size={13} /> : <Copy size={13} />}
@@ -542,8 +589,8 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               </div>
               <div className="mt-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Meta verify token</p>
-                <div className="flex min-w-0 items-center gap-1 rounded bg-secondary px-2 py-2">
-                  <code className="min-w-0 flex-1 truncate text-xs text-foreground">{webhookVerifyToken}</code>
+                <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-background/70 px-2 py-2">
+                  <code className="min-w-0 flex-1 truncate text-xs text-foreground">{maskSecret(webhookVerifyToken)}</code>
                   <button type="button" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" onClick={() => handleCopy(webhookVerifyToken)} title="Copy">
                     {copiedValue === webhookVerifyToken ? <CheckCircle2 size={13} /> : <Copy size={13} />}
                   </button>
@@ -551,7 +598,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               </div>
             </Card>
 
-            <Card className="p-4 bg-card border-border">
+            <Card className={`p-4 ${cardClass}`}>
               <h3 className="text-sm font-medium text-foreground mb-3">Provider Setup</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -570,7 +617,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
             </Card>
 
             {canWrite && showAccountForm && (
-              <form onSubmit={handleCreateAccount} className="space-y-4 rounded-md border border-border bg-card p-4">
+              <form onSubmit={handleCreateAccount} className={`space-y-4 ${cardClass} p-4`}>
                 <div className="space-y-1.5 md:col-span-2">
                   <div className="flex items-center gap-2">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">1</span>
@@ -585,7 +632,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         className={`rounded border px-3 py-2 text-left text-xs transition-colors ${
                           form.provider === provider
                             ? "border-primary bg-primary/10 text-primary"
-                            : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                            : "border-border bg-background/70 text-muted-foreground hover:text-foreground"
                         }`}
                       >
                         <span className="block font-medium">{providerProfiles[provider].label}</span>
@@ -604,15 +651,15 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label>Display name</Label>
-                      <Input value={form.displayName} onChange={(e) => setForm((current) => ({ ...current, displayName: e.target.value }))} required />
+                      <Input value={form.displayName} onChange={(e) => setForm((current) => ({ ...current, displayName: e.target.value }))} required className={fieldClass} />
                     </div>
                     <div className="space-y-1.5">
                       <Label>{form.provider === "twilio" ? "WhatsApp sender" : "Phone number"}</Label>
-                      <Input value={form.phoneNumber} onChange={(e) => setForm((current) => ({ ...current, phoneNumber: e.target.value }))} required />
+                      <Input value={form.phoneNumber} onChange={(e) => setForm((current) => ({ ...current, phoneNumber: e.target.value }))} required className={fieldClass} />
                     </div>
                     <div className="space-y-1.5">
                       <Label>{providerProfile.phoneIdLabel}</Label>
-                      <Input value={form.phoneNumberId} onChange={(e) => setForm((current) => ({ ...current, phoneNumberId: e.target.value }))} required />
+                      <Input value={form.phoneNumberId} onChange={(e) => setForm((current) => ({ ...current, phoneNumberId: e.target.value }))} required className={fieldClass} />
                     </div>
                     <div className="space-y-1.5">
                       <Label>{providerProfile.businessIdLabel}</Label>
@@ -627,6 +674,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                               : { businessAccountId: e.target.value }),
                         }))}
                         required
+                        className={fieldClass}
                       />
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
@@ -643,6 +691,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                               : { accessToken: e.target.value }),
                         }))}
                         placeholder="Use local-placeholder-token for local testing"
+                        className={fieldClass}
                       />
                     </div>
                     {form.provider === "meta" && (
@@ -654,6 +703,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             value={form.verifyToken}
                             onChange={(e) => setForm((current) => ({ ...current, verifyToken: e.target.value }))}
                             placeholder="Must match Meta webhook setup"
+                            className={fieldClass}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -663,6 +713,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             value={form.appSecret}
                             onChange={(e) => setForm((current) => ({ ...current, appSecret: e.target.value }))}
                             placeholder="Optional, used for signature checks"
+                            className={fieldClass}
                           />
                         </div>
                       </>
@@ -670,13 +721,13 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     {form.provider === "wati" && (
                       <div className="space-y-1.5 md:col-span-2">
                         <Label>Wati API endpoint</Label>
-                        <Input value={form.apiBaseUrl} onChange={(e) => setForm((current) => ({ ...current, apiBaseUrl: e.target.value }))} placeholder="https://live-server.wati.io" />
+                        <Input value={form.apiBaseUrl} onChange={(e) => setForm((current) => ({ ...current, apiBaseUrl: e.target.value }))} placeholder="https://live-server.wati.io" className={fieldClass} />
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="rounded border border-border bg-secondary px-3 py-2">
+                <div className="rounded-md border border-border bg-background/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Webhook callback</p>
                   <div className="flex min-w-0 items-center gap-2">
                     <code className="min-w-0 flex-1 truncate text-xs text-foreground">{providerProfile.callback}</code>
@@ -693,12 +744,15 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     Cancel
                   </Button>
                 </div>
+                <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+                  Secrets are masked after saving and are never shown again in this UI. Replace a token by entering a new value.
+                </div>
               </form>
             )}
 
             <div className="space-y-3">
               {settings.whatsappAccounts.length === 0 && (
-                <Card className="p-4 bg-card border-border">
+                <Card className={`p-4 ${cardClass}`}>
                   <div className="flex items-start gap-3">
                     <AlertCircle size={16} className="text-yellow-400 mt-0.5" />
                     <div>
@@ -710,9 +764,11 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               )}
 
               {settings.whatsappAccounts.map((account) => (
-                <Card key={account.id} className="p-4 bg-card border-border">
+                <Card key={account.id} className={`overflow-hidden ${cardClass}`}>
+                  <div className={`h-1 ${account.status === "connected" ? "bg-gradient-to-r from-primary/80 to-emerald-300/40" : account.status === "needs_attention" ? "bg-gradient-to-r from-yellow-400/80 to-orange-300/40" : "bg-gradient-to-r from-destructive/80 to-red-300/40"}`} />
+                  <div className="p-4">
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 rounded-md border border-primary/25 bg-primary/10 flex items-center justify-center shrink-0">
                       <MessageCircle size={18} className="text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -721,9 +777,10 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                           {providerProfiles[account.provider || "meta"]?.badge || account.provider}
                         </Badge>
-                        <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">{account.status}</Badge>
-                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">webhook {account.webhookStatus}</Badge>
-                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">templates {account.templateSyncStatus}</Badge>
+                        <span className={`h-2 w-2 rounded-full ${statusDotClass(account.status)}`} />
+                        <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.status)}`}>{account.status.replace("_", " ")}</Badge>
+                        <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.webhookStatus)}`}>webhook {account.webhookStatus}</Badge>
+                        <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.templateSyncStatus)}`}>templates {account.templateSyncStatus}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${account.credentials?.accessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
                           token {account.credentials?.accessTokenConfigured ? "saved" : "missing"}
                         </Badge>
@@ -739,7 +796,11 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">{account.phoneNumber}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">Phone ID: {account.phoneNumberId} | Business ID: {account.businessAccountId}</p>
+                      <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-3">
+                        <div className="rounded-md border border-border bg-background/60 p-2"><span className="block truncate text-foreground">{account.phoneNumberId || "-"}</span>Phone ID</div>
+                        <div className="rounded-md border border-border bg-background/60 p-2"><span className="block truncate text-foreground">{account.businessAccountId || "-"}</span>Business ID</div>
+                        <div className="rounded-md border border-border bg-background/60 p-2"><span className="block text-foreground">{maskSecret(account.credentials?.accessTokenConfigured ? "configured" : "")}</span>Access token</div>
+                      </div>
                       {account.credentials?.lastTestedAt && (
                         <p className="text-[11px] text-muted-foreground mt-1">Last tested: {new Date(account.credentials.lastTestedAt).toLocaleString()}</p>
                       )}
@@ -769,6 +830,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                       {accountNotice[account.id]}
                     </div>
                   )}
+                  </div>
                 </Card>
               ))}
             </div>
@@ -899,18 +961,22 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         )}
 
         {activeTab === "integrations" && (
-          <div className="max-w-3xl space-y-6">
-            <div>
+          <div className="max-w-4xl space-y-6">
+            <div className="rounded-lg border border-border bg-card/80 p-4">
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Integrations</Badge>
               <h2 className="text-foreground">Integrations</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Connect outbound webhooks, Zapier-style automations, and lead sync destinations.</p>
             </div>
 
             <form onSubmit={handleIntegrationsSave} className="space-y-4">
-              <Card className="p-4 bg-card border-border space-y-4">
+              <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-blue-500/25 bg-blue-500/10 text-blue-300"><ExternalLink size={16} /></span>
+                    <div>
                     <h3 className="text-sm font-medium text-foreground">Outbound webhook</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Used by automation webhook actions when no URL override is provided.</p>
+                    </div>
                   </div>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     <input
@@ -935,7 +1001,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         outboundWebhook: { ...current.outboundWebhook, url: event.target.value },
                       }))}
                       placeholder="https://hooks.zapier.com/..."
-                      className="bg-secondary border-transparent focus:border-border"
+                      className={fieldClass}
                       disabled={!canWrite}
                     />
                   </div>
@@ -948,7 +1014,8 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         outboundWebhook: { ...current.outboundWebhook, secret: event.target.value },
                       }))}
                       placeholder="Optional HMAC secret"
-                      className="bg-secondary border-transparent focus:border-border"
+                      className={fieldClass}
+                      type="password"
                       disabled={!canWrite}
                     />
                   </div>
@@ -957,14 +1024,18 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   {canWrite && <Button type="button" variant="outline" size="sm" className="h-8 text-xs border-border" onClick={handleWebhookTest} disabled={integrationSaving || !integrationForm.outboundWebhook.url}>
                     Test webhook
                   </Button>}
+                  <span className="self-center text-[11px] text-muted-foreground">Secret: {maskSecret(integrationForm.outboundWebhook.secret)}</span>
                 </div>
               </Card>
 
-              <Card className="p-4 bg-card border-border space-y-4">
+              <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary"><Database size={16} /></span>
+                    <div>
                     <h3 className="text-sm font-medium text-foreground">Google Sheets lead sync</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Stores the Apps Script webhook target for lead sync workflows.</p>
+                    </div>
                   </div>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     <input
@@ -989,7 +1060,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         googleSheets: { ...current.googleSheets, webhookUrl: event.target.value },
                       }))}
                       placeholder="https://script.google.com/macros/s/..."
-                      className="bg-secondary border-transparent focus:border-border"
+                      className={fieldClass}
                       disabled={!canWrite}
                     />
                   </div>
@@ -1002,18 +1073,26 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         googleSheets: { ...current.googleSheets, secret: event.target.value },
                       }))}
                       placeholder="Optional shared secret"
-                      className="bg-secondary border-transparent focus:border-border"
+                      className={fieldClass}
+                      type="password"
                       disabled={!canWrite}
                     />
                   </div>
                 </div>
               </Card>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={integrationSaving}>
                   {integrationSaving ? "Saving..." : "Save integrations"}
                 </Button>}
-                {integrationNotice && <span className="text-xs text-muted-foreground">{integrationNotice}</span>}
+                {integrationNotice && (
+                  <span className={`rounded-md border px-3 py-2 text-xs ${/failed|could not|error/i.test(integrationNotice) ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
+                    {integrationNotice}
+                  </span>
+                )}
+              </div>
+              <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+                Integration secrets are stored through the existing settings API and should be rotated from the provider console if exposed.
               </div>
             </form>
           </div>

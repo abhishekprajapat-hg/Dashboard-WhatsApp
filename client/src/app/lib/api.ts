@@ -497,6 +497,79 @@ export function createWhatsAppTemplate<T>(template: {
   });
 }
 
+export function getTemplates<T>(params: { search?: string; type?: string; status?: string; category?: string; language?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.type && params.type !== "all") query.set("type", params.type);
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.category && params.category !== "all") query.set("category", params.category);
+  if (params.language && params.language !== "all") query.set("language", params.language);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/templates${suffix}`);
+}
+
+export function createTemplate<T>(template: {
+  name: string;
+  type?: string;
+  category?: string;
+  language?: string;
+  body?: string;
+  variables?: string[];
+  status?: string;
+}) {
+  return request<T>("/templates", {
+    method: "POST",
+    body: JSON.stringify(template),
+  });
+}
+
+export function updateTemplate<T>(id: string, template: Partial<{
+  name: string;
+  type: string;
+  category: string;
+  language: string;
+  body: string;
+  variables: string[];
+  status: string;
+}>) {
+  return request<T>(`/templates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(template),
+  });
+}
+
+export function archiveTemplate<T>(id: string) {
+  return request<T>(`/templates/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function duplicateTemplate<T>(id: string) {
+  return request<T>(`/templates/${id}/duplicate`, {
+    method: "POST",
+  });
+}
+
+export function previewTemplate<T>(payload: { body: string; variables?: Record<string, string> }) {
+  return request<T>("/templates/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function syncTemplateLibrary<T>(payload: { accountId?: string } = {}) {
+  return request<T>("/templates/sync-whatsapp", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function markTemplateUsed<T>(id: string) {
+  return request<T>(`/templates/${id}/use`, {
+    method: "POST",
+  });
+}
+
 export function getCampaigns<T>() {
   return request<T>("/campaigns");
 }
@@ -606,6 +679,7 @@ export function createAutomationFlow<T>(flow: {
   category?: string;
   status?: string;
   actionMessage?: string;
+  templateId?: string;
   keyword?: string;
   sendReply?: boolean;
   assignmentUserId?: string;
@@ -624,7 +698,7 @@ export function createAutomationFlow<T>(flow: {
   });
 }
 
-export function updateAutomationFlow<T>(id: string, flow: { name?: string; status?: string }) {
+export function updateAutomationFlow<T>(id: string, flow: { name?: string; status?: string; [key: string]: unknown }) {
   return request<T>(`/automation/${id}`, {
     method: "PATCH",
     body: JSON.stringify(flow),

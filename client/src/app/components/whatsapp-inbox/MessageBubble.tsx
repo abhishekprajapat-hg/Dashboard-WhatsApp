@@ -30,26 +30,26 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.18 }}
-      className={cn("group flex px-4 py-1.5", fromAgent ? "justify-end" : "justify-start")}
+      className={cn("group flex px-3 py-1.5 sm:px-5", fromAgent ? "justify-end" : "justify-start")}
     >
       <div
         className={cn(
-          "relative max-w-[min(78%,680px)] rounded-md px-3 py-2 text-sm shadow-sm",
+          "relative max-w-[min(82%,720px)] rounded-2xl px-3 py-2 text-sm shadow-[0_10px_28px_rgba(0,0,0,0.12)] ring-1 ring-white/5",
           fromAgent
-            ? "rounded-tr-sm bg-[#d9fdd3] text-zinc-900 dark:bg-[#005c4b] dark:text-zinc-50"
-            : "rounded-tl-sm bg-white text-zinc-900 dark:bg-[#202c33] dark:text-zinc-50",
-          message.internal && "border border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10",
-          selected && "ring-2 ring-emerald-400"
+            ? "rounded-br-md bg-primary/90 text-primary-foreground"
+            : "rounded-bl-md border border-border/80 bg-card text-foreground",
+          message.internal && "border border-warning/35 bg-warning/10 text-warning",
+          selected && "ring-2 ring-primary"
         )}
       >
         {replyLabel ? (
-          <div className="mb-1 rounded border-l-2 border-emerald-500 bg-black/5 px-2 py-1 text-xs text-zinc-600 dark:bg-white/5 dark:text-zinc-300">
+          <div className="mb-1 rounded-md border-l-2 border-primary bg-black/5 px-2 py-1 text-xs text-muted-foreground dark:bg-white/5">
             {replyLabel}
           </div>
         ) : null}
 
         {attachment ? (
-          <div className="mb-2 overflow-hidden rounded bg-black/5 dark:bg-black/20">
+          <div className="mb-2 overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/5">
             {(type === "image" || attachment.mimeType?.startsWith("image/")) && (
               <img src={attachmentUrl} alt="" className="max-h-80 w-full object-cover" />
             )}
@@ -63,7 +63,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
             )}
             {!(attachment.mimeType?.startsWith("image/") || attachment.mimeType?.startsWith("video/") || attachment.mimeType?.startsWith("audio/")) && (
               <a href={attachmentUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3">
-                <FileText size={22} className="text-emerald-500" />
+                <FileText size={22} className={fromAgent ? "text-primary-foreground" : "text-primary"} />
                 <span className="min-w-0 flex-1 truncate">{attachment.name || (type === "pdf" ? "PDF document" : "Document")}</span>
                 <Download size={16} />
               </a>
@@ -72,8 +72,8 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
         ) : null}
 
         {type === "location" ? (
-          <div className="mb-1 flex items-center gap-2 rounded bg-black/5 p-2 text-xs dark:bg-white/5">
-            <MapPin size={16} className="text-emerald-500" />
+          <div className="mb-1 flex items-center gap-2 rounded-lg bg-black/5 p-2 text-xs dark:bg-white/5">
+            <MapPin size={16} className={fromAgent ? "text-primary-foreground" : "text-primary"} />
             Shared location
           </div>
         ) : null}
@@ -81,17 +81,17 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
         {message.content ? <div className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</div> : null}
 
         {message.reaction ? (
-          <span className="absolute -bottom-3 right-4 rounded-full bg-white px-1.5 py-0.5 text-xs shadow dark:bg-[#111b21]">{message.reaction}</span>
+          <span className="absolute -bottom-3 right-4 rounded-full border border-border bg-card px-1.5 py-0.5 text-xs shadow">{message.reaction}</span>
         ) : null}
 
-        <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-zinc-500 dark:text-zinc-300">
+        <div className={cn("mt-1 flex items-center justify-end gap-1.5 text-[10px]", fromAgent ? "text-primary-foreground/75" : "text-muted-foreground")}>
           {message.starred ? <Star size={11} className="fill-amber-400 text-amber-400" /> : null}
           <span>{message.time}</span>
           {fromAgent ? <StatusIcon status={message.status} /> : null}
           {fromAgent ? <span className="sr-only">{visibleStatus(message.status)}</span> : null}
         </div>
 
-        <div className={cn("absolute top-1 hidden items-center gap-0.5 rounded bg-white/95 p-0.5 shadow-lg group-hover:flex dark:bg-[#111b21]", fromAgent ? "left-0 -translate-x-full" : "right-0 translate-x-full")}>
+        <div className={cn("absolute top-1 hidden items-center gap-0.5 rounded-lg border border-border/80 bg-popover/95 p-0.5 shadow-xl backdrop-blur group-hover:flex", fromAgent ? "left-0 -translate-x-full" : "right-0 translate-x-full")}>
           {[
             ["reply", Reply],
             ["copy", Copy],
@@ -102,7 +102,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
           ].map(([action, Icon]) => (
             <button
               key={String(action)}
-              className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-emerald-700 dark:hover:bg-[#202c33] dark:hover:text-emerald-300"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-primary"
               onClick={() => onAction(action as Parameters<MessageBubbleProps["onAction"]>[0], message)}
               title={String(action)}
             >

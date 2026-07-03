@@ -614,6 +614,7 @@ conversationsRouter.post("/:id/template", requirePermission("inbox:write"), asyn
   conversation.lastMessageAt = message.sentAt;
   await conversation.save();
   await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: message.sentAt });
+  await Template.updateOne({ _id: template._id, workspaceId: req.user.workspaceId }, { $inc: { usageCount: 1 }, lastUsedAt: new Date() });
 
   await publishConversationChanged(conversation._id);
   res.status(201).json({ data: serializeMessage(message) });

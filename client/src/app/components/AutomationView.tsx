@@ -1,4 +1,4 @@
-import { DragEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { DragEvent, FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -65,6 +65,7 @@ import {
   createAutomationFlow,
   deleteAutomationFlow,
   getAutomationFlows,
+  getTemplates,
   testAutomationFlow,
   updateAutomationCanvas,
   updateAutomationFlow,
@@ -92,6 +93,13 @@ interface Flow {
   analytics?: { runs: number; completionRate: number; errorRate: number; lastRunAt?: string };
   versions?: { version: number; label: string; at: string }[];
   executionLogs?: { at: string; level: string; message: string; nodeId?: string }[];
+}
+
+interface InternalTemplate {
+  id: string;
+  name: string;
+  body: string;
+  type: string;
 }
 
 const simpleTriggerOptions = [
@@ -139,6 +147,58 @@ const statusStyle: Record<string, string> = {
   draft: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
 
+const fieldClass =
+  "h-9 w-full rounded-md border border-border bg-background/80 px-3 text-xs text-foreground shadow-inner shadow-black/10 outline-none transition placeholder:text-muted-foreground/60 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60";
+
+const textareaClass =
+  "min-h-[84px] w-full rounded-md border border-border bg-background/80 px-3 py-2 text-xs leading-relaxed text-foreground shadow-inner shadow-black/10 outline-none transition placeholder:text-muted-foreground/60 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60";
+
+const statusLabel: Record<string, string> = {
+  active: "Active",
+  inactive: "Paused",
+  draft: "Draft",
+};
+
+const statusDot: Record<string, string> = {
+  active: "bg-primary shadow-[0_0_14px_rgba(34,197,94,0.45)]",
+  inactive: "bg-muted-foreground",
+  draft: "bg-yellow-400 shadow-[0_0_14px_rgba(250,204,21,0.35)]",
+};
+
+function formatDateTime(value?: string) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function flowTriggerLabel(flow: Flow) {
+  return simpleTriggerOptions.find((item) => item.id === flow.triggerType)?.label || flow.trigger || "New message";
+}
+
+function flowKeywordSummary(flow: Flow) {
+  const keywords = flow.keywords?.length ? flow.keywords : flow.keyword ? [flow.keyword] : [];
+  if (!keywords.length) return flow.triggerType === "keyword_match" ? "Keyword not set" : "All matching events";
+  return keywords.slice(0, 3).join(", ");
+}
+
+function flowActionSummary(flow: Flow) {
+  if (flow.actionSummary?.length) return flow.actionSummary.join(" -> ");
+  const nodeLabels = (flow.nodes || [])
+    .filter((node) => node.type !== "trigger" && node.type !== "keyword")
+    .map((node) => catalogFor(node.type).label);
+  if (nodeLabels.length) return nodeLabels.slice(0, 4).join(" -> ");
+  return "No actions configured";
+}
+
+function flowRunCount(flow: Flow) {
+  return flow.analytics?.runs ?? flow.runs ?? 0;
+}
+
+function flowLastRun(flow: Flow) {
+  return formatDateTime(flow.analytics?.lastRunAt || flow.lastRun);
+}
+
 const nodeCatalog = [
   { kind: "trigger", label: "Trigger", icon: "Zap", color: "#22c55e", description: "Start from inbound events" },
   { kind: "delay", label: "Delay", icon: "Hourglass", color: "#f59e0b", description: "Wait before next action" },
@@ -176,7 +236,7 @@ const templates = [
 ];
 
 function iconFor(name: string, size = 15) {
-  const icons: Record<string, React.ReactNode> = {
+  const icons: Record<string, ReactNode> = {
     Activity: <Activity size={size} />,
     AlarmClock: <AlarmClock size={size} />,
     Bot: <Bot size={size} />,
@@ -237,8 +297,9 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
 
 function serverNodeToCanvas(node: ServerNode, index: number): Node<AutomationNodeData> {
   const item = catalogFor(node.type);
+  const id = String(node.id || `${node.type || "node"}_${index}`);
   return {
-    id: node.id,
+    id,
     type: "automation",
     position: node.position || { x: 80 + index * 260, y: 160 },
     data: {
@@ -252,6 +313,16 @@ function serverNodeToCanvas(node: ServerNode, index: number): Node<AutomationNod
   };
 }
 
+function normalizeCanvasNodes(items: ServerNode[] = []) {
+  const seen = new Set<string>();
+  return items.map((node, index) => {
+    const baseId = String(node.id || `${node.type || "node"}_${index}`);
+    const id = seen.has(baseId) ? `${baseId}_${index}` : baseId;
+    seen.add(id);
+    return serverNodeToCanvas({ ...node, id }, index);
+  });
+}
+
 function canvasNodeToServer(node: Node<AutomationNodeData>): ServerNode {
   return {
     id: node.id,
@@ -259,6 +330,18 @@ function canvasNodeToServer(node: Node<AutomationNodeData>): ServerNode {
     position: node.position,
     config: node.data.config || {},
   };
+}
+
+function normalizeCanvasEdges(items: Edge[] = []) {
+  const seen = new Set<string>();
+  return items
+    .filter((edge) => edge?.source && edge?.target)
+    .map((edge, index) => {
+      const baseId = String(edge.id || `${edge.source}-${edge.target}-${index}`);
+      const id = seen.has(baseId) ? `${baseId}-${index}` : baseId;
+      seen.add(id);
+      return { ...edge, id, source: String(edge.source), target: String(edge.target) };
+    });
 }
 
 function defaultNodes(): Node<AutomationNodeData>[] {
@@ -269,7 +352,7 @@ function defaultNodes(): Node<AutomationNodeData>[] {
 }
 
 function defaultEdges(): Edge[] {
-  return [{ id: "trigger-send_message_1", source: "trigger", target: "send_message_1", animated: true }];
+  return normalizeCanvasEdges([{ id: "trigger-send_message_1", source: "trigger", target: "send_message_1", animated: true }]);
 }
 
 function BuilderCanvas({
@@ -295,8 +378,8 @@ function BuilderCanvas({
 
   useEffect(() => {
     if (!selectedFlow) return;
-    setNodes(selectedFlow.nodes?.length ? selectedFlow.nodes.map(serverNodeToCanvas) : defaultNodes());
-    setEdges(selectedFlow.edges?.length ? selectedFlow.edges : defaultEdges());
+    setNodes(selectedFlow.nodes?.length ? normalizeCanvasNodes(selectedFlow.nodes) : defaultNodes());
+    setEdges(selectedFlow.edges?.length ? normalizeCanvasEdges(selectedFlow.edges) : defaultEdges());
     setSelectedNodeId(selectedFlow.nodes?.[0]?.id || "trigger");
     setTestResult(null);
   }, [selectedFlow?.id]);
@@ -309,9 +392,9 @@ function BuilderCanvas({
   }, [canvasMaximized, reactFlow]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((items) => applyNodeChanges(changes, items)), []);
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((items) => applyEdgeChanges(changes, items)), []);
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((items) => normalizeCanvasEdges(applyEdgeChanges(changes, items))), []);
   const onConnect = useCallback((connection: Connection) => {
-    setEdges((items) => addEdge({ ...connection, animated: true }, items));
+    setEdges((items) => normalizeCanvasEdges(addEdge({ ...connection, id: `${connection.source}-${connection.target}-${Date.now()}`, animated: true }, items)));
   }, []);
 
   function onDragStart(event: DragEvent, kind: string) {
@@ -368,7 +451,7 @@ function BuilderCanvas({
           executionLogs: selectedFlow?.executionLogs || [],
         },
         nodes: nodes.map(canvasNodeToServer),
-        edges,
+        edges: normalizeCanvasEdges(edges),
       };
       const response = selectedFlow
         ? await updateAutomationCanvas<{ data: Flow }>(selectedFlow.id, {
@@ -411,11 +494,11 @@ function BuilderCanvas({
       className={
         canvasMaximized
           ? "fixed inset-0 z-50 grid min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-background"
-          : "grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_330px] overflow-hidden"
+          : "grid min-h-[680px] flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)_330px]"
       }
     >
       {!canvasMaximized ? (
-      <aside className="no-scrollbar border-r border-border bg-card/60 p-3 overflow-y-auto">
+      <aside className="no-scrollbar hidden overflow-y-auto border-r border-border bg-card/60 p-3 lg:block">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-foreground">Node Library</div>
@@ -444,7 +527,7 @@ function BuilderCanvas({
       </aside>
       ) : null}
 
-      <main className="relative min-w-0 bg-[#0b0f14]">
+      <main className="relative min-h-[520px] min-w-0 bg-[#0b0f14] lg:min-h-0">
         <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/50 p-2 backdrop-blur">
           {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
             <Save size={13} className="mr-1" /> {saving ? "Saving" : "Save"}
@@ -499,7 +582,7 @@ function BuilderCanvas({
       </main>
 
       {!canvasMaximized ? (
-      <aside className="no-scrollbar border-l border-border bg-card overflow-y-auto">
+      <aside className="no-scrollbar hidden overflow-y-auto border-l border-border bg-card lg:block">
         <div className="sticky top-0 z-10 border-b border-border bg-card p-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -533,7 +616,7 @@ function BuilderCanvas({
                     onChange={(event) => updateSelectedConfig(field, event.target.value)}
                     disabled={!canWrite}
                     placeholder={field}
-                    className="h-8 w-full rounded border border-border bg-card px-2 text-xs text-foreground"
+                    className={fieldClass}
                   />
                 ))}
               </div>
@@ -545,13 +628,52 @@ function BuilderCanvas({
               <Play size={14} /> Testing Mode
             </h3>
             <div className="space-y-2 rounded-md border border-border bg-background p-3">
-              <input value={testMessage} onChange={(event) => setTestMessage(event.target.value)} className="h-8 w-full rounded border border-border bg-card px-2 text-xs text-foreground" />
+              <input
+                value={testMessage}
+                onChange={(event) => setTestMessage(event.target.value)}
+                className={fieldClass}
+                placeholder="Incoming test message"
+              />
               <Button size="sm" className="h-8 w-full bg-primary text-xs text-primary-foreground" onClick={testFlow} disabled={testing || !canWrite}>
                 {testing ? "Running test" : "Run test"}
               </Button>
               {testResult ? (
-                <div className="rounded border border-border bg-card p-2 text-[11px] text-muted-foreground">
-                  {"error" in testResult ? testResult.error : `${testResult.matched ? "Matched" : "Not matched"} - ${testResult.actions.length} actions`}
+                <div
+                  className={`space-y-2 rounded-md border p-3 text-[11px] ${
+                    "error" in testResult
+                      ? "border-destructive/30 bg-destructive/10 text-destructive"
+                      : testResult.matched
+                        ? "border-primary/30 bg-primary/10 text-foreground"
+                        : "border-yellow-500/30 bg-yellow-500/10 text-foreground"
+                  }`}
+                >
+                  {"error" in testResult ? (
+                    <div className="font-medium">{testResult.error}</div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{testResult.matched ? "Matched automation" : "No match"}</span>
+                        <Badge variant="outline" className={testResult.matched ? "border-primary/30 bg-primary/15 text-primary" : "border-yellow-500/30 bg-yellow-500/15 text-yellow-300"}>
+                          {testResult.actions.length} actions
+                        </Badge>
+                      </div>
+                      {testResult.message ? <p className="text-muted-foreground">{testResult.message}</p> : null}
+                      <div className="space-y-1">
+                        {testResult.actions.length ? (
+                          testResult.actions.slice(0, 4).map((action, index) => (
+                            <div key={`${action.type}-${index}`} className="rounded border border-border/70 bg-card/70 px-2 py-1 text-muted-foreground">
+                              <span className="font-medium text-foreground">{action.type.replace(/_/g, " ")}</span>
+                              {action.status ? ` - ${action.status}` : ""}
+                              {action.tag ? ` - ${action.tag}` : ""}
+                              {action.error ? <span className="text-destructive"> - {action.error}</span> : null}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded border border-dashed border-border px-2 py-1 text-muted-foreground">No actions executed.</div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -580,14 +702,22 @@ function BuilderCanvas({
               <ScrollText size={14} /> Execution Logs
             </h3>
             <div className="space-y-1 rounded-md border border-border bg-background p-2">
-              {(selectedFlow?.executionLogs?.length ? selectedFlow.executionLogs : [
-                { at: new Date().toISOString(), level: "debug", message: "Canvas ready" },
-                { at: new Date().toISOString(), level: "info", message: "Waiting for test run" },
-              ]).slice(-6).map((log, index) => (
-                <div key={`${log.at}-${index}`} className="rounded bg-card px-2 py-1 text-[11px] text-muted-foreground">
-                  <span className="text-primary">{log.level}</span> {log.message}
+              {selectedFlow?.executionLogs?.length ? (
+                selectedFlow.executionLogs.slice(-6).map((log, index) => (
+                  <div key={`${log.at}-${index}`} className="rounded-md border border-border/70 bg-card/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={log.level === "error" ? "font-medium text-destructive" : "font-medium text-primary"}>{log.level}</span>
+                      <span>{formatDateTime(log.at)}</span>
+                    </div>
+                    <div className="mt-0.5 text-foreground/90">{log.message}</div>
+                    {log.nodeId ? <div className="mt-0.5 text-[10px] text-muted-foreground">Node: {log.nodeId}</div> : null}
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground">
+                  No automation logs yet. Run a test or wait for an inbound match.
                 </div>
-              ))}
+              )}
             </div>
           </section>
 
@@ -637,31 +767,47 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     triggerType: "keyword_match",
     keyword: "price",
     actionMessage: "Thanks for your message. Our team will share details shortly.",
+    templateId: "",
     tagName: "Lead",
     leadStage: "new_lead",
     nextStatus: "open",
     sendToGoogleSheet: false,
     status: "active" as FlowStatus,
   });
+  const [editingSimpleId, setEditingSimpleId] = useState("");
   const [creatingSimple, setCreatingSimple] = useState(false);
+  const [messageTemplates, setMessageTemplates] = useState<InternalTemplate[]>([]);
+  const [loadingFlows, setLoadingFlows] = useState(true);
+  const [testingFlowId, setTestingFlowId] = useState("");
+  const [quickTestResults, setQuickTestResults] = useState<Record<string, TestResult | { error: string }>>({});
 
   async function loadFlows() {
-    const response = await getAutomationFlows<{
-      data: Flow[];
-      total: number;
-      summary: { runsToday: number; automatedMessages: number; handoffs: number };
-    }>();
-    setFlowList(response.data);
-    setSummary(response.summary);
-    setSelectedFlowId((current) => current || response.data[0]?.id || "");
+    setLoadingFlows(true);
+    try {
+      const response = await getAutomationFlows<{
+        data: Flow[];
+        total: number;
+        summary: { runsToday: number; automatedMessages: number; handoffs: number };
+      }>();
+      setFlowList(response.data);
+      setSummary(response.summary);
+      setSelectedFlowId((current) => current || response.data[0]?.id || "");
+    } finally {
+      setLoadingFlows(false);
+    }
   }
 
   useEffect(() => {
     loadFlows().catch(() => undefined);
+    getTemplates<{ data: InternalTemplate[] }>({ status: "active" })
+      .then((response) => setMessageTemplates(response.data.filter((template) => ["quick_reply", "automation", "follow_up", "lead_stage"].includes(template.type))))
+      .catch(() => undefined);
   }, []);
 
   const selectedFlow = flowList.find((flow) => flow.id === selectedFlowId);
   const activeCount = flowList.filter((flow) => flow.status === "active").length;
+  const pausedCount = flowList.filter((flow) => flow.status === "inactive").length;
+  const draftCount = flowList.filter((flow) => flow.status === "draft").length;
 
   function upsertFlow(flow: Flow) {
     setFlowList((items) => {
@@ -686,12 +832,12 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     upsertFlow(response.data);
   }
 
-  async function createSimpleFlow(event: React.FormEvent) {
+  async function createSimpleFlow(event: FormEvent) {
     event.preventDefault();
     if (!canWrite) return;
     setCreatingSimple(true);
     try {
-      const response = await createAutomationFlow<{ data: Flow }>({
+      const payload = {
         name: simpleForm.name,
         description: "Simple WhatsApp automation",
         trigger: simpleTriggerOptions.find((item) => item.id === simpleForm.triggerType)?.label || "New message",
@@ -700,17 +846,45 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
         status: simpleForm.status,
         keyword: simpleForm.keyword,
         actionMessage: simpleForm.actionMessage,
-        sendReply: Boolean(simpleForm.actionMessage.trim()),
+        templateId: simpleForm.templateId || undefined,
+        sendReply: Boolean(simpleForm.actionMessage.trim() || simpleForm.templateId),
         tagName: simpleForm.tagName,
         nextStatus: simpleForm.nextStatus,
         addToCrm: simpleForm.triggerType === "new_lead" || Boolean(simpleForm.leadStage),
         leadStage: simpleForm.leadStage,
         sendToGoogleSheet: simpleForm.sendToGoogleSheet,
-      });
+        simpleEdit: Boolean(editingSimpleId),
+      };
+      const response = editingSimpleId
+        ? await updateAutomationFlow<{ data: Flow }>(editingSimpleId, payload)
+        : await createAutomationFlow<{ data: Flow }>(payload);
       upsertFlow(response.data);
+      setEditingSimpleId("");
     } finally {
       setCreatingSimple(false);
     }
+  }
+
+  function editSimpleFlow(flow: Flow) {
+    const sendNode = (flow.nodes || []).find((node) => node.type === "send_message");
+    const tagNode = (flow.nodes || []).find((node) => node.type === "add_tag");
+    const statusNode = (flow.nodes || []).find((node) => node.type === "set_status");
+    const leadNode = (flow.nodes || []).find((node) => node.type === "add_to_crm" || node.type === "lead_stage" || node.type === "google_sheets");
+    const hasSheets = (flow.nodes || []).some((node) => node.type === "google_sheets");
+
+    setEditingSimpleId(flow.id);
+    setSimpleForm({
+      name: flow.name,
+      triggerType: flow.triggerType || "new_message",
+      keyword: flow.keyword || "",
+      actionMessage: String(sendNode?.config?.body || ""),
+      templateId: String(sendNode?.config?.templateId || ""),
+      tagName: String(tagNode?.config?.name || ""),
+      leadStage: String(leadNode?.config?.stage || "new_lead"),
+      nextStatus: String(statusNode?.config?.status || "open"),
+      sendToGoogleSheet: hasSheets,
+      status: flow.status,
+    });
   }
 
   async function toggleStatus(flow: Flow) {
@@ -724,172 +898,307 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     setSelectedFlowId((current) => (current === flow.id ? "" : current));
   }
 
+  async function quickTestFlow(flow: Flow, event: { stopPropagation: () => void }) {
+    event.stopPropagation();
+    if (!canWrite) return;
+    setTestingFlowId(flow.id);
+    try {
+      const response = await testAutomationFlow<TestResult>(flow.id, flow.keyword || simpleForm.keyword || "test");
+      setQuickTestResults((current) => ({ ...current, [flow.id]: response }));
+      if (response.flow) upsertFlow(response.flow);
+    } catch (error) {
+      setQuickTestResults((current) => ({
+        ...current,
+        [flow.id]: { error: error instanceof Error ? error.message : "Test failed" },
+      }));
+    } finally {
+      setTestingFlowId("");
+    }
+  }
+
   return (
     <ReactFlowProvider>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-border px-3 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+      <div className="flex min-h-full w-full flex-col overflow-visible">
+        <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.74),rgba(2,6,23,0.18))] px-3 py-4 sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Automation</Badge>
+              <span className="text-[11px] text-muted-foreground">{activeCount} active - {pausedCount} paused - {draftCount} draft</span>
+            </div>
             <h1 className="text-foreground">Visual Automation Builder</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground">{activeCount} active flows - {flowList.length} total - GoHighLevel / ManyChat / n8n style canvas</p>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">Build WhatsApp triggers, CRM actions, templates, and handoff flows while keeping every execution path visible.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-8 border-border text-xs" onClick={loadFlows}>
-              <RefreshCcw size={13} className="mr-1.5" /> Refresh
+            <Button size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={loadFlows} disabled={loadingFlows}>
+              <RefreshCcw size={13} className="mr-1.5" /> {loadingFlows ? "Refreshing" : "Refresh"}
             </Button>
             {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground hover:bg-primary/90" onClick={newFlow}>
               <Plus size={13} className="mr-1.5" /> New visual flow
             </Button>}
           </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 border-b border-border px-3 py-3 shrink-0 sm:grid-cols-3 sm:px-6">
+        <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 sm:grid-cols-3 sm:px-6">
           {[
-            { label: "Flow runs today", value: summary.runsToday.toLocaleString() },
-            { label: "Messages automated", value: summary.automatedMessages.toLocaleString() },
-            { label: "Handoff to agent", value: summary.handoffs.toLocaleString() },
+            { label: "Flow runs today", value: summary.runsToday.toLocaleString(), icon: <Zap size={15} />, accent: "from-primary/20 to-emerald-400/5" },
+            { label: "Messages automated", value: summary.automatedMessages.toLocaleString(), icon: <MessageCircle size={15} />, accent: "from-blue-500/15 to-cyan-400/5" },
+            { label: "Handoff to agent", value: summary.handoffs.toLocaleString(), icon: <UserRoundPlus size={15} />, accent: "from-violet-500/15 to-fuchsia-400/5" },
           ].map((item) => (
-            <Card key={item.label} className="bg-card p-3 border-border">
-              <div className="text-lg font-semibold text-foreground">{item.value}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground">{item.label}</div>
+            <Card key={item.label} className={`overflow-hidden border-border bg-gradient-to-br ${item.accent} p-3`}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-lg font-semibold text-foreground">{item.value}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{item.label}</div>
+                </div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-card/70 text-primary">{item.icon}</div>
+              </div>
             </Card>
           ))}
         </div>
 
         {canWrite && (
-          <form onSubmit={createSimpleFlow} className="border-b border-border bg-card/40 px-3 py-3 sm:px-6">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Simple WhatsApp automation</h2>
-                <p className="text-[11px] text-muted-foreground">Create a safe first flow without configuring the visual canvas.</p>
+          <form onSubmit={createSimpleFlow} className="border-b border-border bg-card/35 px-3 py-4 sm:px-6">
+            <Card className="overflow-hidden border-border bg-card/80 shadow-xl shadow-black/10">
+              <div className="flex flex-col gap-3 border-b border-border bg-background/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+                      <Zap size={15} />
+                    </span>
+                    <div>
+                      <h2 className="text-sm font-semibold text-foreground">{editingSimpleId ? "Edit WhatsApp automation" : "Simple WhatsApp automation"}</h2>
+                      <p className="text-[11px] text-muted-foreground">{editingSimpleId ? "Update the selected flow without opening the visual canvas." : "Create a safe first flow without configuring the visual canvas."}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editingSimpleId && (
+                    <Button type="button" size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={() => setEditingSimpleId("")}>
+                      Cancel edit
+                    </Button>
+                  )}
+                  <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={creatingSimple}>
+                    <Save size={13} className="mr-1.5" /> {creatingSimple ? "Saving" : editingSimpleId ? "Save changes" : "Create automation"}
+                  </Button>
+                </div>
               </div>
-              <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={creatingSimple}>
-                {creatingSimple ? "Creating" : "Create automation"}
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
-              <label className="space-y-1.5 lg:col-span-2">
-                <span className="text-[11px] font-medium text-muted-foreground">Name</span>
-                <input
-                  value={simpleForm.name}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, name: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                  required
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Trigger</span>
-                <select
-                  value={simpleForm.triggerType}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, triggerType: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                >
-                  {simpleTriggerOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Keyword</span>
-                <input
-                  value={simpleForm.keyword}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, keyword: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                  placeholder="price, demo"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Lead stage</span>
-                <select
-                  value={simpleForm.leadStage}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, leadStage: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                >
-                  {leadStageOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Status</span>
-                <select
-                  value={simpleForm.status}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, status: event.target.value as FlowStatus }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="draft">Draft</option>
-                </select>
-              </label>
-              <label className="space-y-1.5 lg:col-span-3">
-                <span className="text-[11px] font-medium text-muted-foreground">WhatsApp reply</span>
-                <input
-                  value={simpleForm.actionMessage}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, actionMessage: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Tag</span>
-                <input
-                  value={simpleForm.tagName}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, tagName: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">Conversation</span>
-                <select
-                  value={simpleForm.nextStatus}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, nextStatus: event.target.value }))}
-                  className="h-8 w-full rounded border border-border bg-background px-2 text-xs text-foreground"
-                >
-                  <option value="open">Open</option>
-                  <option value="waiting">Waiting</option>
-                  <option value="resolved">Resolved</option>
-                </select>
-              </label>
-              <label className="flex items-end gap-2 pb-1 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={simpleForm.sendToGoogleSheet}
-                  onChange={(event) => setSimpleForm((current) => ({ ...current, sendToGoogleSheet: event.target.checked }))}
-                />
-                Send to Google Sheet
-              </label>
-            </div>
+
+              <div className="grid grid-cols-1 gap-px bg-border lg:grid-cols-3">
+                <section className="space-y-3 bg-card p-4">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><Zap size={14} /></span>
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Trigger</h3>
+                      <p className="text-[11px] text-muted-foreground">Choose when the flow starts.</p>
+                    </div>
+                  </div>
+                  <label className="block space-y-1.5">
+                    <span className="text-[11px] font-medium text-muted-foreground">Flow name</span>
+                    <input value={simpleForm.name} onChange={(event) => setSimpleForm((current) => ({ ...current, name: event.target.value }))} className={fieldClass} required />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Trigger type</span>
+                      <select value={simpleForm.triggerType} onChange={(event) => setSimpleForm((current) => ({ ...current, triggerType: event.target.value }))} className={fieldClass}>
+                        {simpleTriggerOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Keyword summary</span>
+                      <input value={simpleForm.keyword} onChange={(event) => setSimpleForm((current) => ({ ...current, keyword: event.target.value }))} className={fieldClass} placeholder="price, demo" />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="space-y-3 bg-card p-4">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/10 text-blue-300"><GitBranch size={14} /></span>
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Conditions</h3>
+                      <p className="text-[11px] text-muted-foreground">Set CRM stage and flow state.</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Lead stage</span>
+                      <select value={simpleForm.leadStage} onChange={(event) => setSimpleForm((current) => ({ ...current, leadStage: event.target.value }))} className={fieldClass}>
+                        {leadStageOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Automation status</span>
+                      <select value={simpleForm.status} onChange={(event) => setSimpleForm((current) => ({ ...current, status: event.target.value as FlowStatus }))} className={fieldClass}>
+                        <option value="active">Active</option>
+                        <option value="inactive">Paused</option>
+                        <option value="draft">Draft</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="rounded-md border border-border bg-background/60 p-3 text-[11px] text-muted-foreground">
+                    <div className="mb-1 font-medium text-foreground">Current rule</div>
+                    {simpleForm.triggerType === "keyword_match" ? `Match incoming messages containing "${simpleForm.keyword || "keyword"}".` : `Run when ${simpleTriggerOptions.find((item) => item.id === simpleForm.triggerType)?.label.toLowerCase() || "the event"} happens.`}
+                  </div>
+                </section>
+
+                <section className="space-y-3 bg-card p-4">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-500/10 text-violet-300"><Send size={14} /></span>
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Actions</h3>
+                      <p className="text-[11px] text-muted-foreground">Reply, tag, update status, and sync.</p>
+                    </div>
+                  </div>
+                  <label className="block space-y-1.5">
+                    <span className="text-[11px] font-medium text-muted-foreground">Template selector</span>
+                    <select
+                      value={simpleForm.templateId}
+                      onChange={(event) => {
+                        const template = messageTemplates.find((item) => item.id === event.target.value);
+                        setSimpleForm((current) => ({ ...current, templateId: event.target.value, actionMessage: template?.body || current.actionMessage }));
+                      }}
+                      className={fieldClass}
+                    >
+                      <option value="">No template</option>
+                      {messageTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="text-[11px] font-medium text-muted-foreground">WhatsApp reply</span>
+                    <textarea value={simpleForm.actionMessage} onChange={(event) => setSimpleForm((current) => ({ ...current, actionMessage: event.target.value }))} className={textareaClass} />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Tag</span>
+                      <input value={simpleForm.tagName} onChange={(event) => setSimpleForm((current) => ({ ...current, tagName: event.target.value }))} className={fieldClass} />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-[11px] font-medium text-muted-foreground">Conversation</span>
+                      <select value={simpleForm.nextStatus} onChange={(event) => setSimpleForm((current) => ({ ...current, nextStatus: event.target.value }))} className={fieldClass}>
+                        <option value="open">Open</option>
+                        <option value="waiting">Waiting</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                    <span>Send to Google Sheet</span>
+                    <input type="checkbox" checked={simpleForm.sendToGoogleSheet} onChange={(event) => setSimpleForm((current) => ({ ...current, sendToGoogleSheet: event.target.checked }))} className="h-4 w-4 accent-primary" />
+                  </label>
+                </section>
+              </div>
+            </Card>
           </form>
         )}
 
-        <div className="flex min-h-0 flex-1">
-          <aside className="hidden w-72 shrink-0 border-r border-border bg-card/70 lg:block">
-            <div className="border-b border-border p-3">
-              <div className="text-sm font-semibold text-foreground">Flows</div>
-              <div className="text-[11px] text-muted-foreground">Saved workflows</div>
+        <div className="flex min-h-[680px] shrink-0">
+          <aside className="hidden w-80 shrink-0 border-r border-border bg-card/70 lg:block">
+            <div className="border-b border-border bg-background/35 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">Flows</div>
+                  <div className="text-[11px] text-muted-foreground">Saved workflows and quick tests</div>
+                </div>
+                <Badge variant="outline" className="border-border bg-card text-[10px] text-muted-foreground">{flowList.length}</Badge>
+              </div>
             </div>
             <div className="no-scrollbar h-full overflow-y-auto p-2">
-              {flowList.map((flow) => (
-                <button
-                  key={flow.id}
-                  className={`mb-2 w-full rounded-md border p-3 text-left transition ${selectedFlowId === flow.id ? "border-primary bg-primary/10" : "border-border bg-background hover:border-primary/30"}`}
-                  onClick={() => setSelectedFlowId(flow.id)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">{flow.name}</span>
-                    <Badge variant="outline" className={`shrink-0 text-[10px] ${statusStyle[flow.status]}`}>{flow.status}</Badge>
-                  </div>
-                  <div className="mt-1 truncate text-[11px] text-muted-foreground">{flow.actionSummary?.join(" -> ") || "Visual workflow"}</div>
-                  <div className="mt-2 flex gap-1">
-                    {canWrite && <button className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10" onClick={(event) => { event.stopPropagation(); toggleStatus(flow); }}>
-                      {flow.status === "active" ? "Pause" : "Activate"}
-                    </button>}
-                    {canWrite && <button className="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10" onClick={(event) => { event.stopPropagation(); removeFlow(flow); }}>
-                      <Trash2 size={10} className="inline" /> Delete
-                    </button>}
-                  </div>
-                </button>
-              ))}
-              {!flowList.length ? (
-                <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                  No flows yet. Create a visual flow.
+              {loadingFlows ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="rounded-md border border-border bg-background p-3">
+                      <div className="h-4 w-2/3 animate-pulse rounded bg-secondary" />
+                      <div className="mt-3 h-3 w-full animate-pulse rounded bg-secondary" />
+                      <div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-secondary" />
+                    </div>
+                  ))}
                 </div>
-              ) : null}
+              ) : flowList.length ? (
+                flowList.map((flow) => {
+                  const result = quickTestResults[flow.id];
+                  return (
+                    <button
+                      key={flow.id}
+                      className={`mb-2 w-full rounded-md border p-3 text-left transition ${selectedFlowId === flow.id ? "border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(34,197,94,0.12)]" : "border-border bg-background hover:border-primary/30 hover:bg-card"}`}
+                      onClick={() => setSelectedFlowId(flow.id)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot[flow.status] || statusDot.draft}`} />
+                            <span className="truncate text-sm font-medium text-foreground">{flow.name}</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            <Badge variant="outline" className={`shrink-0 text-[10px] ${statusStyle[flow.status]}`}>{statusLabel[flow.status] || flow.status}</Badge>
+                            <Badge variant="outline" className="border-border bg-card/70 text-[10px] text-muted-foreground">{flowTriggerLabel(flow)}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-foreground">{flowRunCount(flow).toLocaleString()}</div>
+                          <div className="text-[10px] text-muted-foreground">runs</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Tag size={12} className="text-primary" />
+                          <span className="truncate">Keywords: {flowKeywordSummary(flow)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Send size={12} className="text-blue-300" />
+                          <span className="truncate">Actions: {flowActionSummary(flow)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex min-w-0 items-center gap-1.5 truncate">
+                            <History size={12} className="text-violet-300" />
+                            Last run: {flowLastRun(flow)}
+                          </span>
+                          {canWrite ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition hover:bg-primary/15"
+                              onClick={(event) => quickTestFlow(flow, event)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") quickTestFlow(flow, event);
+                              }}
+                            >
+                              {testingFlowId === flow.id ? "Testing" : "Test"}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {result ? (
+                        <div className={`mt-3 rounded-md border px-2 py-1.5 text-[11px] ${"error" in result ? "border-destructive/30 bg-destructive/10 text-destructive" : result.matched ? "border-primary/30 bg-primary/10 text-primary" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"}`}>
+                          {"error" in result ? result.error : `${result.matched ? "Matched" : "No match"} - ${result.actions.length} actions executed`}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {canWrite && <span role="button" tabIndex={0} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10" onClick={(event) => { event.stopPropagation(); editSimpleFlow(flow); }}>
+                          Edit
+                        </span>}
+                        {canWrite && <span role="button" tabIndex={0} className="rounded px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10" onClick={(event) => { event.stopPropagation(); toggleStatus(flow); }}>
+                          {flow.status === "active" ? "Pause" : "Activate"}
+                        </span>}
+                        {canWrite && <span role="button" tabIndex={0} className="rounded px-1.5 py-0.5 text-[10px] text-destructive hover:bg-destructive/10" onClick={(event) => { event.stopPropagation(); removeFlow(flow); }}>
+                          <Trash2 size={10} className="inline" /> Delete
+                        </span>}
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-background/60 p-5 text-center">
+                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+                    <Zap size={17} />
+                  </div>
+                  <div className="mt-3 text-sm font-medium text-foreground">No automations yet</div>
+                  <p className="mt-1 text-xs text-muted-foreground">Create a visual flow or a simple WhatsApp rule to start automating replies.</p>
+                </div>
+              )}
             </div>
           </aside>
 

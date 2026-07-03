@@ -46,14 +46,14 @@ export function CustomerProfileSidebar({
   ];
 
   return (
-    <aside className="hidden w-[320px] shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#111b21] xl:flex">
-      <div className="border-b border-zinc-200 p-5 text-center dark:border-zinc-800">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-xl font-semibold text-white shadow-sm">
+    <aside className="hidden w-[336px] shrink-0 flex-col border-l border-border/80 bg-card/75 backdrop-blur-xl xl:flex">
+      <div className="border-b border-border/80 p-5 text-center">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-teal-700 text-xl font-semibold text-primary-foreground shadow-[0_18px_42px_rgba(37,211,102,0.16)]">
           {initials(conversation.name)}
         </div>
-        <div className="mt-3 text-base font-semibold text-zinc-950 dark:text-zinc-50">{conversation.name}</div>
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">{conversation.phone}</div>
-        <div className="mt-3 inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-xs font-medium capitalize text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+        <div className="mt-3 text-base font-semibold text-foreground">{conversation.name}</div>
+        <div className="text-xs text-muted-foreground">{conversation.phone}</div>
+        <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-medium capitalize text-primary">
           <CircleUserRound size={13} />
           {conversation.status}
         </div>
@@ -61,12 +61,12 @@ export function CustomerProfileSidebar({
 
       <div className="no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Tag size={14} /> Tags
           </h3>
           <div className="flex flex-wrap gap-1.5">
             {(conversation.tags.length ? conversation.tags : ["New"]).map((tag) => (
-              <span key={tag} className="rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-600 dark:bg-[#202c33] dark:text-zinc-300">
+              <span key={tag} className="rounded-full border border-border bg-secondary/70 px-2 py-1 text-xs text-muted-foreground">
                 {tag}
               </span>
             ))}
@@ -74,41 +74,41 @@ export function CustomerProfileSidebar({
         </section>
 
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <BriefcaseBusiness size={14} /> CRM
           </h3>
-          <div className="space-y-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
             <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400">Lead stage</span>
-              <span className="font-medium capitalize text-zinc-900 dark:text-zinc-100">{meta.crmStage}</span>
+              <span className="text-muted-foreground">Lead stage</span>
+              <span className="font-medium capitalize text-foreground">{meta.crmStage}</span>
             </div>
             <select
               value={leadStage}
               onChange={(event) => setLeadStage(event.target.value)}
-              className="mt-2 h-8 w-full rounded border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none dark:border-zinc-800 dark:bg-[#202c33] dark:text-zinc-100"
+              className="mt-2 h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
             >
               {leadStages.map((stage) => (
                 <option key={stage.id} value={stage.id}>{stage.label}</option>
               ))}
             </select>
-            <div className="mt-2 rounded bg-zinc-50 px-2 py-1 text-[11px] text-zinc-500 dark:bg-[#202c33] dark:text-zinc-400">
+            <div className="mt-2 rounded-md border border-border/60 bg-secondary/50 px-2 py-1 text-[11px] text-muted-foreground">
               Sheet sync: {conversation.syncStatus?.googleSheet?.status || "pending"}
             </div>
-            <button className="mt-2 h-8 w-full rounded bg-emerald-500 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-60" onClick={() => onAddToCrm(leadStage)} disabled={savingCrm}>
+            <button className="mt-2 h-8 w-full rounded-md bg-primary text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60" onClick={() => onAddToCrm(leadStage)} disabled={savingCrm}>
               {savingCrm ? "Saving..." : meta.isInCrm ? "Update lead" : "Mark as lead"}
             </button>
           </div>
         </section>
 
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <UserRoundCheck size={14} /> Assigned Agent
           </h3>
           <select
             value={conversation.agentId || ""}
             disabled={assigning}
             onChange={(event) => onAssign(event.target.value)}
-            className="h-9 w-full rounded-md border border-zinc-200 bg-white px-2 text-sm text-zinc-900 outline-none dark:border-zinc-800 dark:bg-[#202c33] dark:text-zinc-100"
+            className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
           >
             <option value="">Unassigned</option>
             {members.map((member) => (
@@ -120,37 +120,37 @@ export function CustomerProfileSidebar({
         </section>
 
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Flag size={14} /> Conversation
           </h3>
           <div className="grid grid-cols-2 gap-2">
             {(["open", "waiting", "resolved", "archived"] as const).map((status) => (
-              <button key={status} className="h-8 rounded border border-zinc-200 text-xs capitalize text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-800 dark:text-zinc-300" onClick={() => onStatusChange(status)}>
+              <button key={status} className="h-8 rounded-md border border-border text-xs capitalize text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onStatusChange(status)}>
                 {status}
               </button>
             ))}
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button className="h-8 rounded border border-zinc-200 text-xs text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-800 dark:text-zinc-300" onClick={() => onConversationSetting({ pinned: !conversation.pinned })}>
+            <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ pinned: !conversation.pinned })}>
               {conversation.pinned ? "Unpin" : "Pin"}
             </button>
-            <button className="h-8 rounded border border-zinc-200 text-xs text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-800 dark:text-zinc-300" onClick={() => onConversationSetting({ muted: !conversation.muted })}>
+            <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ muted: !conversation.muted })}>
               {conversation.muted ? "Unmute" : "Mute"}
             </button>
           </div>
         </section>
 
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Edit3 size={14} /> Notes
           </h3>
-          <div className="rounded-md border border-dashed border-zinc-200 p-3 text-xs leading-relaxed text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+          <div className="rounded-lg border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
             {conversation.messages.find((message) => message.internal)?.content || "No internal notes yet."}
           </div>
         </section>
 
         <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-zinc-400">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Activity size={14} /> Activity Timeline
           </h3>
           <div className="space-y-3">
@@ -161,8 +161,8 @@ export function CustomerProfileSidebar({
             ].map((item) => {
               const Icon = item.icon;
               return (
-                <div key={item.label} className="flex gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <Icon size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+                <div key={item.label} className="flex gap-2 text-xs text-muted-foreground">
+                  <Icon size={14} className="mt-0.5 shrink-0 text-primary" />
                   <span>{item.label}</span>
                 </div>
               );
@@ -171,12 +171,12 @@ export function CustomerProfileSidebar({
         </section>
 
         <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-400">Custom Fields</h3>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Custom Fields</h3>
           <div className="space-y-2">
             {customFields.map(([label, value]) => (
               <div key={label} className="flex items-start justify-between gap-3 text-xs">
-                <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
-                <span className="max-w-[160px] text-right text-zinc-900 dark:text-zinc-100">{value}</span>
+                <span className="text-muted-foreground">{label}</span>
+                <span className="max-w-[160px] text-right text-foreground">{value}</span>
               </div>
             ))}
           </div>

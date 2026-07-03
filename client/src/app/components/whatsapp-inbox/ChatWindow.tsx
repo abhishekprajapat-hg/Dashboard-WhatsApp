@@ -16,6 +16,7 @@ interface ChatWindowProps {
   pendingMedia: PendingMedia[];
   uploading: boolean;
   recording: boolean;
+  quickReplies?: { id: string; name: string; body: string }[];
   typing: boolean;
   crmSaving: boolean;
   isInCrm: boolean;
@@ -28,6 +29,7 @@ interface ChatWindowProps {
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
+  onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAddToCrm: (stage?: string) => void;
   onResolve: () => void;
@@ -50,6 +52,7 @@ export function ChatWindow({
   pendingMedia,
   uploading,
   recording,
+  quickReplies = [],
   typing,
   crmSaving,
   isInCrm,
@@ -62,6 +65,7 @@ export function ChatWindow({
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
+  onQuickReplySelect,
   onMessageAction,
   onAddToCrm,
   onResolve,
@@ -89,57 +93,60 @@ export function ChatWindow({
 
   if (!conversation) {
     return (
-      <section className="hidden min-w-0 flex-1 items-center justify-center bg-[#efeae2] text-zinc-500 dark:bg-[#0b141a] md:flex">
-        Select a conversation
+      <section className="hidden min-w-0 flex-1 items-center justify-center bg-surface text-muted-foreground md:flex">
+        <div className="rounded-xl border border-border/80 bg-card/80 px-5 py-4 text-sm shadow-2xl shadow-black/20">
+          Select a conversation
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
-      <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-[#202c33] md:px-4">
-        <button className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-[#2a3942] md:hidden" onClick={onBack}>
+    <section className="relative flex min-w-0 flex-1 flex-col bg-surface">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.08),transparent_24rem),linear-gradient(135deg,rgba(255,255,255,0.018),transparent_38%)]" />
+      <header className="relative z-10 flex min-h-[76px] shrink-0 items-center gap-3 border-b border-border/80 bg-card/82 px-3 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] backdrop-blur-xl md:px-4">
+        <button className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden" onClick={onBack}>
           <ArrowLeft size={19} />
         </button>
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-sm font-semibold text-white">
+        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-teal-700 text-sm font-semibold text-primary-foreground shadow-[0_12px_26px_rgba(37,211,102,0.16)]">
           {initials(conversation.name)}
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-400 dark:border-[#202c33]" />
+          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-primary" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{conversation.name}</div>
-          <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{typing ? "typing..." : conversation.agent ? `Assigned to ${conversation.agent}` : "Online on WhatsApp"}</div>
+          <div className="truncate text-sm font-semibold text-foreground">{conversation.name}</div>
+          <div className="truncate text-xs text-muted-foreground">{typing ? "typing..." : conversation.agent ? `Assigned to ${conversation.agent}` : conversation.phone || "Online on WhatsApp"}</div>
         </div>
-        <button className="hidden h-8 items-center gap-1.5 rounded border border-emerald-200 px-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-500/20 dark:text-emerald-300 dark:hover:bg-emerald-500/10 sm:flex" onClick={onAddToCrm} disabled={crmSaving || isInCrm}>
+        <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 sm:flex" onClick={onAddToCrm} disabled={crmSaving || isInCrm}>
           {isInCrm ? <CheckCircle2 size={14} /> : null}
           {isInCrm ? "In CRM" : crmSaving ? "Saving" : "Add CRM"}
         </button>
-        <button className="hidden h-8 rounded bg-emerald-500 px-3 text-xs font-semibold text-white hover:bg-emerald-600 sm:block" onClick={onResolve}>
+        <button className="hidden h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_24px_rgba(37,211,102,0.16)] hover:bg-primary/90 sm:block" onClick={onResolve}>
           Resolve
         </button>
         {[Search, Phone, Video, Info, MoreVertical].map((Icon, index) => (
-          <button key={index} className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-[#2a3942]">
+          <button key={index} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground">
             <Icon size={18} />
           </button>
         ))}
       </header>
 
       {pinned.length > 0 ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-          <Star size={14} className="fill-amber-400 text-amber-400" />
+        <div className="relative z-10 flex shrink-0 items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning">
+          <Star size={14} className="fill-warning text-warning" />
           <span className="min-w-0 truncate">{pinned[pinned.length - 1]?.content || "Starred attachment"}</span>
         </div>
       ) : null}
 
-      <div className="shrink-0 border-b border-zinc-200 bg-white/80 px-4 py-2 backdrop-blur dark:border-zinc-800 dark:bg-[#111b21]/80">
+      <div className="relative z-10 shrink-0 border-b border-border/80 bg-card/65 px-4 py-2 backdrop-blur">
         <input
           value={messageSearch}
           onChange={(event) => onMessageSearchChange(event.target.value)}
           placeholder="Search in conversation"
-          className="h-8 w-full rounded-md border border-zinc-200 bg-white px-3 text-xs text-zinc-900 outline-none dark:border-zinc-800 dark:bg-[#202c33] dark:text-zinc-100"
+          className="h-8 w-full rounded-md border border-input/80 bg-input-background px-3 text-xs text-foreground outline-none placeholder:text-muted-foreground/75 focus:border-ring focus:ring-2 focus:ring-ring/20"
         />
       </div>
 
-      <div ref={scrollRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto py-4" onScroll={handleScroll}>
+      <div ref={scrollRef} className="relative z-10 no-scrollbar min-h-0 flex-1 overflow-y-auto px-1 py-4" onScroll={handleScroll}>
         <AnimatePresence initial={false}>
           {filteredMessages.map((message, index) => {
             const label = dateLabel(index, filteredMessages.length);
@@ -150,7 +157,7 @@ export function ChatWindow({
               <div key={message.id}>
                 {label ? (
                   <div className="my-3 flex justify-center">
-                    <span className="rounded bg-white/90 px-3 py-1 text-[11px] font-medium text-zinc-500 shadow-sm dark:bg-[#182229] dark:text-zinc-300">
+                    <span className="rounded-full border border-border/80 bg-card/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
                       {label}
                     </span>
                   </div>
@@ -162,16 +169,16 @@ export function ChatWindow({
         </AnimatePresence>
         {filteredMessages.length === 0 && !typing ? (
           <div className="flex min-h-[280px] items-center justify-center px-6 text-center">
-            <div className="rounded-md bg-white/90 px-4 py-3 text-sm text-zinc-500 shadow-sm dark:bg-[#182229] dark:text-zinc-300">
+            <div className="rounded-lg border border-border/80 bg-card/90 px-4 py-3 text-sm text-muted-foreground shadow-sm backdrop-blur">
               {messageSearch ? "No messages match this search." : "No messages in this conversation yet."}
             </div>
           </div>
         ) : null}
         {typing ? (
           <div className="px-4 py-2">
-            <div className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-2 shadow-sm dark:bg-[#202c33]">
+            <div className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-card px-3 py-2 shadow-sm">
               {[0, 1, 2].map((item) => (
-                <span key={item} className={cn("h-1.5 w-1.5 rounded-full bg-emerald-500", item === 1 && "animate-pulse")} />
+                <span key={item} className={cn("h-1.5 w-1.5 rounded-full bg-primary", item === 1 && "animate-pulse")} />
               ))}
             </div>
           </div>
@@ -185,6 +192,7 @@ export function ChatWindow({
         pendingMedia={pendingMedia}
         uploading={uploading}
         recording={recording}
+        quickReplies={quickReplies}
         onValueChange={onInputChange}
         onModeChange={onComposerModeChange}
         onSend={onSend}
@@ -192,6 +200,7 @@ export function ChatWindow({
         onRemoveMedia={onRemoveMedia}
         onClearContext={onClearContext}
         onToggleRecording={onToggleRecording}
+        onQuickReplySelect={onQuickReplySelect}
       />
     </section>
   );

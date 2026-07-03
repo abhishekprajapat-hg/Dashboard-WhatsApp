@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Clock3,
   Download,
@@ -27,6 +28,7 @@ import {
   ReceiptText,
   Send,
   Target,
+  TrendingUp,
   Users,
   Zap,
 } from "lucide-react";
@@ -130,6 +132,11 @@ const chartTooltip = {
   fontSize: 12,
 };
 
+const fieldClass =
+  "h-9 rounded-md border border-border bg-background/80 px-3 text-xs text-foreground shadow-inner shadow-black/10 outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
+
+const premiumCard = "rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5";
+
 const dayNames: Record<number, string> = {
   1: "Sun",
   2: "Mon",
@@ -170,16 +177,17 @@ function downloadFromUrl(url: string) {
 
 function KpiCard({ item, icon }: { item: { label: string; value: string; delta: string; up: boolean }; icon: ReactNode }) {
   return (
-    <Card className="rounded-lg border-border/70">
+    <Card className={`${premiumCard} overflow-hidden`}>
+      <div className={`h-1 ${item.up ? "bg-gradient-to-r from-primary/80 to-emerald-300/40" : "bg-gradient-to-r from-orange-400/70 to-red-400/40"}`} />
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <div className="truncate text-xs text-muted-foreground">{item.label}</div>
           <div className="mt-1 text-2xl font-semibold tracking-normal">{item.value}</div>
-          <Badge variant="outline" className="mt-2 text-[10px]">
+          <Badge variant="outline" className={`mt-2 text-[10px] ${item.up ? "border-primary/30 bg-primary/10 text-primary" : "border-orange-500/30 bg-orange-500/10 text-orange-300"}`}>
             {item.delta}
           </Badge>
         </div>
-        <div className="flex size-11 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div>
+        <div className="flex size-11 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">{icon}</div>
       </CardContent>
     </Card>
   );
@@ -187,9 +195,17 @@ function KpiCard({ item, icon }: { item: { label: string; value: string; delta: 
 
 function MiniMetric({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2">
+    <div className="rounded-md border border-border bg-background/70 px-3 py-2">
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className={`mt-1 text-lg font-semibold ${danger ? "text-destructive" : "text-foreground"}`}>{value}</div>
+    </div>
+  );
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="flex h-[180px] items-center justify-center rounded-md border border-dashed border-border bg-background/60 text-center text-xs text-muted-foreground">
+      {label}
     </div>
   );
 }
@@ -236,14 +252,19 @@ export function AnalyticsView() {
   const [memberId, setMemberId] = useState("all");
   const [analytics, setAnalytics] = useState<EnterpriseAnalytics>(emptyAnalytics);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [report, setReport] = useState("executive");
   const query = useMemo(() => ({ days, from: fromDate, to: toDate, memberId }), [days, fromDate, toDate, memberId]);
 
   useEffect(() => {
     setLoading(true);
+    setError("");
     getAnalyticsSummary<EnterpriseAnalytics>(query)
       .then(setAnalytics)
-      .catch(() => setAnalytics(emptyAnalytics))
+      .catch((reason) => {
+        setAnalytics(emptyAnalytics);
+        setError(reason instanceof Error ? reason.message : "Analytics could not be loaded.");
+      })
       .finally(() => setLoading(false));
   }, [query]);
 
@@ -260,19 +281,20 @@ export function AnalyticsView() {
   const selectedReport = analytics.customReports.find((item) => item.id === report) || analytics.customReports[0];
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-muted/20">
+    <div className="min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="rounded-lg border border-border bg-card/80 p-4 shadow-xl shadow-black/10">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <BarChart3 size={14} />
-              <span>Enterprise analytics</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><BarChart3 size={13} className="mr-1" /> Enterprise analytics</Badge>
               <Badge variant="outline" className="capitalize">{analytics.roleBasedAnalytics.scope.replace("_", " ")}</Badge>
+              <span>{fromDate} to {toDate}</span>
             </div>
             <h1 className="mt-1 text-2xl font-semibold tracking-normal">Analytics Command Center</h1>
             <p className="text-sm text-muted-foreground">Messages, customers, agents, revenue, campaigns, leads, automations, templates, heat maps, and role-based reporting.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             {[7, 14, 30, 90].map((period) => (
               <button
                 key={period}
@@ -281,35 +303,47 @@ export function AnalyticsView() {
                   setFromDate(isoDate(-period));
                   setToDate(isoDate(0));
                 }}
-                className={`h-8 rounded-md border px-3 text-xs transition-colors ${days === period ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
+                className={`h-9 rounded-md border px-3 text-xs transition-colors ${days === period ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/70 text-muted-foreground hover:text-foreground"}`}
               >
                 {period}d
               </button>
             ))}
-            <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground" />
-            <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground" />
-            <select value={memberId} onChange={(event) => setMemberId(event.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+            <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className={fieldClass} />
+            <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className={fieldClass} />
+            <select value={memberId} onChange={(event) => setMemberId(event.target.value)} className={fieldClass}>
               <option value="all">All team</option>
               {analytics.filters.teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
             </select>
-            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
+            <Button variant="outline" size="sm" className="h-9 border-border bg-background/70" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
               <Download size={15} />
               PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
+            <Button variant="outline" size="sm" className="h-9 border-border bg-background/70" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
               <FileSpreadsheet size={15} />
               Excel
             </Button>
           </div>
         </div>
+        {error && (
+          <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <AlertTriangle size={13} className="mr-1 inline" /> {error}
+          </div>
+        )}
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {(analytics.kpis.length ? analytics.kpis : emptyAnalytics.kpis).map((kpi, index) => (
+          {loading ? [1, 2, 3, 4].map((item) => (
+            <Card key={item} className={`${premiumCard} p-4`}>
+              <div className="h-4 w-1/2 animate-pulse rounded bg-secondary" />
+              <div className="mt-4 h-8 w-1/3 animate-pulse rounded bg-secondary" />
+              <div className="mt-4 h-5 w-20 animate-pulse rounded bg-secondary" />
+            </Card>
+          )) : (analytics.kpis.length ? analytics.kpis : emptyAnalytics.kpis).map((kpi, index) => (
             <KpiCard key={kpi.label} item={kpi} icon={kpiIcons[index] || <Activity size={19} />} />
           ))}
         </div>
 
-        <Card className="rounded-lg border-border/70">
+        <Card className={premiumCard}>
           <CardContent className="grid gap-3 p-4 md:grid-cols-4">
             <MiniMetric label="Campaign delivered/read" value={`${num(analytics.metrics.campaign.delivered)} / ${num(analytics.metrics.campaign.read)}`} />
             <MiniMetric label="Campaign failed" value={num(analytics.metrics.campaign.failed)} danger={analytics.metrics.campaign.failed > 0} />
@@ -319,16 +353,16 @@ export function AnalyticsView() {
         </Card>
 
         <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="flex-row items-center justify-between px-4 pt-4">
               <div>
-                <CardTitle className="text-sm font-semibold">Real-time Message Charts</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold"><TrendingUp size={16} /> Real-time Message Charts</CardTitle>
                 <p className="text-xs text-muted-foreground">Inbound, outbound, and resolved conversations</p>
               </div>
               <Badge variant="outline">{loading ? "Syncing" : "Live"}</Badge>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <ResponsiveContainer width="100%" height={270}>
+              {loading ? <EmptyChart label="Loading message volume..." /> : analytics.messageVolume.length ? <ResponsiveContainer width="100%" height={270}>
                 <AreaChart data={analytics.messageVolume} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="analyticsInbound" x1="0" y1="0" x2="0" y2="1">
@@ -348,24 +382,24 @@ export function AnalyticsView() {
                   <Area type="monotone" dataKey="outbound" stroke="#3b82f6" strokeWidth={2} fill="url(#analyticsOutbound)" />
                   <Line type="monotone" dataKey="resolved" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 </AreaChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer> : <EmptyChart label="No message volume for this date range." />}
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="text-sm font-semibold">Customers and Lead Sources</CardTitle>
               <p className="text-xs text-muted-foreground">{num(sourceTotal)} sourced customers</p>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <ResponsiveContainer width="100%" height={180}>
+              {analytics.sourceBreakdown.length ? <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={analytics.sourceBreakdown} cx="50%" cy="50%" innerRadius={48} outerRadius={78} paddingAngle={3} dataKey="value">
                     {analytics.sourceBreakdown.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                   </Pie>
                   <Tooltip contentStyle={chartTooltip} />
                 </PieChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer> : <EmptyChart label="No customer source data yet." />}
               <div className="space-y-1.5">
                 {analytics.sourceBreakdown.map((source) => (
                   <div key={source.name} className="flex items-center justify-between text-xs">
@@ -379,33 +413,33 @@ export function AnalyticsView() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-3">
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Clock3 size={16} /> Response and Resolution Time</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 px-4 pb-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-md border border-border p-3">
+                <div className="rounded-md border border-border bg-background/70 p-3">
                   <div className="text-xs text-muted-foreground">Avg response</div>
                   <div className="mt-1 text-xl font-semibold">{analytics.responseTime.label}</div>
                 </div>
-                <div className="rounded-md border border-border p-3">
+                <div className="rounded-md border border-border bg-background/70 p-3">
                   <div className="text-xs text-muted-foreground">Avg resolution</div>
                   <div className="mt-1 text-xl font-semibold">{analytics.resolutionTime.label}</div>
                 </div>
               </div>
-              <ResponsiveContainer width="100%" height={130}>
+              {analytics.responseTime.trend.length ? <ResponsiveContainer width="100%" height={130}>
                 <LineChart data={analytics.responseTime.trend}>
                   <XAxis dataKey="date" hide />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
                   <Line type="monotone" dataKey="minutes" stroke="#25D366" strokeWidth={2} dot={false} />
                 </LineChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer> : <EmptyChart label="No response-time trend yet." />}
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><ReceiptText size={16} /> Revenue and Conversion</CardTitle>
             </CardHeader>
@@ -428,25 +462,25 @@ export function AnalyticsView() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Flame size={16} /> Peak Hours</CardTitle>
               <p className="text-xs text-muted-foreground">Peak: {peakHour?.label || "00:00"} with {num(peakHour?.messages || 0)} messages</p>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <ResponsiveContainer width="100%" height={160}>
+              {analytics.peakHours.length ? <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={analytics.peakHours}>
                   <XAxis dataKey="hour" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
                   <Bar dataKey="messages" fill="#25D366" radius={[3, 3, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer> : <EmptyChart label="No peak-hour activity yet." />}
             </CardContent>
           </Card>
         </div>
 
-        <Card className="rounded-lg border-border/70">
+        <Card className={premiumCard}>
           <CardHeader className="flex-row items-center justify-between px-4 pt-4">
             <div>
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Activity size={16} /> Heat Map</CardTitle>
@@ -455,12 +489,12 @@ export function AnalyticsView() {
             <Badge variant="outline">UTC server time</Badge>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <HeatMap data={analytics.heatMap} />
+            {analytics.heatMap.length ? <HeatMap data={analytics.heatMap} /> : <EmptyChart label="No heat-map data for this range." />}
           </CardContent>
         </Card>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="text-sm font-semibold">Campaign Analytics</CardTitle>
             </CardHeader>
@@ -473,7 +507,7 @@ export function AnalyticsView() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {analytics.campaignPerformance.map((campaign) => (
-                    <tr key={campaign.id}>
+                    <tr key={campaign.id} className="hover:bg-background/60">
                       <td className="max-w-44 truncate py-2 text-foreground">{campaign.name}</td>
                       <td>{campaign.sent}</td>
                       <td>{campaign.delivered}</td>
@@ -490,7 +524,7 @@ export function AnalyticsView() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="text-sm font-semibold">Lead Analytics</CardTitle>
             </CardHeader>
@@ -499,24 +533,24 @@ export function AnalyticsView() {
                 <p className="mb-2 text-xs text-muted-foreground">By Stage</p>
                 <div className="space-y-2">
                   {analytics.leadAnalytics.byStage.map((item) => (
-                    <div key={item.stage} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+                    <div key={item.stage} className="flex items-center justify-between rounded-md border border-border bg-background/70 px-3 py-2 text-sm">
                       <span>{item.stage}</span>
                       <Badge variant="outline">{item.count}</Badge>
                     </div>
                   ))}
-                  {!analytics.leadAnalytics.byStage.length && <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">No leads in this range.</div>}
+                  {!analytics.leadAnalytics.byStage.length && <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">No leads in this range.</div>}
                 </div>
               </div>
               <div>
                 <p className="mb-2 text-xs text-muted-foreground">By Source</p>
                 <div className="space-y-2">
                   {analytics.leadAnalytics.bySource.map((item) => (
-                    <div key={item.source} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+                    <div key={item.source} className="flex items-center justify-between rounded-md border border-border bg-background/70 px-3 py-2 text-sm">
                       <span>{item.source}</span>
                       <Badge variant="outline">{item.count}</Badge>
                     </div>
                   ))}
-                  {!analytics.leadAnalytics.bySource.length && <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">No lead sources in this range.</div>}
+                  {!analytics.leadAnalytics.bySource.length && <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">No lead sources in this range.</div>}
                 </div>
               </div>
             </CardContent>
@@ -524,16 +558,16 @@ export function AnalyticsView() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Zap size={16} /> Automation Performance</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 px-4 pb-4">
               {analytics.automationPerformance.map((flow) => (
-                <div key={flow.id} className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+                <div key={flow.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/70 p-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{flow.name}</p>
-                    <p className="text-xs text-muted-foreground">{flow.trigger} · {flow.nodes} nodes</p>
+                    <p className="text-xs text-muted-foreground">{flow.trigger} - {flow.nodes} nodes</p>
                   </div>
                   <div className="text-right">
                     <Badge variant="outline">{flow.runs} runs</Badge>
@@ -541,20 +575,20 @@ export function AnalyticsView() {
                   </div>
                 </div>
               ))}
-              {!analytics.automationPerformance.length && <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">No automation runs in this range.</div>}
+              {!analytics.automationPerformance.length && <div className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">No automation runs in this range.</div>}
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="text-sm font-semibold">Template Performance</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 px-4 pb-4">
               {analytics.templatePerformance.map((template) => (
-                <div key={template.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border p-3">
+                <div key={template.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-md border border-border bg-background/70 p-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{template.name}</p>
-                    <p className="text-xs text-muted-foreground">{template.category} · {template.language} · {template.status}</p>
+                    <p className="text-xs text-muted-foreground">{template.category} - {template.language} - {template.status}</p>
                   </div>
                   <div className="text-right text-xs">
                     <p>{template.sent} sent</p>
@@ -562,33 +596,34 @@ export function AnalyticsView() {
                   </div>
                 </div>
               ))}
-              {!analytics.templatePerformance.length && <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">No template performance yet.</div>}
+              {!analytics.templatePerformance.length && <div className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">No template performance yet.</div>}
             </CardContent>
           </Card>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Filter size={16} /> Custom Reports</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 px-4 pb-4">
-              <select value={report} onChange={(event) => setReport(event.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none">
+              <select value={report} onChange={(event) => setReport(event.target.value)} className={`${fieldClass} w-full text-sm`}>
                 {analytics.customReports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
-              <div className="rounded-md border border-border p-3">
+              <div className="rounded-md border border-border bg-background/70 p-3">
                 <p className="text-sm font-medium">{selectedReport?.name || "Custom Report"}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(selectedReport?.metrics || []).map((metric) => <Badge key={metric} variant="outline">{metric}</Badge>)}
+                  {!(selectedReport?.metrics || []).length && <span className="text-xs text-muted-foreground">No report metrics configured.</span>}
                 </div>
               </div>
-              <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              <div className="rounded-md border border-border bg-background/70 p-3 text-xs text-muted-foreground">
                 Role based analytics: {analytics.roleBasedAnalytics.canViewTeam ? "workspace-wide visibility" : "assigned conversation scope"}.
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-border/70">
+          <Card className={premiumCard}>
             <CardHeader className="px-4 pt-4">
               <CardTitle className="text-sm font-semibold">Agent Performance</CardTitle>
             </CardHeader>
@@ -601,7 +636,7 @@ export function AnalyticsView() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {analytics.agentPerformance.map((agent) => (
-                    <tr key={agent.name}>
+                    <tr key={agent.name} className="hover:bg-background/60">
                       <td className="py-2 text-foreground">{agent.name}</td>
                       <td>{agent.role}</td>
                       <td>{agent.resolved}</td>
@@ -609,11 +644,41 @@ export function AnalyticsView() {
                       <td>{agent.avg}m</td>
                     </tr>
                   ))}
+                  {!analytics.agentPerformance.length && <tr><td className="py-3 text-muted-foreground" colSpan={5}>No agent performance data in this range.</td></tr>}
                 </tbody>
               </table>
             </CardContent>
           </Card>
         </div>
+
+        <Card className={premiumCard}>
+          <CardHeader className="flex-row items-center justify-between px-4 pt-4">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle size={16} /> Delivery Failures</CardTitle>
+              <p className="text-xs text-muted-foreground">Recent provider or template delivery issues</p>
+            </div>
+            <Badge variant="outline" className={analytics.webhookHealth.failureRate > 0 ? "border-destructive/30 bg-destructive/10 text-destructive" : ""}>
+              {analytics.webhookHealth.failureRate}% failure rate
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-2 px-4 pb-4">
+            {analytics.deliveryFailures.slice(0, 6).map((failure) => (
+              <div key={failure.id} className="grid gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs md:grid-cols-[1fr_1.5fr_auto]">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{failure.contact || failure.phone}</p>
+                  <p className="text-muted-foreground">{failure.phone}</p>
+                </div>
+                <p className="line-clamp-2 text-muted-foreground">{failure.error || failure.body}</p>
+                <span className="text-muted-foreground">{failure.time}</span>
+              </div>
+            ))}
+            {!analytics.deliveryFailures.length && (
+              <div className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+                No delivery failures in this range.
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

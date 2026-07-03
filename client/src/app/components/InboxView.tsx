@@ -1,6 +1,13 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WhatsAppBusinessInbox } from "./whatsapp-inbox/WhatsAppBusinessInbox";
 import { useWhatsAppEngine } from "./whatsapp-inbox/hooks/useWhatsAppEngine";
+import { getTemplates, markTemplateUsed } from "../lib/api";
+
+interface QuickReplyTemplate {
+  id: string;
+  name: string;
+  body: string;
+}
 
 interface InboxViewProps {
   openContactId?: string | null;
@@ -13,11 +20,26 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const engine = useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountChange });
+  const [quickReplies, setQuickReplies] = useState<QuickReplyTemplate[]>([]);
+
+  useEffect(() => {
+    getTemplates<{ data: QuickReplyTemplate[] }>({ type: "quick_reply", status: "active" })
+      .then((response) => setQuickReplies(response.data))
+      .catch(() => undefined);
+  }, []);
 
   function pickFiles(kind: "media" | "document" | "audio") {
     if (kind === "document") documentInputRef.current?.click();
     else if (kind === "audio") audioInputRef.current?.click();
     else mediaInputRef.current?.click();
+  }
+
+  function applyQuickReply(template: QuickReplyTemplate) {
+    const nextValue = engine.inputText.trim()
+      ? `${engine.inputText.trim()}\n${template.body}`
+      : template.body;
+    engine.handleTyping(nextValue);
+    markTemplateUsed(template.id).catch(() => undefined);
   }
 
   return (
@@ -71,6 +93,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
         pendingMedia={engine.pendingMedia}
         uploading={engine.uploading}
         recording={engine.recording}
+        quickReplies={quickReplies}
         crmSaving={engine.crmSaving}
         assigning={engine.assigning}
         mobileChatOpen={engine.store.mobileChatOpen}
@@ -89,6 +112,7 @@ export function InboxView({ openContactId, currentUserId, onUnreadCountChange }:
         onRemoveMedia={engine.removePendingMedia}
         onClearContext={engine.clearDraftContext}
         onToggleRecording={() => engine.setRecording((value) => !value)}
+        onQuickReplySelect={applyQuickReply}
         onMessageAction={engine.handleMessageAction}
         onAssign={engine.handleAssign}
         onStatusChange={engine.handleStatusChange}

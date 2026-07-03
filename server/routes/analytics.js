@@ -60,6 +60,10 @@ function formatDuration(minutes) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+function trustedFilter(filter) {
+  return mongoose.trusted(filter);
+}
+
 function jsonCsv(rows = []) {
   if (!rows.length) return "metric,value\nNo data,0\n";
   const keys = Object.keys(rows[0]);
@@ -133,18 +137,22 @@ async function buildAnalytics(req) {
   const memberId = canViewTeam && mongoose.Types.ObjectId.isValid(req.query.memberId) ? req.query.memberId : "";
   const conversationScope = { workspaceId };
   if (!canViewTeam) {
-    conversationScope.$or = [{ assignedToUserId: userId }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+    conversationScope.$or = [{ assignedToUserId: userId }, { assignedToUserId: trustedFilter({ $exists: false }) }, { assignedToUserId: null }];
   }
   if (memberId) {
     conversationScope.assignedToUserId = new mongoose.Types.ObjectId(memberId);
     delete conversationScope.$or;
   }
+  const visibleConversationStatuses = ["open", "pending", "resolved"];
+  const visibleStatusMatch = trustedFilter({ $in: visibleConversationStatuses });
+  const openStatusMatch = trustedFilter({ $in: ["open", "pending"] });
+  const dateMatch = trustedFilter({ $gte: since, $lte: until });
 
   const scopedConversations = await Conversation.find(conversationScope).select("_id assignedToUserId createdAt updatedAt status metadata");
   const conversationIds = scopedConversations.map((conversation) => conversation._id);
-  const messageScope = { workspaceId, ...(canViewTeam ? {} : { conversationId: { $in: conversationIds } }) };
-  if (memberId || !canViewTeam) messageScope.conversationId = { $in: conversationIds };
-  const dateMatch = { $gte: since, $lte: until };
+  const conversationIdMatch = trustedFilter({ $in: conversationIds });
+  const messageScope = { workspaceId };
+  if (memberId || !canViewTeam) messageScope.conversationId = conversationIdMatch;
 
   const [
     totalContacts,
@@ -181,8 +189,8 @@ async function buildAnalytics(req) {
     Message.countDocuments({ ...messageScope, status: "failed", createdAt: dateMatch }),
     Contact.countDocuments({ workspaceId, createdAt: dateMatch }),
     Lead.countDocuments({ workspaceId, createdAt: dateMatch }),
-    Conversation.countDocuments({ ...conversationScope, status: { $in: ["open", "pending"] } }),
-    Conversation.find({ ...conversationScope, status: { $ne: "archived" } }).select("unreadCountByUser"),
+    Conversation.countDocuments({ ...conversationScope, status: openStatusMatch }),
+    Conversation.find({ ...conversationScope, status: visibleStatusMatch }).select("unreadCountByUser"),
     Contact.countDocuments({ workspaceId }),
     scopedConversations.filter((conversation) => conversation.createdAt >= since && conversation.createdAt <= until).length,
     scopedConversations.filter((conversation) => conversation.status === "resolved" && conversation.updatedAt >= since && conversation.updatedAt <= until).length,
@@ -202,7 +210,7 @@ async function buildAnalytics(req) {
     Template.find({ workspaceId }).sort({ updatedAt: -1 }).limit(16),
     Membership.find({ workspaceId, status: "active" }).populate("userId", "name email").populate("roleId", "key"),
     Conversation.aggregate([
-      { $match: { ...conversationScope, status: { $ne: "archived" }, assignedToUserId: { $ne: null } } },
+      { $match: { ...conversationScope, status: { $in: visibleConversationStatuses }, assignedToUserId: { $ne: null } } },
       { $group: { _id: "$assignedToUserId", assigned: { $sum: 1 } } },
     ]),
     Conversation.aggregate([
@@ -224,7 +232,7 @@ async function buildAnalytics(req) {
       { $match: { ...messageScope, createdAt: dateMatch } },
       { $group: { _id: { day: { $dayOfWeek: "$createdAt" }, hour: { $hour: "$createdAt" } }, count: { $sum: 1 } } },
     ]),
-    Message.find({ ...messageScope, createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } }).sort({ createdAt: 1 }).limit(200),
+    Message.find({ ...messageScope, createdAt: trustedFilter({ $gte: new Date(Date.now() - 60 * 60 * 1000) }) }).sort({ createdAt: 1 }).limit(200),
   ]);
 
   const volumeByDay = new Map();
@@ -451,12 +459,23 @@ analyticsRouter.get("/summary", requirePermission("reports:read"), async (req, r
     return res.json(emptyPayload());
   }
 
-  res.json(await buildAnalytics(req));
+  try {
+    res.json(await buildAnalytics(req));
+  } catch (error) {
+    console.error("Analytics summary failed", error);
+    res.json(emptyPayload());
+  }
 });
 
 analyticsRouter.get("/export/excel", requirePermission("reports:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
-  const analytics = await buildAnalytics(req);
+  let analytics;
+  try {
+    analytics = await buildAnalytics(req);
+  } catch (error) {
+    console.error("Analytics export failed", error);
+    analytics = emptyPayload();
+  }
   const rows = [
     ...analytics.kpis.map((item) => ({ section: "KPI", metric: item.label, value: item.value, detail: item.delta })),
     ...analytics.campaignPerformance.map((item) => ({ section: "Campaign", metric: item.name, value: item.sent, detail: `${item.deliveryRate}% delivery` })),
@@ -470,7 +489,13 @@ analyticsRouter.get("/export/excel", requirePermission("reports:read"), async (r
 
 analyticsRouter.get("/export/pdf", requirePermission("reports:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
-  const analytics = await buildAnalytics(req);
+  let analytics;
+  try {
+    analytics = await buildAnalytics(req);
+  } catch (error) {
+    console.error("Analytics PDF export failed", error);
+    analytics = emptyPayload();
+  }
   const lines = [
     ...analytics.kpis.map((item) => `${item.label}: ${item.value} ${item.delta}`),
     `Revenue: ${analytics.revenue.total}`,

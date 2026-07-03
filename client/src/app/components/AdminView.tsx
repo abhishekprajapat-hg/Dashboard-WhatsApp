@@ -114,6 +114,24 @@ function text(value: unknown, fallback = "-") {
   return value ? String(value) : fallback;
 }
 
+function statusClass(value: unknown) {
+  const normalized = String(value).toLowerCase();
+  if (["active", "connected", "enabled", "approved", "paid", "success", "healthy", "yes", "true"].some((item) => normalized.includes(item))) {
+    return "border-primary/25 bg-primary/10 text-primary";
+  }
+  if (["pending", "trial", "draft", "paused", "away", "processing"].some((item) => normalized.includes(item))) {
+    return "border-warning/25 bg-warning/10 text-warning";
+  }
+  if (["failed", "error", "inactive", "disabled", "expired", "blocked", "no", "false"].some((item) => normalized.includes(item))) {
+    return "border-destructive/25 bg-destructive/10 text-destructive";
+  }
+  return "border-border/80 bg-surface-elevated/45 text-muted-foreground";
+}
+
+function isStatusColumn(key: string) {
+  return /status|enabled|mfa|required|system|webhook/i.test(key);
+}
+
 function StatCard({
   icon,
   label,
@@ -126,9 +144,11 @@ function StatCard({
   tone?: string;
 }) {
   return (
-    <Card className="rounded-lg border-border/70 bg-card/90">
+    <Card className="group rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5 transition-colors hover:border-primary/25">
       <CardContent className="flex items-center gap-3 p-4">
-        <div className="flex size-10 items-center justify-center rounded-md bg-secondary text-muted-foreground">{icon}</div>
+        <div className={`flex size-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] transition-colors group-hover:bg-primary/10 ${tone}`}>
+          {icon}
+        </div>
         <div className="min-w-0">
           <div className={`text-xl font-semibold tracking-normal ${tone}`}>{value}</div>
           <div className="truncate text-xs text-muted-foreground">{label}</div>
@@ -139,15 +159,53 @@ function StatCard({
 }
 
 function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; columns: { key: string; label: string }[] }) {
+  const displayValue = (key: string, value: unknown): ReactNode => {
+    if (/secret|token|key/i.test(key)) {
+      return value ? <span className="font-mono text-muted-foreground">************</span> : <span className="text-muted-foreground">-</span>;
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return <span className="text-muted-foreground">-</span>;
+      return (
+        <div className="flex max-w-[260px] flex-wrap gap-1">
+          {value.slice(0, 3).map((item) => (
+            <Badge key={String(item)} variant="outline" className="font-mono text-[10px]">
+              {String(item)}
+            </Badge>
+          ))}
+          {value.length > 3 && (
+            <Badge variant="outline" className="text-[10px]">
+              +{value.length - 3}
+            </Badge>
+          )}
+        </div>
+      );
+    }
+
+    if (isStatusColumn(key) || typeof value === "boolean") {
+      return (
+        <Badge variant="outline" className={statusClass(value)}>
+          <span className="size-1.5 rounded-full bg-current" />
+          {text(value)}
+        </Badge>
+      );
+    }
+
+    return text(value);
+  };
+
   return (
-    <Card className="rounded-lg border-border/70">
-      <CardHeader className="px-4 pt-4">
+    <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
         <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+        <Badge variant="outline" className="text-[10px]">
+          {rows.length} records
+        </Badge>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="overflow-x-auto rounded-md border border-border">
+        <div className="overflow-x-auto rounded-md border border-border/80">
           <table className="w-full min-w-[620px] text-left text-sm">
-            <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+            <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
               <tr>
                 {columns.map((column) => (
                   <th key={column.key} className="px-3 py-2 font-medium">
@@ -165,10 +223,10 @@ function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; 
                 </tr>
               ) : (
                 rows.map((row, index) => (
-                  <tr key={String(row.id || row.name || index)} className="bg-card/70">
+                  <tr key={String(row.id || row.name || index)} className="bg-card/70 transition-colors hover:bg-surface-elevated/35">
                     {columns.map((column) => (
-                      <td key={column.key} className="max-w-[240px] truncate px-3 py-2 text-foreground">
-                        {text(row[column.key])}
+                      <td key={column.key} className="max-w-[260px] px-3 py-2 text-foreground">
+                        {displayValue(column.key, row[column.key])}
                       </td>
                     ))}
                   </tr>

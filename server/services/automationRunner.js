@@ -1,9 +1,11 @@
+import mongoose from "mongoose";
 import {
   AutomationFlow,
   Contact,
   Conversation,
   Message,
   Tag,
+  Template,
 } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm } from "./crm.js";
@@ -95,7 +97,20 @@ export async function runInboundAutomations({
     appendRunLog(flowResult, "info", "Automation started", { triggerType: flow.trigger?.type });
 
     for (const node of actionNodes(flow, "send_message")) {
-      const body = String(node?.config?.body || flow.trigger?.replyBody || "").trim();
+      let body = String(node?.config?.body || flow.trigger?.replyBody || "").trim();
+      let templateId = node?.config?.templateId;
+      if (templateId && mongoose.Types.ObjectId.isValid(templateId)) {
+        const template = await Template.findOne({
+          _id: templateId,
+          workspaceId: account.workspaceId,
+          type: { $in: ["quick_reply", "automation", "follow_up", "lead_stage"] },
+          status: { $in: ["active", "approved"] },
+        });
+        if (template) {
+          body = template.body || body;
+          await Template.updateOne({ _id: template._id }, { $inc: { usageCount: 1 }, lastUsedAt: new Date() });
+        }
+      }
       if (!body) continue;
 
       let providerResult;

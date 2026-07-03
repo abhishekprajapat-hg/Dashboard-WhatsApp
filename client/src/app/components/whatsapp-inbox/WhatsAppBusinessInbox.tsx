@@ -20,6 +20,7 @@ interface WhatsAppBusinessInboxProps {
   pendingMedia: PendingMedia[];
   uploading: boolean;
   recording: boolean;
+  quickReplies?: { id: string; name: string; body: string }[];
   crmSaving: boolean;
   assigning: boolean;
   mobileChatOpen: boolean;
@@ -38,6 +39,7 @@ interface WhatsAppBusinessInboxProps {
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
+  onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAssign: (userId: string) => void;
   onStatusChange: (status: Conversation["status"]) => void;
@@ -61,6 +63,7 @@ export function WhatsAppBusinessInbox({
   pendingMedia,
   uploading,
   recording,
+  quickReplies = [],
   crmSaving,
   assigning,
   mobileChatOpen,
@@ -79,6 +82,7 @@ export function WhatsAppBusinessInbox({
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
+  onQuickReplySelect,
   onMessageAction,
   onAssign,
   onStatusChange,
@@ -91,7 +95,7 @@ export function WhatsAppBusinessInbox({
   const unreadCount = conversations.reduce((sum, conversation) => sum + conversation.unread, 0);
 
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-zinc-100 text-zinc-950 dark:bg-[#0b141a] dark:text-zinc-50">
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-surface text-foreground">
       <InboxSidebar
         activeFilter={filter}
         search={search}
@@ -100,7 +104,7 @@ export function WhatsAppBusinessInbox({
         onSearchChange={onSearchChange}
       />
 
-      <div className={mobileChatOpen ? "hidden md:flex" : "flex"}>
+      <div className={mobileChatOpen ? "hidden md:flex" : "flex min-w-0"}>
         <ConversationList
           conversations={conversations}
           selectedId={selected?.id || ""}
@@ -127,6 +131,7 @@ export function WhatsAppBusinessInbox({
           pendingMedia={pendingMedia}
           uploading={uploading}
           recording={recording}
+          quickReplies={quickReplies}
           typing={selected ? typingIds.includes(selected.id) : false}
           crmSaving={crmSaving}
           isInCrm={Boolean(selectedMeta.isInCrm)}
@@ -139,6 +144,7 @@ export function WhatsAppBusinessInbox({
           onRemoveMedia={onRemoveMedia}
           onClearContext={onClearContext}
           onToggleRecording={onToggleRecording}
+          onQuickReplySelect={onQuickReplySelect}
           onMessageAction={onMessageAction}
           onAddToCrm={onAddToCrm}
           onResolve={() => onStatusChange("resolved")}

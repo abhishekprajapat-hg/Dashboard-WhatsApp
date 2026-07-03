@@ -61,6 +61,18 @@ function canonicalActionType(type = "") {
   return aliases[value] || value;
 }
 
+function normalizeEdges(edges = []) {
+  const seen = new Set();
+  return (Array.isArray(edges) ? edges : [])
+    .filter((edge) => edge?.source && edge?.target)
+    .map((edge, index) => {
+      const baseId = String(edge.id || `${edge.source}-${edge.target}-${index}`);
+      const id = seen.has(baseId) ? `${baseId}-${index}` : baseId;
+      seen.add(id);
+      return { ...edge, id, source: String(edge.source), target: String(edge.target) };
+    });
+}
+
 function serializeFlow(flow) {
   const actions = [
     ...(flow.nodes || []).filter((node) => node.type !== "trigger"),
@@ -100,7 +112,7 @@ function serializeFlow(flow) {
     lastRun: relativeTime(flow.trigger?.lastRunAt),
     category: flow.trigger?.category || "General",
     nodes: flow.nodes || [],
-    edges: flow.edges || [],
+    edges: normalizeEdges(flow.edges),
     conditions: flow.conditions || [],
     simpleActions: flow.actions || [],
     version: flow.version || 1,
@@ -159,6 +171,7 @@ automationRouter.post("/", requirePermission("automation:write"), async (req, re
     addToCrm = false,
     leadStage = "new_lead",
     sendToGoogleSheet = false,
+    templateId = "",
     callWebhook = false,
     webhookUrl = "",
     webhookSecret = "",
@@ -185,11 +198,13 @@ automationRouter.post("/", requirePermission("automation:write"), async (req, re
   function addActionNode(type, config = {}) {
     const id = `${type}_${nodes.length}`;
     nodes.push({ id, type, config, position: { x: 220 * nodes.length, y: 120 } });
-    edges.push({ source: previousNodeId, target: id });
+    edges.push({ id: `${previousNodeId}-${id}`, source: previousNodeId, target: id });
     previousNodeId = id;
   }
 
-  if (sendReply && actionMessage?.trim()) addActionNode("send_message", { body: actionMessage.trim() });
+  if (sendReply && (actionMessage?.trim() || mongoose.Types.ObjectId.isValid(templateId))) {
+    addActionNode("send_message", { body: actionMessage.trim(), templateId: mongoose.Types.ObjectId.isValid(templateId) ? templateId : undefined });
+  }
   if (assignmentUserId && mongoose.Types.ObjectId.isValid(assignmentUserId)) addActionNode("assign_user", { userId: assignmentUserId });
   if (nextStatus) addActionNode("set_status", { status: nextStatus });
   if (tagName?.trim()) addActionNode("add_tag", { name: tagName.trim() });
@@ -224,7 +239,7 @@ automationRouter.post("/", requirePermission("automation:write"), async (req, re
     conditions: Array.isArray(conditions) ? conditions : [],
     actions: simpleActions,
     nodes,
-    edges,
+    edges: normalizeEdges(edges),
     status: toDbStatus(status),
     publishedAt: status === "active" ? new Date() : undefined,
     createdBy: req.user.sub,
@@ -242,7 +257,7 @@ automationRouter.patch("/:id", requirePermission("automation:write"), async (req
   const updates = { $set: { updatedBy: req.user.sub } };
   if (req.body?.name) updates.$set.name = req.body.name.trim();
   if (Array.isArray(req.body?.nodes)) updates.$set.nodes = req.body.nodes;
-  if (Array.isArray(req.body?.edges)) updates.$set.edges = req.body.edges;
+  if (Array.isArray(req.body?.edges)) updates.$set.edges = normalizeEdges(req.body.edges);
   if (Array.isArray(req.body?.conditions)) updates.$set.conditions = req.body.conditions;
   if (Array.isArray(req.body?.actions)) {
     updates.$set.actions = req.body.actions.map((action) => ({ ...action, type: canonicalActionType(action?.type), config: action?.config || action }));
@@ -254,6 +269,59 @@ automationRouter.patch("/:id", requirePermission("automation:write"), async (req
   if (req.body?.status) {
     updates.$set.status = toDbStatus(req.body.status);
     if (updates.$set.status === "published") updates.$set.publishedAt = new Date();
+  }
+  if (req.body?.simpleEdit) {
+    const triggerType = normalizeTriggerType(req.body.triggerType || req.body.trigger);
+    const keywords = parseKeywords(req.body.keyword || "");
+    if (triggerType === "keyword_match" && keywords.length === 0) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "Keyword is required for keyword automation." });
+    }
+
+    const nodes = [{ id: "trigger", type: "trigger" }];
+    const edges = [];
+    let previousNodeId = "trigger";
+    function addActionNode(type, config = {}) {
+      const id = `${type}_${nodes.length}`;
+      nodes.push({ id, type, config, position: { x: 220 * nodes.length, y: 120 } });
+      edges.push({ id: `${previousNodeId}-${id}`, source: previousNodeId, target: id });
+      previousNodeId = id;
+    }
+
+    if (req.body.sendReply && (String(req.body.actionMessage || "").trim() || mongoose.Types.ObjectId.isValid(req.body.templateId))) {
+      addActionNode("send_message", {
+        body: String(req.body.actionMessage || "").trim(),
+        templateId: mongoose.Types.ObjectId.isValid(req.body.templateId) ? req.body.templateId : undefined,
+      });
+    }
+    if (req.body.assignmentUserId && mongoose.Types.ObjectId.isValid(req.body.assignmentUserId)) addActionNode("assign_user", { userId: req.body.assignmentUserId });
+    if (req.body.nextStatus) addActionNode("set_status", { status: req.body.nextStatus });
+    if (req.body.tagName?.trim()) addActionNode("add_tag", { name: req.body.tagName.trim() });
+    if (req.body.addToCrm) addActionNode("add_to_crm", { source: "automation", stage: req.body.leadStage || "new_lead" });
+    if (req.body.sendToGoogleSheet) addActionNode("google_sheets", { source: "automation", stage: req.body.leadStage || "new_lead" });
+
+    if (nodes.length === 1) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "At least one automation action is required." });
+    }
+
+    updates.$set.nodes = nodes;
+    updates.$set.edges = normalizeEdges(edges);
+    updates.$set["trigger.type"] = triggerType;
+    updates.$set["trigger.label"] = labelForTrigger(triggerType);
+    updates.$set["trigger.keyword"] = formatKeywords(keywords);
+    updates.$set["trigger.keywords"] = keywords;
+    updates.$set["trigger.replyBody"] = String(req.body.actionMessage || "").trim();
+    if (req.body.description) updates.$set["trigger.description"] = req.body.description;
+    if (req.body.category) updates.$set["trigger.category"] = req.body.category;
+    updates.$inc = { ...(updates.$inc || {}), version: 1 };
+    updates.$push = {
+      ...(updates.$push || {}),
+      "trigger.versions": {
+        version: Date.now(),
+        label: "Simple automation edit",
+        at: new Date(),
+        userId: req.user.sub,
+      },
+    };
   }
   if (Array.isArray(req.body?.nodes) || Array.isArray(req.body?.edges)) {
     updates.$inc = { version: 1 };

@@ -18,6 +18,7 @@ import { conversationsRouter } from "./routes/conversations.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { settingsRouter } from "./routes/settings.js";
 import { teamRouter } from "./routes/team.js";
+import { templatesRouter } from "./routes/templates.js";
 import { mediaRouter } from "./routes/media.js";
 import { infrastructureRouter } from "./routes/infrastructure.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
@@ -90,6 +91,7 @@ app.use("/api/conversations", requireAuth, requireWorkspaceContext, conversation
 app.use("/api/campaigns", requireAuth, requireWorkspaceContext, campaignsRouter);
 app.use("/api/automation", requireAuth, requireWorkspaceContext, automationRouter);
 app.use("/api/team", requireAuth, requireWorkspaceContext, teamRouter);
+app.use("/api/templates", requireAuth, requireWorkspaceContext, templatesRouter);
 app.use("/api/events", eventsRouter);
 app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);

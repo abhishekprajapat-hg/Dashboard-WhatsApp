@@ -601,6 +601,12 @@ campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), async (r
   campaign.deliveryResults = recipientLogs;
   campaign.history = [...(campaign.history || []), historyEvent("send_completed", req.user.sub, { sent, failed })];
   await campaign.save();
+  if (sent > 0) {
+    await Template.updateMany(
+      { _id: { $in: [template._id, ...(campaign.templateIds || [])] }, workspaceId: req.user.workspaceId },
+      { $inc: { usageCount: sent }, lastUsedAt: new Date() }
+    );
+  }
   await campaign.populate("templateId");
 
   res.json({ data: serializeCampaign(campaign), recipients: recipientLogs });
