@@ -438,7 +438,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   ];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
       <div className="shrink-0 border-b border-border bg-card/70 py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
         <div className="hidden px-4 mb-3 md:block">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Settings</p>
@@ -462,7 +462,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         </nav>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
+      <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
         {settingsNotice && (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <AlertTriangle size={13} className="mr-1 inline" /> {settingsNotice}
@@ -495,7 +495,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
 
         {activeTab === "whatsapp" && (
           <div className="max-w-5xl space-y-6">
-            <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-card/80 p-4">
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-card/80 p-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <Badge variant="outline" className={statusBadgeClass(whatsappConsole.health.status)}>{whatsappConsole.health.status}</Badge>
                 <h2 className="text-foreground">WhatsApp Console</h2>
@@ -507,7 +507,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               </Button>}
             </div>
 
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: "Connected accounts", value: whatsappConsole.health.connectedAccounts, icon: <MessageCircle size={15} />, tone: "text-primary" },
                 { label: "Inbound messages", value: whatsappConsole.messageStats.inbound, icon: <Inbox size={15} />, tone: "text-blue-400" },
@@ -537,7 +537,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     {whatsappConsole.health.status}
                   </Badge>
                 </div>
-                <div className="grid grid-cols-2 gap-2 mt-4">
+                <div className="mt-4 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
                     <div className="rounded border border-border bg-background/60 p-2">
                     <div className="text-sm text-foreground">{whatsappConsole.health.needsAttention}</div>
                     <div className="text-[10px] text-muted-foreground">Needs attention</div>
@@ -556,7 +556,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   </div>
                   <FileText size={16} className="text-muted-foreground" />
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                   {[
                     ["Total", whatsappConsole.templateStats.total],
                     ["Approved", whatsappConsole.templateStats.approved],
@@ -623,7 +623,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">1</span>
                     <Label>Provider</Label>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {(["meta", "twilio", "wati"] as const).map((provider) => (
                       <button
                         key={provider}
@@ -840,7 +840,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                 <h3 className="text-sm font-medium text-foreground">Templates</h3>
                 <span className="text-xs text-muted-foreground">{settings.templates.length} total</span>
               </div>
-              {canWrite && <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 md:grid-cols-4 gap-3 border-b border-border p-4">
+              {canWrite && <form onSubmit={handleCreateTemplate} className="grid grid-cols-1 gap-3 border-b border-border p-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-1.5 md:col-span-2">
                   <Label>Approved template name</Label>
                   <Input

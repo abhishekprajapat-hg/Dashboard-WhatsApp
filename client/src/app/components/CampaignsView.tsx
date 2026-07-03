@@ -379,7 +379,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
       <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -450,7 +450,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                       <option value="ab_test">A/B Testing</option>
                     </select>
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <label className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/60 px-2 py-2 text-[11px] text-muted-foreground">
                       Approval
                       <input type="checkbox" checked={form.requireApproval} onChange={(event) => setForm((current) => ({ ...current, requireApproval: event.target.checked }))} className="h-4 w-4 accent-primary" />
@@ -544,7 +544,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                 </select>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block space-y-1.5">
                     <span className="text-[11px] font-medium text-muted-foreground">Rate/min</span>
                     <input type="number" value={form.perMinute} onChange={(event) => setForm((current) => ({ ...current, perMinute: Number(event.target.value) }))} className={fieldClass} />
@@ -563,7 +563,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
         </form>
       )}
 
-      <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-background/35 px-3 py-3 md:grid-cols-5 sm:px-6">
+      <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-5 sm:px-6">
         {[
           ["Total sent", summary.totalSent.toLocaleString(), <Send size={14} />, "from-primary/20 to-emerald-400/5"],
           ["Delivery rate", `${summary.deliveryRate}%`, <CheckCircle2 size={14} />, "from-blue-500/15 to-cyan-400/5"],
@@ -618,7 +618,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                     <div className="flex-1">
                       <div className="h-4 w-1/3 animate-pulse rounded bg-secondary" />
                       <div className="mt-3 h-3 w-2/3 animate-pulse rounded bg-secondary" />
-                      <div className="mt-4 grid grid-cols-4 gap-3">
+                      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {[1, 2, 3, 4].map((metric) => <div key={metric} className="h-12 animate-pulse rounded bg-secondary" />)}
                       </div>
                     </div>
@@ -656,7 +656,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                       <div className="text-[10px] text-muted-foreground">audience</div>
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
                     {[
                       ["Queued", campaign.queued],
                       ["Sent", campaign.sent],

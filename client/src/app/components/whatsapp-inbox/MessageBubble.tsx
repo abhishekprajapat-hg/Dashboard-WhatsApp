@@ -12,10 +12,10 @@ interface MessageBubbleProps {
 
 function StatusIcon({ status }: { status?: WhatsAppMessage["status"] }) {
   if (status === "failed") return <RotateCcw size={13} className="text-red-400" />;
-  if (status === "queued") return <Clock3 size={13} className="text-zinc-400" />;
-  if (status === "read") return <CheckCheck size={13} className="text-sky-400" />;
-  if (status === "delivered") return <CheckCheck size={13} className="text-zinc-400" />;
-  return <Check size={13} className="text-zinc-400" />;
+  if (status === "queued") return <Clock3 size={13} className="text-emerald-950/65" />;
+  if (status === "read") return <CheckCheck size={13} className="text-blue-700 drop-shadow-[0_0_3px_rgba(255,255,255,0.24)]" />;
+  if (status === "delivered") return <CheckCheck size={13} className="text-emerald-950/70" />;
+  return <Check size={13} className="text-emerald-950/70" />;
 }
 
 export function MessageBubble({ message, replyLabel, selected, onAction }: MessageBubbleProps) {
@@ -34,7 +34,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
     >
       <div
         className={cn(
-          "relative max-w-[min(82%,720px)] rounded-2xl px-3 py-2 text-sm shadow-[0_10px_28px_rgba(0,0,0,0.12)] ring-1 ring-white/5",
+          "relative max-w-[min(88%,720px)] break-words rounded-2xl px-3 py-2 text-sm shadow-[0_10px_28px_rgba(0,0,0,0.12)] ring-1 ring-white/5 sm:max-w-[min(82%,720px)]",
           fromAgent
             ? "rounded-br-md bg-primary/90 text-primary-foreground"
             : "rounded-bl-md border border-border/80 bg-card text-foreground",
@@ -91,7 +91,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
           {fromAgent ? <span className="sr-only">{visibleStatus(message.status)}</span> : null}
         </div>
 
-        <div className={cn("absolute top-1 hidden items-center gap-0.5 rounded-lg border border-border/80 bg-popover/95 p-0.5 shadow-xl backdrop-blur group-hover:flex", fromAgent ? "left-0 -translate-x-full" : "right-0 translate-x-full")}>
+        <div className={cn("absolute top-1 hidden items-center gap-0.5 rounded-lg border border-border/80 bg-popover/95 p-0.5 shadow-xl backdrop-blur sm:group-hover:flex", fromAgent ? "left-0 -translate-x-full" : "right-0 translate-x-full")}>
           {[
             ["reply", Reply],
             ["copy", Copy],

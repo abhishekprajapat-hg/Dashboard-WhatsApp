@@ -2,7 +2,6 @@ import type { Conversation, InboxFilter, PendingMedia, TeamMember, WhatsAppMessa
 import { ChatWindow } from "./ChatWindow";
 import { ConversationList } from "./ConversationList";
 import { CustomerProfileSidebar } from "./CustomerProfileSidebar";
-import { InboxSidebar } from "./InboxSidebar";
 import { conversationMeta } from "./utils";
 
 interface WhatsAppBusinessInboxProps {
@@ -69,7 +68,6 @@ export function WhatsAppBusinessInbox({
   mobileChatOpen,
   loading,
   error,
-  onFilterChange,
   onSearchChange,
   onMessageSearchChange,
   onSelectConversation,
@@ -92,19 +90,10 @@ export function WhatsAppBusinessInbox({
 }: WhatsAppBusinessInboxProps) {
   const selected = conversations.find((conversation) => conversation.id === selectedId) || conversations[0];
   const selectedMeta = selected ? conversationMeta(selected) : { isInCrm: false };
-  const unreadCount = conversations.reduce((sum, conversation) => sum + conversation.unread, 0);
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-surface text-foreground">
-      <InboxSidebar
-        activeFilter={filter}
-        search={search}
-        unreadCount={unreadCount}
-        onFilterChange={onFilterChange}
-        onSearchChange={onSearchChange}
-      />
-
-      <div className={mobileChatOpen ? "hidden md:flex" : "flex min-w-0"}>
+      <div className={mobileChatOpen ? "hidden md:flex" : "flex min-w-0 flex-1 md:flex-none"}>
         <ConversationList
           conversations={conversations}
           selectedId={selected?.id || ""}

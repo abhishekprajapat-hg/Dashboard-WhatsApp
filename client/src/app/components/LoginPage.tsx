@@ -57,7 +57,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <div className="relative flex min-h-dvh overflow-hidden bg-background text-foreground">
+    <div className="relative flex min-h-dvh w-full min-w-0 overflow-x-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(37,211,102,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(79,140,255,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_32%)]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.32))]" />
 
@@ -210,7 +210,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               </Button>
             </form>
 
-            <div className="mt-6 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+            <div className="mt-6 grid grid-cols-1 gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
               <div className="rounded-lg border border-border/70 bg-surface-subtle/70 p-3">
                 <div className="font-medium text-foreground">Protected access</div>
                 <div className="mt-1 leading-5">Workspace roles and permissions stay enforced.</div>

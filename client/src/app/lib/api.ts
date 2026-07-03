@@ -91,7 +91,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const error = new Error(payload.message || "Request failed.") as ApiError;
     error.status = response.status;
     error.code = payload.error;
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       clearToken();
       window.dispatchEvent(new CustomEvent("auth:invalid", { detail: { status: response.status, code: payload.error } }));
     }

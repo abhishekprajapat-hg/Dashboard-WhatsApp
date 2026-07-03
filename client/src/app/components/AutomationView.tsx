@@ -494,7 +494,7 @@ function BuilderCanvas({
       className={
         canvasMaximized
           ? "fixed inset-0 z-50 grid min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-background"
-          : "grid min-h-[680px] flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)_330px]"
+          : "grid h-[min(58vh,560px)] min-h-[360px] w-full grid-cols-[minmax(0,1fr)] overflow-hidden lg:h-[min(62vh,600px)] lg:min-h-[500px] lg:grid-cols-[240px_minmax(0,1fr)_310px]"
       }
     >
       {!canvasMaximized ? (
@@ -527,8 +527,8 @@ function BuilderCanvas({
       </aside>
       ) : null}
 
-      <main className="relative min-h-[520px] min-w-0 bg-[#0b0f14] lg:min-h-0">
-        <div className="absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/50 p-2 backdrop-blur">
+      <main className="relative min-h-0 min-w-0 bg-[#0b0f14]">
+        <div className="absolute left-2 right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/50 p-2 backdrop-blur sm:left-3 sm:right-auto sm:top-3">
           {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
             <Save size={13} className="mr-1" /> {saving ? "Saving" : "Save"}
           </Button>}
@@ -539,7 +539,7 @@ function BuilderCanvas({
             Debug {debugMode ? "On" : "Off"}
           </Button>
         </div>
-        <div className="absolute left-3 bottom-3 z-10 overflow-hidden rounded-md border border-white/15 bg-[#111820]/95 shadow-xl backdrop-blur">
+        <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-md border border-white/15 bg-[#111820]/95 shadow-xl backdrop-blur sm:left-3">
           <button type="button" className={controlButtonClass} title="Zoom in" aria-label="Zoom in" onClick={() => reactFlow.zoomIn({ duration: 180 })}>
             <ZoomIn size={16} strokeWidth={2.4} />
           </button>
@@ -593,7 +593,7 @@ function BuilderCanvas({
           </div>
         </div>
 
-        <div className="space-y-4 p-3">
+        <div className="space-y-3 p-3">
           <section>
             <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
               <Map size={14} /> Node Inspector
@@ -918,7 +918,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
 
   return (
     <ReactFlowProvider>
-      <div className="flex min-h-full w-full flex-col overflow-visible">
+      <div className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden overflow-y-visible">
         <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.74),rgba(2,6,23,0.18))] px-3 py-4 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -1092,8 +1092,8 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
           </form>
         )}
 
-        <div className="flex min-h-[680px] shrink-0">
-          <aside className="hidden w-80 shrink-0 border-r border-border bg-card/70 lg:block">
+        <div className="flex min-h-[360px] w-full min-w-0 shrink-0 flex-col lg:min-h-[500px] lg:flex-row">
+          <aside className="max-h-72 w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
             <div className="border-b border-border bg-background/35 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -1103,7 +1103,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                 <Badge variant="outline" className="border-border bg-card text-[10px] text-muted-foreground">{flowList.length}</Badge>
               </div>
             </div>
-            <div className="no-scrollbar h-full overflow-y-auto p-2">
+            <div className="no-scrollbar max-h-[220px] overflow-y-auto p-2 lg:h-full lg:max-h-none">
               {loadingFlows ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((item) => (

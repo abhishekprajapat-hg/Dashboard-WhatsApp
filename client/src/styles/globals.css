@@ -14,6 +14,7 @@ body,
 #root {
   min-height: 100%;
   width: 100%;
+  max-width: 100%;
 }
 
 html {
@@ -24,15 +25,34 @@ body {
   margin: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  max-width: 100vw;
 }
 
 #root {
   min-height: 100dvh;
   overflow-x: hidden;
+  max-width: 100vw;
 }
 
 * {
   min-width: 0;
+  box-sizing: border-box;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+table {
+  max-width: 100%;
+}
+
+pre,
+code {
+  overflow-wrap: anywhere;
 }
 
 button,
@@ -50,7 +70,9 @@ textarea {
   }
 
   .recharts-wrapper,
-  .recharts-surface {
+  .recharts-surface,
+  .recharts-responsive-container {
     max-width: 100%;
+    min-width: 0;
   }
 }

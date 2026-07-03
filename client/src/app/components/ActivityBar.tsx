@@ -53,7 +53,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
 ];
 
 const navButtonBase =
-  "group relative flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring/45 md:h-10 md:w-10 md:min-w-0";
+  "group relative flex h-11 w-11 min-w-[2.75rem] flex-none snap-center items-center justify-center rounded-lg outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring/45 md:h-10 md:w-10 md:min-w-[2.5rem]";
 
 const navButtonState = {
   active: "bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(37,211,102,0.24)_inset,0_12px_30px_rgba(37,211,102,0.08)]",
@@ -178,12 +178,12 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
         </div>
       </aside>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-center border-t border-sidebar-border bg-sidebar/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_45px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden">
-        <div className="no-scrollbar flex min-w-0 flex-1 snap-x items-center gap-1 overflow-x-auto overscroll-x-contain px-1">
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] min-w-0 items-center border-t border-sidebar-border bg-sidebar/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_45px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden">
+        <div className="no-scrollbar flex min-w-0 flex-1 snap-x items-center gap-1 overflow-x-auto overscroll-x-contain px-1 pr-2">
           {navItems.map((item) => renderNavButton(item, "top"))}
         </div>
         {canOpenSettings && (
-          <div className="ml-1 flex items-center gap-1 border-l border-sidebar-border pl-2">
+          <div className="ml-1 flex flex-none items-center gap-1 border-l border-sidebar-border pl-2">
             {renderNavButton({ id: "settings", icon: Settings, label: "Settings" }, "top")}
           </div>
         )}

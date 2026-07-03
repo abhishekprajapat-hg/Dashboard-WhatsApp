@@ -307,7 +307,7 @@ export function AdminView() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-muted/20">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted/20">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -333,13 +333,13 @@ export function AdminView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:grid-cols-6">
           {metrics.map((metric) => (
             <StatCard key={metric.label} {...metric} />
           ))}
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex min-w-0 gap-4">
           <aside className="hidden w-48 shrink-0 lg:block">
             <div className="sticky top-4 rounded-lg border border-border bg-card p-2">
               {tabs.map((tab) => (
@@ -356,7 +356,7 @@ export function AdminView() {
             </div>
           </aside>
 
-          <main className="min-w-0 flex-1">
+          <main className="min-w-0 flex-1 overflow-x-hidden">
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
               {tabs.map((tab) => (
                 <button
@@ -545,7 +545,7 @@ export function AdminView() {
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Link2 size={14} /> Logo URL</span>
                         <input value={branding.logoUrl || ""} onChange={(event) => setBranding((current) => ({ ...current, logoUrl: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" />
                       </label>
-                      <div className="flex items-center gap-3 rounded-md border border-border p-3 md:col-span-2">
+                      <div className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-center md:col-span-2">
                         <div className="flex size-11 items-center justify-center rounded-md text-white" style={{ backgroundColor: branding.primaryColor || "#22c55e" }}>
                           <KeyRound size={18} />
                         </div>
@@ -553,7 +553,7 @@ export function AdminView() {
                           <div className="text-sm font-medium">{branding.brandName || "WhatsCRM"}</div>
                           <div className="text-xs text-muted-foreground">{branding.customDomain || "No custom domain configured"}</div>
                         </div>
-                        <Badge className="ml-auto" variant="outline">
+                        <Badge className="sm:ml-auto" variant="outline">
                           Live Preview
                         </Badge>
                       </div>

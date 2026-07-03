@@ -72,6 +72,7 @@ export function ChatWindow({
   onLoadOlder,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lastConversationIdRef = useRef<string | undefined>(conversation?.id);
   const filteredMessages = useMemo(
     () => messages.filter((message) => (messageSearch ? message.content.toLowerCase().includes(messageSearch.toLowerCase()) : true)),
     [messages, messageSearch]
@@ -80,10 +81,29 @@ export function ChatWindow({
 
   useEffect(() => {
     const node = scrollRef.current;
+    if (!node || !conversation?.id) return;
+
+    const scrollToLatest = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+
+    const frame = window.requestAnimationFrame(scrollToLatest);
+    const timeout = window.setTimeout(scrollToLatest, 80);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [conversation?.id]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
     if (!node) return;
+    const conversationChanged = lastConversationIdRef.current !== conversation?.id;
+    lastConversationIdRef.current = conversation?.id;
     const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 220;
-    if (nearBottom) node.scrollTop = node.scrollHeight;
-  }, [filteredMessages.length, typing]);
+    if (conversationChanged || nearBottom) node.scrollTop = node.scrollHeight;
+  }, [conversation?.id, filteredMessages.length, typing]);
 
   function handleScroll() {
     const node = scrollRef.current;
@@ -124,7 +144,7 @@ export function ChatWindow({
           Resolve
         </button>
         {[Search, Phone, Video, Info, MoreVertical].map((Icon, index) => (
-          <button key={index} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <button key={index} className={`${index > 0 ? "hidden sm:flex" : "flex"} h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground`}>
             <Icon size={18} />
           </button>
         ))}

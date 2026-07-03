@@ -12,14 +12,15 @@ interface QuickReplyTemplate {
 interface InboxViewProps {
   openContactId?: string | null;
   currentUserId?: string;
+  canWrite?: boolean;
   onUnreadCountChange?: (count: number) => void;
 }
 
-export function InboxView({ openContactId, currentUserId, onUnreadCountChange }: InboxViewProps) {
+export function InboxView({ openContactId, currentUserId, canWrite = false, onUnreadCountChange }: InboxViewProps) {
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
-  const engine = useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountChange });
+  const engine = useWhatsAppEngine({ openContactId, currentUserId, canWrite, onUnreadCountChange });
   const [quickReplies, setQuickReplies] = useState<QuickReplyTemplate[]>([]);
 
   useEffect(() => {

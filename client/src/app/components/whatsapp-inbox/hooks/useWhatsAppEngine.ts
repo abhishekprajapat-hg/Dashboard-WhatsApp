@@ -26,6 +26,7 @@ import { mediaKind, messageText, primaryAttachment, displayAttachmentUrl } from 
 interface UseWhatsAppEngineOptions {
   openContactId?: string | null;
   currentUserId?: string;
+  canWrite?: boolean;
   onUnreadCountChange?: (count: number) => void;
 }
 
@@ -43,7 +44,7 @@ function clientMessageId() {
   return `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
-export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountChange }: UseWhatsAppEngineOptions) {
+export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = false, onUnreadCountChange }: UseWhatsAppEngineOptions) {
   const store = useWhatsAppInboxStore();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [messageSearch, setMessageSearch] = useState("");
@@ -132,7 +133,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
   }, [openContactId]);
 
   useEffect(() => {
-    if (!store.selectedId) return;
+    if (!store.selectedId || !canWrite) return;
     markConversationRead<{ unread: number }>(store.selectedId)
       .then(() => {
         store.updateConversation(store.selectedId, { unread: 0 });
@@ -140,15 +141,16 @@ export function useWhatsAppEngine({ openContactId, currentUserId, onUnreadCountC
       })
       .then((response) => onUnreadCountChange?.(response.unread))
       .catch(() => undefined);
-  }, [store.selectedId, onUnreadCountChange]);
+  }, [store.selectedId, canWrite, onUnreadCountChange]);
 
   useEffect(() => {
+    if (!canWrite) return;
     const outbound = selectedMessages.filter((message) => message.from === "agent" && message.status !== "read");
     for (const message of outbound) {
       if (!selected?.id || message.id.startsWith("local_")) continue;
       updateMessageReceipt(selected.id, message.id, "read").catch(() => undefined);
     }
-  }, [selected?.id, selectedMessages]);
+  }, [selected?.id, selectedMessages, canWrite]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!selected?.id) return;

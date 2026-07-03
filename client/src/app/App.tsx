@@ -94,7 +94,7 @@ export default function App() {
     restoreSession()
       .then(setSession)
       .catch((error: ApiError) => {
-        if (error.status === 401 || error.status === 403) {
+        if (error.status === 401) {
           clearToken();
           setSession(null);
         }
@@ -121,6 +121,7 @@ export default function App() {
   }, [session]);
 
   const visibleViews = allowedViews(session, APP_VIEWS);
+  const canWriteInbox = hasPermission(session, "inbox:write");
   const canWriteContacts = hasPermission(session, "contacts:write");
   const canWriteAutomation = hasPermission(session, "automation:write");
   const canWriteTemplates = hasPermission(session, "templates:write");
@@ -250,7 +251,7 @@ export default function App() {
             </div>
           )}
           {canAccessView(session, activeView) && activeView === "dashboard" && <DashboardView userName={session.user.name} />}
-          {canAccessView(session, activeView) && activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} onUnreadCountChange={setUnreadCount} />}
+          {canAccessView(session, activeView) && activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} canWrite={canWriteInbox} onUnreadCountChange={setUnreadCount} />}
           {canAccessView(session, activeView) && activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} canWrite={canWriteContacts} />}
           {canAccessView(session, activeView) && activeView === "automation" && <AutomationView canWrite={canWriteAutomation} />}
           {canAccessView(session, activeView) && activeView === "templates" && <TemplatesView canWrite={canWriteTemplates} />}

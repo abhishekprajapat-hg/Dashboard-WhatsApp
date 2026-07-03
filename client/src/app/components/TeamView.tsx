@@ -197,7 +197,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(37,211,102,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(37,211,102,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
       <div className="shrink-0 border-b border-border/70 px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
@@ -234,7 +234,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-3 py-4 sm:px-6">
+      <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4">
           {canManage && showInvite && (
             <Card className="rounded-lg border-border/70 bg-card/90 p-4 shadow-xl shadow-black/10">
@@ -274,12 +274,12 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                       ))}
                     </select>
                   </label>
-                  <div className="flex items-end gap-2">
-                    <Button type="submit" size="sm" className="h-9" disabled={saving}>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <Button type="submit" size="sm" className="h-9 w-full sm:w-auto" disabled={saving}>
                       <Mail size={14} />
                       {saving ? "Saving" : "Save"}
                     </Button>
-                    <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => setShowInvite(false)}>
+                    <Button type="button" variant="outline" size="sm" className="h-9 w-full sm:w-auto" onClick={() => setShowInvite(false)}>
                       Cancel
                     </Button>
                   </div>
@@ -402,7 +402,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:grid-cols-4">
                     {[
                       { label: "Assigned", value: member.assignedConversations },
                       { label: "Resolved", value: member.resolvedToday },
@@ -457,11 +457,11 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                 </div>
               </div>
               {notice && <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">{notice}</p>}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditingMember(null)}>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setEditingMember(null)}>
                   Cancel
                 </Button>
-                <Button type="submit" size="sm" disabled={saving}>
+                <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={saving}>
                   {saving ? "Saving" : "Save role"}
                 </Button>
               </div>

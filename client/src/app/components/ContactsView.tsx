@@ -200,7 +200,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
 
       <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
@@ -251,8 +251,8 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
       </div>
 
       {showCreate && canWrite && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
-          <form onSubmit={handleCreateContact} className="w-full max-w-2xl rounded-xl border border-border/90 bg-card p-5 shadow-2xl shadow-black/45">
+        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
+          <form onSubmit={handleCreateContact} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Create contact</h2>
@@ -282,11 +282,11 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
               </label>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setShowCreate(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
                 {saving ? "Saving..." : "Save contact"}
               </Button>
             </div>
@@ -313,7 +313,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                 </button>
               ))}
             </div>
-            <Button variant="outline" size="sm" className="h-10 w-fit">
+            <Button variant="outline" size="sm" className="h-10 w-full sm:w-fit">
               <Filter size={14} />
               Filter
             </Button>

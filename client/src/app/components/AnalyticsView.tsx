@@ -133,7 +133,7 @@ const chartTooltip = {
 };
 
 const fieldClass =
-  "h-9 rounded-md border border-border bg-background/80 px-3 text-xs text-foreground shadow-inner shadow-black/10 outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
+  "h-9 w-full rounded-md border border-border bg-background/80 px-3 text-xs text-foreground shadow-inner shadow-black/10 outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
 
 const premiumCard = "rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5";
 
@@ -281,7 +281,7 @@ export function AnalyticsView() {
   const selectedReport = analytics.customReports.find((item) => item.id === report) || analytics.customReports[0];
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
         <div className="rounded-lg border border-border bg-card/80 p-4 shadow-xl shadow-black/10">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -294,7 +294,7 @@ export function AnalyticsView() {
             <h1 className="mt-1 text-2xl font-semibold tracking-normal">Analytics Command Center</h1>
             <p className="text-sm text-muted-foreground">Messages, customers, agents, revenue, campaigns, leads, automations, templates, heat maps, and role-based reporting.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center xl:justify-end">
             {[7, 14, 30, 90].map((period) => (
               <button
                 key={period}
@@ -314,11 +314,11 @@ export function AnalyticsView() {
               <option value="all">All team</option>
               {analytics.filters.teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
             </select>
-            <Button variant="outline" size="sm" className="h-9 border-border bg-background/70" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
+            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
               <Download size={15} />
               PDF
             </Button>
-            <Button variant="outline" size="sm" className="h-9 border-border bg-background/70" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
+            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
               <FileSpreadsheet size={15} />
               Excel
             </Button>
@@ -354,15 +354,15 @@ export function AnalyticsView() {
 
         <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
           <Card className={premiumCard}>
-            <CardHeader className="flex-row items-center justify-between px-4 pt-4">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-4 pt-4">
               <div>
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold"><TrendingUp size={16} /> Real-time Message Charts</CardTitle>
                 <p className="text-xs text-muted-foreground">Inbound, outbound, and resolved conversations</p>
               </div>
               <Badge variant="outline">{loading ? "Syncing" : "Live"}</Badge>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {loading ? <EmptyChart label="Loading message volume..." /> : analytics.messageVolume.length ? <ResponsiveContainer width="100%" height={270}>
+            <CardContent className="overflow-x-auto px-4 pb-4">
+              {loading ? <EmptyChart label="Loading message volume..." /> : analytics.messageVolume.length ? <div className="min-w-[300px]"><ResponsiveContainer width="100%" height={270}>
                 <AreaChart data={analytics.messageVolume} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="analyticsInbound" x1="0" y1="0" x2="0" y2="1">
@@ -382,7 +382,7 @@ export function AnalyticsView() {
                   <Area type="monotone" dataKey="outbound" stroke="#3b82f6" strokeWidth={2} fill="url(#analyticsOutbound)" />
                   <Line type="monotone" dataKey="resolved" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 </AreaChart>
-              </ResponsiveContainer> : <EmptyChart label="No message volume for this date range." />}
+              </ResponsiveContainer></div> : <EmptyChart label="No message volume for this date range." />}
             </CardContent>
           </Card>
 
@@ -428,14 +428,14 @@ export function AnalyticsView() {
                   <div className="mt-1 text-xl font-semibold">{analytics.resolutionTime.label}</div>
                 </div>
               </div>
-              {analytics.responseTime.trend.length ? <ResponsiveContainer width="100%" height={130}>
+              {analytics.responseTime.trend.length ? <div className="overflow-x-auto"><div className="min-w-[240px]"><ResponsiveContainer width="100%" height={130}>
                 <LineChart data={analytics.responseTime.trend}>
                   <XAxis dataKey="date" hide />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
                   <Line type="monotone" dataKey="minutes" stroke="#25D366" strokeWidth={2} dot={false} />
                 </LineChart>
-              </ResponsiveContainer> : <EmptyChart label="No response-time trend yet." />}
+              </ResponsiveContainer></div></div> : <EmptyChart label="No response-time trend yet." />}
             </CardContent>
           </Card>
 
@@ -468,20 +468,20 @@ export function AnalyticsView() {
               <p className="text-xs text-muted-foreground">Peak: {peakHour?.label || "00:00"} with {num(peakHour?.messages || 0)} messages</p>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              {analytics.peakHours.length ? <ResponsiveContainer width="100%" height={160}>
+              {analytics.peakHours.length ? <div className="overflow-x-auto"><div className="min-w-[240px]"><ResponsiveContainer width="100%" height={160}>
                 <BarChart data={analytics.peakHours}>
                   <XAxis dataKey="hour" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
                   <Bar dataKey="messages" fill="#25D366" radius={[3, 3, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer> : <EmptyChart label="No peak-hour activity yet." />}
+              </ResponsiveContainer></div></div> : <EmptyChart label="No peak-hour activity yet." />}
             </CardContent>
           </Card>
         </div>
 
         <Card className={premiumCard}>
-          <CardHeader className="flex-row items-center justify-between px-4 pt-4">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-4 pt-4">
             <div>
               <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Activity size={16} /> Heat Map</CardTitle>
               <p className="text-xs text-muted-foreground">Message intensity by weekday and hour</p>

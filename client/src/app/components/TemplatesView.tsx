@@ -237,7 +237,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
       <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -262,7 +262,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
         </div>
       </div>
 
-      <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-background/35 px-3 py-3 md:grid-cols-4 sm:px-6">
+      <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-4 sm:px-6">
         {[
           ["Total", counts.total, <FileText size={14} />, "from-primary/20 to-emerald-400/5"],
           ["WhatsApp", counts.whatsapp, <MessageSquareText size={14} />, "from-blue-500/15 to-cyan-400/5"],
@@ -305,9 +305,9 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
         )}
       </div>
 
-      <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-background/20 px-3 pt-3 sm:px-6">
+      <div className="no-scrollbar flex w-full min-w-0 shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-border bg-background/20 px-3 pt-3 sm:px-6">
         {tabs.map((tab) => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-xs transition-colors ${activeTab === tab.id ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`-mb-px shrink-0 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-xs transition-colors ${activeTab === tab.id ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}>
             {tab.label}
           </button>
         ))}
@@ -409,7 +409,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                   <FileText size={13} /> Template Details
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <div className="grid grid-cols-1 gap-2 text-[11px] text-muted-foreground min-[380px]:grid-cols-2">
                   <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.category}</span>Category</div>
                   <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.language}</span>Language</div>
                   <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.usageCount}</span>Usage</div>
@@ -443,8 +443,8 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <form onSubmit={submitTemplate} className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-3 backdrop-blur-sm sm:p-4">
+          <form onSubmit={submitTemplate} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
             <div className="flex items-center justify-between border-b border-border bg-background/45 px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">{editing.id ? "Edit template" : "Create template"}</h2>
@@ -470,7 +470,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                     {categories.filter((item) => item !== "all").map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <label className="block space-y-1.5">
                     <span className="text-[11px] font-medium text-muted-foreground">Language</span>
                     <input value={editing.language} onChange={(event) => setEditing((current) => current && ({ ...current, language: event.target.value }))} placeholder="en" className={fieldClass} />
@@ -504,7 +504,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                     {renderSamplePreview(editing.body, editing.variables.split(",").map((item) => item.trim()).filter(Boolean))}
                   </p>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <div className="mt-3 grid grid-cols-1 gap-2 text-[11px] text-muted-foreground min-[380px]:grid-cols-2">
                   <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{typeLabel(editing.type)}</span>Type</div>
                   <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{editing.language || "-"}</span>Language</div>
                   <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{editing.category}</span>Category</div>
@@ -512,9 +512,9 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                 </div>
               </aside>
             </div>
-            <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-              <Button type="button" variant="outline" className="border-border" onClick={() => setEditing(null)}>Cancel</Button>
-              <Button type="submit" className="bg-primary text-primary-foreground" disabled={saving}>{saving ? "Saving" : "Save template"}</Button>
+            <div className="flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" className="w-full border-border sm:w-auto" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button type="submit" className="w-full bg-primary text-primary-foreground sm:w-auto" disabled={saving}>{saving ? "Saving" : "Save template"}</Button>
             </div>
           </form>
         </div>

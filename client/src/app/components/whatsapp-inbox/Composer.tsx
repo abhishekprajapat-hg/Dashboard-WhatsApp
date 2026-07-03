@@ -78,7 +78,7 @@ export function Composer({
         </div>
       )}
 
-      <div className="mb-2 flex items-center gap-1 rounded-lg border border-border/60 bg-surface-subtle/50 p-1 w-fit">
+      <div className="mb-2 flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-surface-subtle/50 p-1">
         {(["reply", "note"] as const).map((item) => (
           <button
             key={item}
@@ -95,8 +95,8 @@ export function Composer({
         ))}
       </div>
 
-      <div className="flex items-end gap-2">
-        <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground">
+      <div className="flex min-w-0 items-end gap-1.5 sm:gap-2">
+        <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground sm:flex">
           <Smile size={19} />
         </button>
         {quickReplies.length > 0 && (
@@ -104,7 +104,7 @@ export function Composer({
             <button className="peer flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-primary">
               <MessageSquareText size={19} />
             </button>
-            <div className="invisible absolute bottom-11 left-0 z-20 max-h-64 w-64 overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 opacity-0 shadow-2xl shadow-black/30 transition peer-focus:visible peer-focus:opacity-100 hover:visible hover:opacity-100">
+            <div className="invisible absolute bottom-11 left-0 z-20 max-h-64 w-[min(16rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 opacity-0 shadow-2xl shadow-black/30 transition peer-focus:visible peer-focus:opacity-100 hover:visible hover:opacity-100">
               {quickReplies.slice(0, 20).map((template) => (
                 <button key={template.id} className="block w-full rounded-md px-2 py-2 text-left hover:bg-secondary" onClick={() => onQuickReplySelect?.(template)}>
                   <span className="block truncate text-xs font-medium text-foreground">{template.name}</span>
@@ -118,7 +118,7 @@ export function Composer({
             <button className="peer flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-primary">
               <Paperclip size={19} />
             </button>
-          <div className="invisible absolute bottom-11 left-0 z-20 w-48 rounded-lg border border-border/80 bg-popover p-1 opacity-0 shadow-2xl shadow-black/30 transition peer-focus:visible peer-focus:opacity-100 hover:visible hover:opacity-100">
+          <div className="invisible absolute bottom-11 left-0 z-20 w-[min(12rem,calc(100vw-2rem))] rounded-lg border border-border/80 bg-popover p-1 opacity-0 shadow-2xl shadow-black/30 transition peer-focus:visible peer-focus:opacity-100 hover:visible hover:opacity-100">
             {[
               { label: "Photos & videos", icon: Image, action: () => onPickFiles("media") },
               { label: "Document / PDF", icon: FileText, action: () => onPickFiles("document") },

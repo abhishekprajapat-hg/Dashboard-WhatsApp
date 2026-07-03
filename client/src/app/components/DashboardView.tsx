@@ -123,12 +123,12 @@ function MetricCard({
 
 function SectionTitle({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         {description && <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>}
       </div>
-      {action}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
@@ -266,8 +266,8 @@ export function DashboardView({ userName }: DashboardViewProps) {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 lg:gap-5">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
+      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 lg:gap-5">
         <div className="overflow-hidden rounded-xl border border-border/80 bg-card/70 shadow-2xl shadow-black/20">
           <div className="relative p-4 sm:p-5">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(79,140,255,0.1),transparent_22rem)]" />
@@ -322,10 +322,11 @@ export function DashboardView({ userName }: DashboardViewProps) {
                 action={<Badge variant="outline">Last 7 days</Badge>}
               />
             </CardHeader>
-            <CardContent className="px-4 pb-4">
+            <CardContent className="overflow-x-auto px-4 pb-4">
               {loading ? (
                 <LoadingSkeleton rows={4} />
               ) : summary.messageVolume?.length ? (
+                <div className="min-w-[300px]">
                 <ResponsiveContainer width="100%" height={250}>
                   <AreaChart data={summary.messageVolume} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                     <defs>
@@ -346,6 +347,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
                     <Area type="monotone" dataKey="outbound" stroke="#4f8cff" strokeWidth={2} fill="url(#dashboardOutbound)" />
                   </AreaChart>
                 </ResponsiveContainer>
+                </div>
               ) : (
                 <EmptyState icon={<BarChart3 size={18} />} title="No message activity yet" description="Inbound and outbound volume will appear here once WhatsApp messages start syncing." />
               )}
