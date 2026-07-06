@@ -61,7 +61,7 @@ function formatDuration(minutes) {
 }
 
 function trustedFilter(filter) {
-  return mongoose.trusted(filter);
+  return filter;
 }
 
 function jsonCsv(rows = []) {
