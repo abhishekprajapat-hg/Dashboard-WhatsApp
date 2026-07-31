@@ -2,8 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { requirePermission } from "../middleware/auth.js";
 import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
-import { sendWhatsAppTemplate } from "../services/whatsappProvider.js";
-import { publishConversationChanged } from "../realtime/events.js";
+import { enqueueCampaignRecipients } from "../services/campaignSender.js";
 
 export const campaignsRouter = Router();
 
@@ -92,7 +91,7 @@ function getLegacyAudienceFilter(workspaceId, type = "all") {
   if (type === "opted_in") filter.optInStatus = "opted_in";
   if (type === "leads") filter.lifecycleStatus = "lead";
   if (type === "customers") filter.lifecycleStatus = "customer";
-  if (type === "hot_leads") filter["customFields.crm.leadScore"] = { $gte: 70 };
+  if (type === "hot_leads") filter["customFields.crm.leadScore"] = mongoose.trusted({ $gte: 70 });
   if (type === "imported") filter["customFields.importedFromCampaign"] = true;
   return filter;
 }
@@ -134,25 +133,26 @@ async function buildAudienceQuery(workspaceId, filters = {}) {
     const leadContactIds = await Lead.distinct("contactId", {
       workspaceId,
       stage: normalized.leadStage,
-      status: { $ne: "archived" },
+      status: mongoose.trusted({ $ne: "archived" }),
     });
-    query._id = { $in: leadContactIds };
+    query._id = mongoose.trusted({ $in: leadContactIds });
   }
 
   const tagObjectIds = [...normalized.tagIds];
   if (normalized.tags.length) {
     const tagDocs = await Tag.find({
       workspaceId,
-      name: { $in: normalized.tags },
+      name: mongoose.trusted({ $in: normalized.tags }),
     }).select("_id");
     tagObjectIds.push(...tagDocs.map((tag) => tag._id));
   }
-  if (tagObjectIds.length) query.tagIds = { $in: tagObjectIds };
+  if (tagObjectIds.length) query.tagIds = mongoose.trusted({ $in: tagObjectIds });
 
   if (normalized.createdFrom || normalized.createdTo) {
-    query.createdAt = {};
-    if (normalized.createdFrom) query.createdAt.$gte = normalized.createdFrom;
-    if (normalized.createdTo) query.createdAt.$lte = normalized.createdTo;
+    const range = {};
+    if (normalized.createdFrom) range.$gte = normalized.createdFrom;
+    if (normalized.createdTo) range.$lte = normalized.createdTo;
+    query.createdAt = mongoose.trusted(range);
   }
 
   return query;
@@ -485,131 +485,45 @@ campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), async (r
     return res.json({ data: serializeCampaign(campaign), recipients: [] });
   }
 
-  campaign.status = "sending";
-  campaign.metrics = { ...(campaign.metrics || {}), recipients: contacts.length, sent: 0, delivered: 0, read: 0, replied: 0, clicks: 0, conversions: 0, failed: 0 };
-  campaign.queue = { ...(campaign.queue || {}), queued: contacts.length, processing: 0, completed: 0, failed: 0 };
-  campaign.recipients = [];
+  campaign.recipients = contacts.map((contact) => ({
+    contactId: contact._id,
+    name: contact.name,
+    phone: contact.phone,
+    status: "queued",
+    variant: "A",
+    attempts: 0,
+  }));
   campaign.deliveryResults = [];
-  campaign.history = [...(campaign.history || []), historyEvent("send_started", req.user.sub, { recipients: contacts.length })];
+  campaign.metrics = { ...(campaign.metrics || {}), recipients: contacts.length, sent: 0, delivered: 0, read: 0, replied: 0, clicks: 0, conversions: 0, failed: 0 };
+  campaign.queue = { queued: contacts.length, processing: 0, completed: 0, failed: 0, retries: Number(campaign.queue?.retries || 0) };
+  campaign.status = contacts.length ? "sending" : "sent";
+  campaign.sentAt = contacts.length ? undefined : new Date();
+  campaign.history = [...(campaign.history || []), historyEvent(contacts.length ? "send_queued" : "send_completed", req.user.sub, { recipients: contacts.length })];
   await campaign.save();
 
-  let sent = 0;
-  let delivered = 0;
-  let failed = 0;
-  const recipientLogs = [];
-  const rateLimit = campaign.rateLimit || {};
-  const batchSize = Math.max(1, Math.min(250, Number(rateLimit.batchSize || 50)));
-  const perMinute = Math.max(1, Math.min(1000, Number(rateLimit.perMinute || 60)));
-
-  for (const [index, contact] of contacts.entries()) {
-    if (index > 0 && index % batchSize === 0) {
-      campaign.queue = {
-        ...(campaign.queue || {}),
-        queued: Math.max(0, contacts.length - index),
-        processing: Math.min(batchSize, contacts.length - index),
-        completed: sent,
-        failed,
-      };
-      await campaign.save();
-    }
-
-    let providerResult;
-    let errorMessage = "";
-    const variant = campaign.abTest?.enabled && campaign.abTest?.variants?.length > 1 && index % 100 >= Number(campaign.abTest.split || 50) ? "B" : "A";
-    const variantTemplateId = campaign.abTest?.variants?.find((item) => item.id === variant)?.templateId;
-    const sendTemplate = variantTemplateId
-      ? await Template.findOne({ _id: variantTemplateId, workspaceId: req.user.workspaceId, status: "approved" }) || template
-      : template;
-
+  let queueMode = "n/a";
+  if (contacts.length) {
     try {
-      providerResult = await sendWhatsAppTemplate({ account, to: contact.phone, template: sendTemplate, parameters: [] });
-      sent += 1;
-      if (["delivered", "read"].includes(providerResult.status)) delivered += 1;
+      const result = await enqueueCampaignRecipients(campaign, contacts, { userId: req.user.sub });
+      queueMode = result.mode;
     } catch (error) {
-      failed += 1;
-      errorMessage = error.message || "Send failed.";
-      providerResult = {
-        providerMessageId: `failed_campaign_${campaign._id}_${contact._id}_${Date.now()}`,
-        status: "failed",
-        mode: "meta",
-      };
+      await Campaign.updateOne(
+        { _id: campaign._id },
+        {
+          $set: { status: "failed" },
+          $push: { history: historyEvent("send_failed", req.user.sub, { error: error.message }) },
+        }
+      );
+      throw error;
     }
-
-    const conversation = await Conversation.findOneAndUpdate(
-      { workspaceId: req.user.workspaceId, contactId: contact._id, status: { $ne: "archived" } },
-      {
-        organizationId: req.user.organizationId,
-        workspaceId: req.user.workspaceId,
-        contactId: contact._id,
-        whatsappAccountId: account._id,
-        status: "open",
-        lastMessageAt: new Date(),
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    const message = await Message.create({
-      organizationId: req.user.organizationId,
-      workspaceId: req.user.workspaceId,
-      conversationId: conversation._id,
-      contactId: contact._id,
-      whatsappAccountId: account._id,
-      direction: "outbound",
-      type: "template",
-      body: `Campaign template sent: ${sendTemplate.name}`,
-      providerMessageId: providerResult.providerMessageId,
-      status: providerResult.status,
-      sentByUserId: req.user.sub,
-      sentAt: new Date(),
-      metadata: {
-        campaignId: campaign._id,
-        campaignName: campaign.name,
-        campaignEvent: "send",
-        variant,
-        providerMode: providerResult.mode,
-        rateLimit: { perMinute, batchSize },
-        templateId: sendTemplate._id,
-        templateName: sendTemplate.name,
-        ...(errorMessage ? { error: errorMessage } : {}),
-      },
-    });
-
-    conversation.lastMessageId = message._id;
-    conversation.lastMessageAt = message.sentAt;
-    await conversation.save();
-    await Contact.updateOne({ _id: contact._id }, { lastMessageAt: message.sentAt });
-    await publishConversationChanged(conversation._id);
-
-    recipientLogs.push({
-      contactId: contact._id,
-      name: contact.name,
-      phone: contact.phone,
-      status: providerResult.status,
-      variant,
-      attempts: 1,
-      providerMessageId: providerResult.providerMessageId,
-      error: errorMessage,
-      sentAt: new Date(),
-    });
   }
 
-  campaign.status = failed > 0 && sent === 0 ? "failed" : "sent";
-  campaign.sentAt = new Date();
-  campaign.metrics = { recipients: contacts.length, sent, delivered, read: 0, replied: 0, clicks: 0, conversions: 0, failed };
-  campaign.queue = { ...(campaign.queue || {}), queued: 0, processing: 0, completed: sent, failed, retries: Number(campaign.queue?.retries || 0) };
-  campaign.recipients = recipientLogs;
-  campaign.deliveryResults = recipientLogs;
-  campaign.history = [...(campaign.history || []), historyEvent("send_completed", req.user.sub, { sent, failed })];
-  await campaign.save();
-  if (sent > 0) {
-    await Template.updateMany(
-      { _id: { $in: [template._id, ...(campaign.templateIds || [])] }, workspaceId: req.user.workspaceId },
-      { $inc: { usageCount: sent }, lastUsedAt: new Date() }
-    );
-  }
-  await campaign.populate("templateId");
-
-  res.json({ data: serializeCampaign(campaign), recipients: recipientLogs });
+  const finalCampaign = await Campaign.findById(campaign._id).populate("templateId");
+  res.json({
+    data: serializeCampaign(finalCampaign),
+    recipients: (finalCampaign.recipients || []).map(serializeRecipient),
+    queueMode,
+  });
 });
 
 campaignsRouter.patch("/:id", requirePermission("campaigns:write"), async (req, res) => {
@@ -669,6 +583,7 @@ campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), async 
   if (!campaign) return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
 
   const history = [...(campaign.history || [])];
+  let contactsToEnqueue = [];
   if (action === "submit_approval") {
     campaign.status = "pending_approval";
     campaign.approval = { ...(campaign.approval || {}), required: true, status: "pending", requestedAt: new Date(), requestedBy: req.user.sub };
@@ -682,25 +597,42 @@ campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), async 
   } else if (action === "pause") {
     campaign.status = "paused";
     campaign.pausedAt = new Date();
+    campaign.recipients = (campaign.recipients || []).map((recipient) =>
+      recipient.status === "queued" ? { ...recipient, status: "paused" } : recipient
+    );
   } else if (action === "resume") {
-    campaign.status = campaign.scheduledAt && campaign.scheduledAt > new Date() ? "scheduled" : "queued";
+    const pausedRecipients = (campaign.recipients || []).filter((recipient) => recipient.status === "paused");
+    if (pausedRecipients.length) {
+      campaign.status = "sending";
+      campaign.recipients = (campaign.recipients || []).map((recipient) =>
+        recipient.status === "paused" ? { ...recipient, status: "queued" } : recipient
+      );
+      contactsToEnqueue = pausedRecipients.map((recipient) => recipient.contactId);
+    } else {
+      campaign.status = campaign.scheduledAt && campaign.scheduledAt > new Date() ? "scheduled" : "queued";
+    }
   } else if (action === "cancel") {
     campaign.status = "cancelled";
     campaign.cancelledAt = new Date();
+    campaign.recipients = (campaign.recipients || []).map((recipient) =>
+      ["queued", "paused"].includes(recipient.status) ? { ...recipient, status: "cancelled" } : recipient
+    );
+    campaign.queue = { ...(campaign.queue || {}), queued: 0 };
   } else if (action === "retry") {
     const failedRecipients = (campaign.recipients || []).filter((recipient) => recipient.status === "failed");
-    campaign.status = failedRecipients.length ? "queued" : campaign.status;
+    campaign.status = failedRecipients.length ? "sending" : campaign.status;
     campaign.queue = {
       ...(campaign.queue || {}),
-      queued: failedRecipients.length,
+      queued: Number(campaign.queue?.queued || 0) + failedRecipients.length,
       failed: Math.max(0, Number(campaign.queue?.failed || 0) - failedRecipients.length),
       retries: Number(campaign.queue?.retries || 0) + failedRecipients.length,
     };
     campaign.recipients = (campaign.recipients || []).map((recipient) =>
       recipient.status === "failed"
-        ? { ...recipient, status: "queued", error: "", attempts: Number(recipient.attempts || 1) + 1 }
+        ? { ...recipient, status: "queued", error: "", attempts: Number(recipient.attempts || 1) }
         : recipient
     );
+    contactsToEnqueue = failedRecipients.map((recipient) => recipient.contactId);
   } else {
     return res.status(400).json({ error: "INVALID_ACTION", message: "Unsupported campaign action." });
   }
@@ -708,6 +640,13 @@ campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), async 
   history.push(historyEvent(action, req.user.sub, { status: campaign.status }));
   campaign.history = history;
   await campaign.save();
+
+  if (contactsToEnqueue.length) {
+    const pendingContacts = await Contact.find({ _id: mongoose.trusted({ $in: contactsToEnqueue }), workspaceId: req.user.workspaceId });
+    await enqueueCampaignRecipients(campaign, pendingContacts, { userId: req.user.sub });
+  }
+
+  await campaign.populate("templateId");
   res.json({ data: serializeCampaign(campaign) });
 });
 

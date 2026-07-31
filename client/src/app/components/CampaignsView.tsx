@@ -238,6 +238,20 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
       .catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    const isActivelySending = campaigns.some((campaign) => campaign.status === "running" || campaign.status === "queued");
+    if (!isActivelySending) return;
+    const interval = setInterval(() => {
+      getCampaigns<{ data: Campaign[]; total: number; summary: typeof summary }>()
+        .then((response) => {
+          setCampaigns(response.data);
+          setSummary(response.summary);
+        })
+        .catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [campaigns]);
+
   const tabs = ["All", "template", "bulk", "scheduled", "recurring", "ab_test"];
   const filtered = campaigns.filter((campaign) => activeTab === "All" || campaign.type === activeTab);
   const selectedTemplate = templates.find((template) => template.id === form.templateId);
@@ -330,7 +344,11 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
     try {
       const response = await sendCampaign<{ data: Campaign }>(campaign.id);
       setCampaigns((items) => items.map((item) => (item.id === campaign.id ? response.data : item)));
-      setNotice(`Campaign processed for ${response.data.recipients} recipients.`);
+      setNotice(
+        response.data.status === "running"
+          ? `Sending to ${response.data.recipients} recipients — progress updates automatically.`
+          : `Campaign queued for ${response.data.recipients} recipients.`
+      );
       await loadCampaigns();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Campaign could not be sent.");

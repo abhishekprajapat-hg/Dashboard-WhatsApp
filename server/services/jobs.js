@@ -1,17 +1,28 @@
+import Redis from "ioredis";
 import { Queue, Worker, QueueEvents } from "bullmq";
 import { config } from "../config.js";
-import { getRedisClient } from "./cache.js";
 import { callOutboundWebhook } from "./integrations.js";
 import { publishEvent } from "./messageBus.js";
+import { processCampaignRecipient } from "./campaignSender.js";
 
 const queues = new Map();
 const workers = new Map();
 const events = new Map();
 
+// BullMQ's blocking commands require their own connection with maxRetriesPerRequest: null -
+// it must not be shared with services/cache.js's client, which needs bounded retries to fail fast.
+let bullConnection;
+
 function connectionOptions() {
-  const redis = getRedisClient();
-  if (!redis || !config.featureFlags.queueProcessing) return null;
-  return { connection: redis };
+  if (!config.redisUrl || !config.featureFlags.queueProcessing) return null;
+  if (!bullConnection) {
+    bullConnection = new Redis(config.redisUrl, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+    });
+    bullConnection.on("error", (error) => console.warn("BullMQ Redis connection error:", error.message));
+  }
+  return { connection: bullConnection };
 }
 
 export function getQueue(name) {
@@ -46,6 +57,7 @@ export function startWorkers() {
   workers.set("webhooks", new Worker("webhooks", async (job) => callOutboundWebhook(job.data), options));
   workers.set("events", new Worker("events", async (job) => publishEvent(job.name, job.data), options));
   workers.set("maintenance", new Worker("maintenance", async () => ({ ok: true, ranAt: new Date().toISOString() }), options));
+  workers.set("campaigns", new Worker("campaigns", async (job) => processCampaignRecipient(job.data), { ...options, concurrency: 10 }));
 
   for (const [name, worker] of workers) {
     worker.on("failed", (job, error) => console.warn(`Job failed in ${name}:`, job?.id, error.message));
@@ -55,7 +67,7 @@ export function startWorkers() {
 }
 
 export async function queueHealth() {
-  const names = ["webhooks", "events", "maintenance"];
+  const names = ["webhooks", "events", "maintenance", "campaigns"];
   const health = {};
   for (const name of names) {
     const queue = getQueue(name);
