@@ -1,10 +1,71 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
 import { enqueueCampaignRecipients } from "../services/campaignSender.js";
+import { optionalDateString, optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const campaignsRouter = Router();
+
+const audienceFiltersSchema = z
+  .object({
+    audienceType: z.string().optional(),
+    leadStage: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    tagIds: z.array(z.string()).optional(),
+    createdFrom: z.string().optional(),
+    createdTo: z.string().optional(),
+  })
+  .passthrough()
+  .optional()
+  .default({});
+
+const createCampaignSchema = z.object({
+  name: trimmedString("Campaign name is required."),
+  type: z.enum(["template", "bulk", "scheduled", "recurring", "ab_test"]).optional().default("template"),
+  campaignKind: z.string().optional().default("broadcast"),
+  audience: z.string().optional().default("All Contacts"),
+  audienceType: z.string().optional().default("all"),
+  templateId: optionalObjectIdString,
+  templateBId: optionalObjectIdString,
+  status: z.string().optional().default("draft"),
+  scheduledAt: optionalDateString("Scheduled date must be a valid date."),
+  recurring: z.boolean().optional().default(false),
+  recurrence: z.string().optional().default("none"),
+  requireApproval: z.boolean().optional().default(false),
+  rateLimit: z.object({
+    perMinute: z.coerce.number().positive().optional(),
+    batchSize: z.coerce.number().positive().optional(),
+  }).optional().default({}),
+  abTest: z.object({
+    enabled: z.boolean().optional(),
+    split: z.coerce.number().optional(),
+    winnerMetric: z.string().optional(),
+  }).passthrough().optional().default({}),
+  audienceFilters: audienceFiltersSchema,
+  leadStage: z.string().optional().default(""),
+  tags: z.array(z.string()).optional().default([]),
+  tagIds: z.array(z.string()).optional().default([]),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+});
+
+const sendCampaignSchema = z.object({
+  limit: z.coerce.number().positive().optional(),
+  sendNow: z.boolean().optional().default(false),
+});
+
+const campaignActionSchema = z.object({
+  action: z.preprocess(
+    (value) => String(value || "").toLowerCase(),
+    z.enum(["submit_approval", "approve", "reject", "pause", "resume", "cancel", "retry"], {
+      message: "Unsupported campaign action.",
+    })
+  ),
+  reason: z.string().optional(),
+});
 
 function serializeCampaign(campaign) {
   const metrics = campaign.metrics || {};
@@ -346,36 +407,33 @@ campaignsRouter.get("/:id", requirePermission("campaigns:read"), async (req, res
   });
 });
 
-campaignsRouter.post("/", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(createCampaignSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
   const {
     name,
-    type = "template",
-    campaignKind = "broadcast",
-    audience = "All Contacts",
-    audienceType = "all",
+    type,
+    campaignKind,
+    audience,
+    audienceType,
     templateId,
     templateBId,
-    status = "draft",
+    status,
     scheduledAt,
-    recurring = false,
-    recurrence = "none",
-    requireApproval = false,
-    rateLimit = {},
-    abTest = {},
-    audienceFilters: rawAudienceFilters = {},
-    leadStage = "",
-    tags = [],
-    tagIds = [],
+    recurring,
+    recurrence,
+    requireApproval,
+    rateLimit,
+    abTest,
+    audienceFilters: rawAudienceFilters,
+    leadStage,
+    tags,
+    tagIds,
     createdFrom,
     createdTo,
-  } = req.body || {};
-  if (!name?.trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Campaign name is required." });
-  }
+  } = req.body;
 
   const audienceFilters = normalizeAudienceFilters({
     ...rawAudienceFilters,
@@ -446,7 +504,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), async (req, res)
   res.status(201).json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), validateBody(sendCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -573,12 +631,12 @@ campaignsRouter.patch("/:id", requirePermission("campaigns:write"), async (req, 
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), validateBody(campaignActionSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
 
-  const action = String(req.body?.action || "").toLowerCase();
+  const action = req.body.action;
   const campaign = await Campaign.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }).populate("templateId");
   if (!campaign) return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
 

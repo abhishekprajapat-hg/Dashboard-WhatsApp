@@ -1,13 +1,50 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { AutomationFlow, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
-import { encodeCredentials } from "../services/whatsappProvider.js";
 import { formatKeywords, parseKeywords } from "../utils/keywords.js";
 import { relativeTime } from "../utils/serializers.js";
+import { optionalHttpUrlString, optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const automationRouter = Router();
+
+const createFlowSchema = z
+  .object({
+    name: trimmedString("Flow name is required."),
+    description: z.string().optional().default("Automation flow"),
+    trigger: z.string().optional().default("New conversation"),
+    category: z.string().optional().default("General"),
+    status: z.string().optional().default("draft"),
+    actionMessage: z.string().optional().default("Thanks for reaching out. Our team will reply shortly."),
+    keyword: z.string().optional().default(""),
+    triggerType: z.string().optional().default(""),
+    conditions: z.array(z.unknown()).optional().default([]),
+    actions: z.array(z.unknown()).optional().default([]),
+    sendReply: z.boolean().optional().default(true),
+    assignmentUserId: optionalObjectIdString,
+    nextStatus: z.string().optional().default(""),
+    tagName: z.string().optional().default(""),
+    addToCrm: z.boolean().optional().default(false),
+    leadStage: z.string().optional().default("new_lead"),
+    sendToGoogleSheet: z.boolean().optional().default(false),
+    templateId: optionalObjectIdString,
+    callWebhook: z.boolean().optional().default(false),
+    webhookUrl: optionalHttpUrlString(),
+    webhookSecret: z.string().optional().default(""),
+    nodes: z.array(z.unknown()).optional(),
+    edges: z.array(z.unknown()).optional(),
+  })
+  .refine((data) => !data.callWebhook || data.webhookUrl !== "", {
+    message: "Webhook URL is required when the webhook action is enabled.",
+    path: ["webhookUrl"],
+  });
+
+const testFlowSchema = z.object({
+  message: z.string().optional().default(""),
+});
 
 function toClientStatus(status) {
   if (status === "published") return "active";
@@ -148,40 +185,36 @@ automationRouter.get("/", requirePermission("automation:read"), async (req, res)
   });
 });
 
-automationRouter.post("/", requirePermission("automation:write"), async (req, res) => {
+automationRouter.post("/", requirePermission("automation:write"), validateBody(createFlowSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
   const {
     name,
-    description = "Automation flow",
-    trigger = "New conversation",
-    category = "General",
-    status = "draft",
-    actionMessage = "Thanks for reaching out. Our team will reply shortly.",
-    keyword = "",
-    triggerType: incomingTriggerType = "",
-    conditions = [],
-    actions: incomingActions = [],
-    sendReply = true,
-    assignmentUserId = "",
-    nextStatus = "",
-    tagName = "",
-    addToCrm = false,
-    leadStage = "new_lead",
-    sendToGoogleSheet = false,
-    templateId = "",
-    callWebhook = false,
-    webhookUrl = "",
-    webhookSecret = "",
+    description,
+    trigger,
+    category,
+    status,
+    actionMessage,
+    keyword,
+    triggerType: incomingTriggerType,
+    conditions,
+    actions: incomingActions,
+    sendReply,
+    assignmentUserId,
+    nextStatus,
+    tagName,
+    addToCrm,
+    leadStage,
+    sendToGoogleSheet,
+    templateId,
+    callWebhook,
+    webhookUrl,
+    webhookSecret,
     nodes: visualNodes,
     edges: visualEdges,
-  } = req.body || {};
-
-  if (!name?.trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Flow name is required." });
-  }
+  } = req.body;
 
   const triggerType = normalizeTriggerType(incomingTriggerType || trigger);
   const keywords = parseKeywords(keyword);
@@ -345,7 +378,7 @@ automationRouter.patch("/:id", requirePermission("automation:write"), async (req
   res.json({ data: serializeFlow(flow) });
 });
 
-automationRouter.post("/:id/test", requirePermission("automation:write"), async (req, res) => {
+automationRouter.post("/:id/test", requirePermission("automation:write"), validateBody(testFlowSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
@@ -416,22 +449,15 @@ automationRouter.post("/:id/test", requirePermission("automation:write"), async 
     conversation.lastMessageId = message._id;
     await conversation.save();
 
-    const localAccount = account.toObject();
-    localAccount.encryptedCredentials = encodeCredentials({
-      provider: account.provider || "meta",
-      accessToken: "local-placeholder-token",
-      authToken: "local-placeholder-token",
-      apiKey: "local-placeholder-token",
-    });
-
     const results = await runInboundAutomations({
-      account: localAccount,
+      account,
       contact,
       conversation,
       inboundMessage: message,
       isNewConversation: true,
       isNewLead: true,
       flowId: flow._id,
+      testMode: true,
     });
 
     const matched = results.some((result) => result.flowId === flow._id.toString());

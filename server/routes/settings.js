@@ -1,12 +1,35 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { Role, Template, WhatsAppAccount, Workspace } from "../models/index.js";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { roleDefinitions } from "../utils/rbac.js";
+import { httpUrlString, optionalHttpUrlString } from "../utils/zodHelpers.js";
 import { callOutboundWebhook } from "../services/integrations.js";
 import { credentialSummary } from "../services/whatsappProvider.js";
 
 export const settingsRouter = Router();
+
+const webhookConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  url: optionalHttpUrlString(),
+  secret: z.string().optional().default(""),
+});
+
+const integrationsSchema = z.object({
+  outboundWebhook: webhookConfigSchema.optional().default({}),
+  googleSheets: z.object({
+    enabled: z.boolean().optional().default(false),
+    webhookUrl: optionalHttpUrlString(),
+    secret: z.string().optional().default(""),
+  }).optional().default({}),
+});
+
+const testWebhookSchema = z.object({
+  url: httpUrlString(),
+  secret: z.string().optional().default(""),
+});
 
 settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1) {
@@ -63,7 +86,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
   });
 });
 
-settingsRouter.put("/integrations", requirePermission("settings:write"), async (req, res) => {
+settingsRouter.put("/integrations", requirePermission("settings:write"), validateBody(integrationsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -74,19 +97,10 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), async (
   }
 
   const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
-  const incoming = req.body || {};
   const integrations = {
     ...(settings.integrations || {}),
-    outboundWebhook: {
-      enabled: Boolean(incoming.outboundWebhook?.enabled),
-      url: String(incoming.outboundWebhook?.url || "").trim(),
-      secret: String(incoming.outboundWebhook?.secret || ""),
-    },
-    googleSheets: {
-      enabled: Boolean(incoming.googleSheets?.enabled),
-      webhookUrl: String(incoming.googleSheets?.webhookUrl || "").trim(),
-      secret: String(incoming.googleSheets?.secret || ""),
-    },
+    outboundWebhook: req.body.outboundWebhook,
+    googleSheets: req.body.googleSheets,
   };
 
   currentWorkspace.settings = { ...settings, integrations };
@@ -96,15 +110,12 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), async (
   res.json({ integrations });
 });
 
-settingsRouter.post("/integrations/test-webhook", requirePermission("settings:write"), async (req, res) => {
-  const { url = "", secret = "" } = req.body || {};
-  if (!String(url).trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Webhook URL is required." });
-  }
+settingsRouter.post("/integrations/test-webhook", requirePermission("settings:write"), validateBody(testWebhookSchema), async (req, res) => {
+  const { url, secret } = req.body;
 
   const result = await callOutboundWebhook({
     workspaceId: req.user.workspaceId,
-    url: String(url).trim(),
+    url,
     secret,
     event: "integration.test",
     payload: {

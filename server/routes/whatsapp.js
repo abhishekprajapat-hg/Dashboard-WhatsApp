@@ -1,6 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { config } from "../config.js";
 import {
   Campaign,
@@ -13,7 +14,9 @@ import {
   WhatsAppAccount,
 } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
+import { trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
@@ -259,34 +262,41 @@ whatsappRouter.get("/console", requirePermission("settings:read"), async (req, r
   });
 });
 
-whatsappRouter.post("/accounts", requirePermission("settings:write"), async (req, res) => {
+const connectAccountSchema = z.object({
+  provider: z.preprocess(
+    (value) => String(value || "meta").toLowerCase(),
+    z.enum(["meta", "twilio", "wati"], { message: "Provider must be Meta, Twilio, or Wati." })
+  ),
+  displayName: trimmedString("Display name is required."),
+  phoneNumber: trimmedString("Phone number is required."),
+  phoneNumberId: trimmedString("Phone number ID is required."),
+  businessAccountId: trimmedString("Business account ID is required."),
+  accessToken: z.string().optional().default("local-placeholder-token"),
+  accountSid: z.string().optional().default(""),
+  authToken: z.string().optional().default(""),
+  apiKey: z.string().optional().default(""),
+  apiBaseUrl: z.string().optional().default(""),
+  tenantId: z.string().optional().default(""),
+  verifyToken: z.string().optional().default(""),
+  appSecret: z.string().optional().default(""),
+});
+
+whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBody(connectAccountSchema), async (req, res) => {
   const {
-    provider = "meta",
+    provider: providerKey,
     displayName,
     phoneNumber,
     phoneNumberId,
     businessAccountId,
-    accessToken = "local-placeholder-token",
-    accountSid = "",
-    authToken = "",
-    apiKey = "",
-    apiBaseUrl = "",
-    tenantId = "",
-    verifyToken = "",
-    appSecret = "",
-  } = req.body || {};
-
-  const providerKey = String(provider || "meta").toLowerCase();
-  if (!["meta", "twilio", "wati"].includes(providerKey)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Provider must be Meta, Twilio, or Wati." });
-  }
-
-  if (!displayName || !phoneNumber || !phoneNumberId || !businessAccountId) {
-    return res.status(400).json({
-      error: "VALIDATION_ERROR",
-      message: "Display name, phone number, phone number ID, and business account ID are required.",
-    });
-  }
+    accessToken,
+    accountSid,
+    authToken,
+    apiKey,
+    apiBaseUrl,
+    tenantId,
+    verifyToken,
+    appSecret,
+  } = req.body;
 
   const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
   const existingCredentials = existingAccount ? decodeCredentials(existingAccount) : {};

@@ -1,13 +1,20 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { config } from "../config.js";
 import { demoUser, demoWorkspace } from "../data/demoData.js";
+import { validateBody } from "../middleware/validate.js";
 import { Membership, Role, User, Workspace } from "../models/index.js";
 import { verifyPassword } from "../utils/password.js";
 import { serializeUser, serializeWorkspace, signSession } from "../utils/session.js";
 
 export const authRouter = Router();
+
+const loginSchema = z.object({
+  email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
+  password: z.string().min(1, "Password is required."),
+});
 
 async function buildSessionForUser(user, workspaceId = "") {
   const filter = { userId: user._id, status: "active" };
@@ -69,12 +76,8 @@ authRouter.get("/me", async (req, res) => {
   res.json(session);
 });
 
-authRouter.post("/login", async (req, res) => {
-  const { email, password } = req.body || {};
-
-  if (!email || !password) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Email and password are required." });
-  }
+authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
+  const { email, password } = req.body;
 
   if (mongoose.connection.readyState === 1) {
     const user = await User.findOne({ email: email.toLowerCase(), status: "active" });
