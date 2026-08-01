@@ -50,6 +50,29 @@ These surfaced from actually running the code end-to-end, not from reading it:
 - **A live Upstash Redis instance is configured in `server/.env`** (`REDIS_URL`, gitignored, not in this repo). The token was rotated once already this session after being pasted in chat — if it needs rotating again, that's a one-click "Reset Credentials" in the Upstash console's Settings tab for the `regular-longhorn-109637` database, no data loss.
 - **Local dev loop**: start `mongod` as a background process (`mongod.exe --dbpath <repo>/.mongo-data --bind_ip 127.0.0.1 --port 27017`), run `node scripts/seed.js` in `server/` for a base workspace (`admin@test.com` / `123456`), then `node index.js` in `server/` and `npm run dev` (or the root `npm run dev:full`) for the client. To stop `mongod` cleanly, OS-level `Stop-Process` was unreliable in this sandbox (access denied on the process); use a Mongo-native shutdown instead: connect with the driver and run `admin().command({shutdown: 1, force: true})`.
 
+## Deployment (as of 2026-08-01)
+
+Production (`dashboard.nemnidhi.com`) runs on a Hostinger KVM1 VPS at `/opt/dashboard-whatsapp`,
+as a git clone (not Docker — the VPS has no Docker installed, despite `docker-compose.yml`/
+`Dockerfile` existing in this repo for local dev). The API runs under PM2 as the `dashboard` Linux
+user, process name `dashboard-api`, port 4000; nginx (`/etc/nginx/sites-available/dashboard-nemnidhi`,
+**not** `infra/nginx/default.conf` — that file is only for the Docker Compose setup) serves
+`client/dist` as static files and proxies `/api/`, `/webhooks/`, `/legal/`, `/socket.io/`, `/health`
+to the API.
+
+Deploys are automatic: `scripts/deploy-vps.sh` runs via cron every 5 minutes as the `dashboard`
+user, polling `origin/main` and deploying if there's a new commit — pulls, conditionally runs
+`npm install` (only if `package.json`/`package-lock.json` changed) and always `npm run build`,
+restarts PM2 only if anything under `server/` changed. It tracks the last successfully deployed
+commit in `.last-deploy-sha` (gitignored) rather than trusting git's HEAD, so a failed build gets
+retried on the next tick instead of being silently treated as deployed.
+
+This exists because production was found to be running a commit from **July 6** — 13 commits
+behind `main`, missing this entire session's work — because deploys had been entirely manual and
+nobody was checking. That caused a real production bug (campaigns crashing on send via a
+`ConflictingUpdateOperators` error in `crm.js` that was already fixed on `main`) to go unnoticed on
+live customer traffic. If this cron job stops running, that kind of silent drift is the risk.
+
 ## What's not done
 
 From the original 5-item list, everything is done at the agreed scope, and all three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now queued. Known remaining gaps, roughly in the order they'd matter:
