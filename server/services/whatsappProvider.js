@@ -7,8 +7,7 @@ import { saveMediaBuffer, uploadRoot } from "./mediaStorage.js";
 const encryptedCredentialPrefix = "v1";
 
 function credentialEncryptionKey() {
-  const secret = process.env.WHATSAPP_CREDENTIAL_SECRET || process.env.CREDENTIAL_ENCRYPTION_KEY || config.jwtSecret;
-  return crypto.createHash("sha256").update(secret).digest();
+  return crypto.createHash("sha256").update(config.credentialEncryptionSecret).digest();
 }
 
 function decodeStoredCredentials(stored = "") {
@@ -202,7 +201,11 @@ function primaryCredential(credentials = {}) {
 
 function isLocalCredential(credentials = {}) {
   const value = primaryCredential(credentials);
-  return !value || value === "local-placeholder-token" || value.startsWith("local-");
+  // Exact match only - this is the literal sentinel the "connect WhatsApp account" flow
+  // (routes/whatsapp.js) writes when no token is supplied. A broader startsWith("local-") prefix
+  // check would misclassify - and silently never send - any real token that happens to start
+  // with those characters.
+  return !value || value === "local-placeholder-token";
 }
 
 function normalizeRecipient(phone = "") {

@@ -15,6 +15,9 @@ export const config = {
   mongoUri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/whatscrm",
   jwtSecret: process.env.JWT_SECRET || "dev-only-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "15m",
+  // Deliberately independent of jwtSecret: rotating the JWT secret (a routine security practice)
+  // must never make previously-encrypted WhatsApp credentials permanently undecryptable.
+  credentialEncryptionSecret: process.env.WHATSAPP_CREDENTIAL_SECRET || process.env.CREDENTIAL_ENCRYPTION_KEY || "dev-only-credential-secret-change-me",
   metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || "v21.0",
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "local-whatsapp-verify-token",
   demoMode: process.env.DEMO_MODE !== "false",
@@ -52,6 +55,11 @@ export function validateProductionConfig() {
     missing.push("JWT_SECRET");
   } else if (config.jwtSecret.length < 32) {
     missing.push("JWT_SECRET (minimum 32 characters)");
+  }
+  if (!process.env.WHATSAPP_CREDENTIAL_SECRET && !process.env.CREDENTIAL_ENCRYPTION_KEY) {
+    missing.push("WHATSAPP_CREDENTIAL_SECRET (or CREDENTIAL_ENCRYPTION_KEY)");
+  } else if (config.credentialEncryptionSecret.length < 32) {
+    missing.push("WHATSAPP_CREDENTIAL_SECRET (minimum 32 characters)");
   }
   if (!process.env.MONGODB_URI) missing.push("MONGODB_URI");
   if (config.s3.enabled && !config.s3.bucket) missing.push("S3_BUCKET");
