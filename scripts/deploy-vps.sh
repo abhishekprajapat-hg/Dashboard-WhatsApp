@@ -17,7 +17,15 @@ cd "$(dirname "$0")/.."
 
 MARKER=".last-deploy-sha"
 LOG="$(pwd)/deploy.log"
+LOCKFILE="$(pwd)/.deploy.lock"
 PM2_APP=dashboard-api
+
+# A build can take longer than the 5-minute cron interval, and this script also gets run
+# manually sometimes - without a lock, an overlapping run would race the first one on the same
+# git checkout/build/pm2 restart. If another instance already holds the lock, just skip this
+# tick; the next one will pick up wherever things stand.
+exec 200>"$LOCKFILE"
+flock -n 200 || exit 0
 
 git fetch origin main --quiet
 REMOTE_SHA=$(git rev-parse origin/main)

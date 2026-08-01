@@ -26,8 +26,9 @@ pnpm-debug.log*
 .mongo-data/
 server/uploads/
 
-# deploy state (written on the VPS by scripts/deploy-vps.sh)
+# deploy state (written on the VPS by scripts/deploy-vps.sh; deploy.log is covered by *.log above)
 .last-deploy-sha
+.deploy.lock
 
 # OS/editor
 .DS_Store
