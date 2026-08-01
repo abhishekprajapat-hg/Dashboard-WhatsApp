@@ -3,15 +3,18 @@ import {
   AutomationFlow,
   Contact,
   Conversation,
-  Message,
   Tag,
   Template,
 } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
+import {
+  enqueueAutomationSendMessage,
+  enqueueAutomationWebhookAction,
+  processAutomationSendMessage,
+  processAutomationWebhookAction,
+} from "./automationSender.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { syncLeadToGoogleSheet } from "./googleSheets.js";
-import { callOutboundWebhook } from "./integrations.js";
-import { sendWhatsAppText } from "./whatsappProvider.js";
 import { keywordMatches, parseKeywords } from "../utils/keywords.js";
 
 const maxActionsPerFlow = 20;
@@ -74,6 +77,7 @@ export async function runInboundAutomations({
   isNewLead = false,
   stageChanged = false,
   flowId,
+  testMode = false,
 }) {
   if (!account || !contact || !conversation || !inboundMessage) return [];
   if (inboundMessage.direction === "outbound" || inboundMessage.metadata?.automationGenerated) return [];
@@ -113,48 +117,35 @@ export async function runInboundAutomations({
       }
       if (!body) continue;
 
-      let providerResult;
-      try {
-        providerResult = await sendWhatsAppText({
-          account,
-          to: contact.phone,
-          body,
-        });
-      } catch (error) {
-        providerResult = {
-          providerMessageId: `failed_automation_${flow._id}_${Date.now()}`,
-          status: "failed",
-          mode: "meta",
-          error,
-        };
-      }
-
-      const outboundMessage = await Message.create({
-        organizationId: account.organizationId,
-        workspaceId: account.workspaceId,
-        conversationId: conversation._id,
-        contactId: contact._id,
-        whatsappAccountId: account._id,
-        direction: "outbound",
-        type: "text",
+      const sendData = {
+        flowId: flow._id.toString(),
+        flowName: flow.name,
+        nodeId: node.id,
+        accountId: account._id.toString(),
+        workspaceId: account.workspaceId.toString(),
+        organizationId: account.organizationId.toString(),
+        contactId: contact._id.toString(),
+        conversationId: conversation._id.toString(),
         body,
-        providerMessageId: providerResult.providerMessageId,
-        status: providerResult.status,
-        sentAt: new Date(),
-        metadata: {
-          automationFlowId: flow._id,
-          automationFlowName: flow.name,
-          automationGenerated: true,
-          providerMode: providerResult.mode,
-          ...(providerResult.error ? { error: providerResult.error.message } : {}),
-        },
-      });
+        testMode,
+      };
 
-      conversation.lastMessageId = outboundMessage._id;
-      conversation.lastMessageAt = outboundMessage.sentAt;
-      await Contact.updateOne({ _id: contact._id }, { lastMessageAt: outboundMessage.sentAt });
-      flowResult.actions.push({ type: "send_message", messageId: outboundMessage._id.toString(), status: providerResult.status });
-      appendRunLog(flowResult, providerResult.status === "failed" ? "error" : "info", "WhatsApp message action completed", { nodeId: node.id, status: providerResult.status });
+      try {
+        if (testMode) {
+          // Flow tests need the real, immediate outcome in the response, not a queued placeholder -
+          // and queuing here would race the /test route's cleanup of its scaffolding contact/conversation.
+          const result = await processAutomationSendMessage(sendData);
+          flowResult.actions.push({ type: "send_message", messageId: result.messageId, status: result.status });
+          appendRunLog(flowResult, result.status === "failed" ? "error" : "info", "WhatsApp message action completed", { nodeId: node.id, status: result.status });
+        } else {
+          const { mode } = await enqueueAutomationSendMessage(sendData);
+          flowResult.actions.push({ type: "send_message", status: "queued" });
+          appendRunLog(flowResult, "info", "WhatsApp message action queued", { nodeId: node.id, mode });
+        }
+      } catch (error) {
+        flowResult.actions.push({ type: "send_message", status: "failed", error: error.message });
+        appendRunLog(flowResult, "error", "WhatsApp message action failed to queue", { nodeId: node.id, error: error.message });
+      }
     }
 
     for (const node of actionNodes(flow, "assign_user")) {
@@ -239,21 +230,34 @@ export async function runInboundAutomations({
     }
 
     for (const node of actionNodes(flow, "call_webhook")) {
+      const webhookData = {
+        flowId: flow._id.toString(),
+        nodeId: node.id,
+        workspaceId: account.workspaceId.toString(),
+        url: node?.config?.url,
+        secret: node?.config?.secret,
+        event: node?.config?.event || "automation.triggered",
+        payload: {
+          flow: { id: flow._id.toString(), name: flow.name },
+          contact: { id: contact._id.toString(), name: contact.name, phone: contact.phone, email: contact.email || "" },
+          conversation: { id: conversation._id.toString(), status: conversation.status },
+          inboundMessage: { id: inboundMessage._id.toString(), body: inboundMessage.body || "" },
+        },
+        testMode,
+      };
+
       try {
-        const webhookResult = await callOutboundWebhook({
-          workspaceId: account.workspaceId,
-          url: node?.config?.url,
-          secret: node?.config?.secret,
-          event: node?.config?.event || "automation.triggered",
-          payload: {
-            flow: { id: flow._id.toString(), name: flow.name },
-            contact: { id: contact._id.toString(), name: contact.name, phone: contact.phone, email: contact.email || "" },
-            conversation: { id: conversation._id.toString(), status: conversation.status },
-            inboundMessage: { id: inboundMessage._id.toString(), body: inboundMessage.body || "" },
-          },
-        });
-        flowResult.actions.push({ type: "call_webhook", status: webhookResult.skipped ? "skipped" : "sent" });
-        appendRunLog(flowResult, "info", "Webhook action completed", { nodeId: node.id, status: webhookResult.skipped ? "skipped" : "sent" });
+        if (testMode) {
+          // Same reasoning as send_message: a flow test should surface the real delivery outcome
+          // immediately, not a queued placeholder.
+          const result = await processAutomationWebhookAction(webhookData);
+          flowResult.actions.push({ type: "call_webhook", status: result.status });
+          appendRunLog(flowResult, "info", "Webhook action completed", { nodeId: node.id, status: result.status });
+        } else {
+          const { mode } = await enqueueAutomationWebhookAction(webhookData);
+          flowResult.actions.push({ type: "call_webhook", status: "queued" });
+          appendRunLog(flowResult, "info", "Webhook action queued", { nodeId: node.id, mode });
+        }
       } catch (error) {
         flowResult.actions.push({ type: "call_webhook", status: "failed", error: error.message });
         appendRunLog(flowResult, "error", "Webhook action failed", { nodeId: node.id, error: error.message });

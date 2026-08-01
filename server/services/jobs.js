@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { callOutboundWebhook } from "./integrations.js";
 import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
+import { processAutomationSendMessage, processAutomationWebhookAction } from "./automationSender.js";
 
 const queues = new Map();
 const workers = new Map();
@@ -58,6 +59,11 @@ export function startWorkers() {
   workers.set("events", new Worker("events", async (job) => publishEvent(job.name, job.data), options));
   workers.set("maintenance", new Worker("maintenance", async () => ({ ok: true, ranAt: new Date().toISOString() }), options));
   workers.set("campaigns", new Worker("campaigns", async (job) => processCampaignRecipient(job.data), { ...options, concurrency: 10 }));
+  workers.set("automations", new Worker(
+    "automations",
+    async (job) => (job.name === "automation.call-webhook" ? processAutomationWebhookAction(job.data) : processAutomationSendMessage(job.data)),
+    { ...options, concurrency: 10 }
+  ));
 
   for (const [name, worker] of workers) {
     worker.on("failed", (job, error) => console.warn(`Job failed in ${name}:`, job?.id, error.message));
@@ -67,7 +73,7 @@ export function startWorkers() {
 }
 
 export async function queueHealth() {
-  const names = ["webhooks", "events", "maintenance", "campaigns"];
+  const names = ["webhooks", "events", "maintenance", "campaigns", "automations"];
   const health = {};
   for (const name of names) {
     const queue = getQueue(name);
