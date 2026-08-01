@@ -36,10 +36,32 @@ interface ChatWindowProps {
   onLoadOlder: () => void;
 }
 
-function dateLabel(index: number, total: number) {
-  if (index === 0) return "Today";
-  if (total > 10 && index === Math.floor(total / 2)) return "Yesterday";
-  return "";
+function messageDate(message?: WhatsAppMessage) {
+  const raw = message?.sentAt || message?.receivedAt || message?.createdAt;
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateLabel(message: WhatsAppMessage, previous?: WhatsAppMessage) {
+  const date = messageDate(message);
+  if (!date) return "";
+
+  const previousDate = messageDate(previous);
+  if (previousDate && previousDate.toDateString() === date.toDateString()) return "";
+
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return "Today";
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
 }
 
 export function ChatWindow({
@@ -169,7 +191,7 @@ export function ChatWindow({
       <div ref={scrollRef} className="relative z-10 no-scrollbar min-h-0 flex-1 overflow-y-auto px-1 py-4" onScroll={handleScroll}>
         <AnimatePresence initial={false}>
           {filteredMessages.map((message, index) => {
-            const label = dateLabel(index, filteredMessages.length);
+            const label = dateLabel(message, filteredMessages[index - 1]);
             const replyLabel = message.replyToMessageId
               ? messages.find((item) => item.id === message.replyToMessageId)?.content || "Reply"
               : "";
