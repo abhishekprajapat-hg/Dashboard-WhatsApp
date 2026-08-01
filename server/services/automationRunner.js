@@ -8,13 +8,14 @@ import {
 } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import {
+  enqueueAutomationGoogleSheetAction,
   enqueueAutomationSendMessage,
   enqueueAutomationWebhookAction,
+  processAutomationGoogleSheetAction,
   processAutomationSendMessage,
   processAutomationWebhookAction,
 } from "./automationSender.js";
 import { ensureConversationInCrm } from "./crm.js";
-import { syncLeadToGoogleSheet } from "./googleSheets.js";
 import { keywordMatches, parseKeywords } from "../utils/keywords.js";
 
 const maxActionsPerFlow = 20;
@@ -212,17 +213,36 @@ export async function runInboundAutomations({
     }
 
     for (const node of actionNodes(flow, "google_sheets")) {
+      // The CRM lookup/creation stays synchronous - it's a fast local write, matching the other
+      // CRM actions above. Only the actual Apps Script HTTP call is queued below.
+      const crmResult = await ensureConversationInCrm({
+        contact,
+        conversation,
+        inboundMessage,
+        source: node?.config?.source || "automation",
+        stage: node?.config?.stage || "new_lead",
+      });
+      const sheetData = {
+        flowId: flow._id.toString(),
+        nodeId: node.id,
+        workspaceId: account.workspaceId.toString(),
+        contactId: (crmResult.contact || contact)._id.toString(),
+        conversationId: conversation._id.toString(),
+        inboundMessageId: inboundMessage._id.toString(),
+        leadId: crmResult.lead?._id?.toString() || "",
+        testMode,
+      };
+
       try {
-        const crmResult = await ensureConversationInCrm({
-          contact,
-          conversation,
-          inboundMessage,
-          source: node?.config?.source || "automation",
-          stage: node?.config?.stage || "new_lead",
-        });
-        const sheetResult = await syncLeadToGoogleSheet({ contact: crmResult.contact || contact, conversation, message: inboundMessage, lead: crmResult.lead });
-        flowResult.actions.push({ type: "google_sheets", status: sheetResult.skipped ? "skipped" : "synced" });
-        appendRunLog(flowResult, "info", "Google Sheets action completed", { nodeId: node.id, status: sheetResult.skipped ? "skipped" : "synced" });
+        if (testMode) {
+          const result = await processAutomationGoogleSheetAction(sheetData);
+          flowResult.actions.push({ type: "google_sheets", status: result.status });
+          appendRunLog(flowResult, "info", "Google Sheets action completed", { nodeId: node.id, status: result.status });
+        } else {
+          const { mode } = await enqueueAutomationGoogleSheetAction(sheetData);
+          flowResult.actions.push({ type: "google_sheets", status: "queued" });
+          appendRunLog(flowResult, "info", "Google Sheets action queued", { nodeId: node.id, mode });
+        }
       } catch (error) {
         flowResult.actions.push({ type: "google_sheets", status: "failed", error: error.message });
         appendRunLog(flowResult, "error", "Google Sheets action failed", { nodeId: node.id, error: error.message });

@@ -210,8 +210,9 @@ export async function ensureConversationInCrm({
         contactId: contact._id,
         firstMessage,
         firstMessageAt: inboundMessage?.receivedAt || now,
-        status: "open",
-        providerMessageId: providerMessageId || undefined,
+        // status and providerMessageId are intentionally not set here - $set below always
+        // computes both identically regardless of insert-vs-update, and Mongo rejects
+        // $setOnInsert and $set writing the same path in one update.
         syncStatus: {
           googleSheet: {
             status: "pending",

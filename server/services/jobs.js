@@ -4,7 +4,11 @@ import { config } from "../config.js";
 import { callOutboundWebhook } from "./integrations.js";
 import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
-import { processAutomationSendMessage, processAutomationWebhookAction } from "./automationSender.js";
+import {
+  processAutomationGoogleSheetAction,
+  processAutomationSendMessage,
+  processAutomationWebhookAction,
+} from "./automationSender.js";
 
 const queues = new Map();
 const workers = new Map();
@@ -59,9 +63,14 @@ export function startWorkers() {
   workers.set("events", new Worker("events", async (job) => publishEvent(job.name, job.data), options));
   workers.set("maintenance", new Worker("maintenance", async () => ({ ok: true, ranAt: new Date().toISOString() }), options));
   workers.set("campaigns", new Worker("campaigns", async (job) => processCampaignRecipient(job.data), { ...options, concurrency: 10 }));
+  const automationProcessors = {
+    "automation.call-webhook": processAutomationWebhookAction,
+    "automation.google-sheets": processAutomationGoogleSheetAction,
+    "automation.send-message": processAutomationSendMessage,
+  };
   workers.set("automations", new Worker(
     "automations",
-    async (job) => (job.name === "automation.call-webhook" ? processAutomationWebhookAction(job.data) : processAutomationSendMessage(job.data)),
+    async (job) => (automationProcessors[job.name] || processAutomationSendMessage)(job.data),
     { ...options, concurrency: 10 }
   ));
 

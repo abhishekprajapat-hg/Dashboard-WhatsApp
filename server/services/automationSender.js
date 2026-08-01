@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
-import { AutomationFlow, Contact, Conversation, Message, WhatsAppAccount } from "../models/index.js";
+import { AutomationFlow, Contact, Conversation, Lead, Message, WhatsAppAccount } from "../models/index.js";
 import { callOutboundWebhook } from "./integrations.js";
+import { syncLeadToGoogleSheet } from "./googleSheets.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
 import { encodeCredentials, sendWhatsAppText } from "./whatsappProvider.js";
@@ -8,6 +9,7 @@ import { encodeCredentials, sendWhatsAppText } from "./whatsappProvider.js";
 const AUTOMATION_QUEUE = "automations";
 const AUTOMATION_SEND_JOB = "automation.send-message";
 const AUTOMATION_WEBHOOK_JOB = "automation.call-webhook";
+const AUTOMATION_GOOGLE_SHEETS_JOB = "automation.google-sheets";
 
 // Enqueues the actual WhatsApp send for one automation action, decoupling it from the inbound
 // webhook request (which today blocks on it) and picking up BullMQ's retry/backoff on failure.
@@ -152,6 +154,62 @@ export async function processAutomationWebhookAction(data) {
         $push: {
           "trigger.executionLogs": {
             $each: [{ at: new Date(), level: "error", message: "Webhook action failed", nodeId, error: error.message }],
+            $slice: -100,
+          },
+        },
+      }
+    );
+    throw error;
+  }
+}
+
+// Enqueues the Google Sheet sync for one automation action. Only the actual outbound HTTP call to
+// the Apps Script webhook is deferred - the CRM lead lookup/creation that feeds it stays
+// synchronous in automationRunner.js, matching the other CRM actions (add_to_crm, lead_stage),
+// since that part is a fast local write, not the slow/failure-prone external call.
+// Falls back to processing inline when Redis/BullMQ isn't available, e.g. local dev.
+export async function enqueueAutomationGoogleSheetAction(data) {
+  const result = await enqueueJob(AUTOMATION_QUEUE, AUTOMATION_GOOGLE_SHEETS_JOB, data, {});
+  if (result.queued) return { mode: "queued" };
+  await processAutomationGoogleSheetAction(data);
+  return { mode: "inline" };
+}
+
+export async function processAutomationGoogleSheetAction(data) {
+  const { flowId, nodeId, workspaceId, contactId, conversationId, inboundMessageId, leadId, testMode } = data;
+
+  const [contact, conversation, message, lead] = await Promise.all([
+    Contact.findOne({ _id: contactId, workspaceId }),
+    Conversation.findOne({ _id: conversationId, workspaceId }),
+    inboundMessageId ? Message.findOne({ _id: inboundMessageId, workspaceId }) : Promise.resolve(null),
+    leadId ? Lead.findOne({ _id: leadId, workspaceId }) : Promise.resolve(null),
+  ]);
+
+  try {
+    const result = await syncLeadToGoogleSheet({ contact, conversation, message, lead });
+    const status = result.skipped ? "skipped" : "synced";
+    await AutomationFlow.updateOne(
+      { _id: flowId },
+      {
+        $push: {
+          "trigger.executionLogs": {
+            $each: [{ at: new Date(), level: "info", message: "Google Sheets action completed", nodeId, status }],
+            $slice: -100,
+          },
+        },
+      }
+    );
+    return { status };
+  } catch (error) {
+    await AutomationFlow.updateOne(
+      { _id: flowId },
+      {
+        // See the matching note in processAutomationSendMessage - testMode's failure is already
+        // counted by runInboundAutomations' own run-level aggregate.
+        $inc: { "trigger.failures": testMode ? 0 : 1 },
+        $push: {
+          "trigger.executionLogs": {
+            $each: [{ at: new Date(), level: "error", message: "Google Sheets action failed", nodeId, error: error.message }],
             $slice: -100,
           },
         },
