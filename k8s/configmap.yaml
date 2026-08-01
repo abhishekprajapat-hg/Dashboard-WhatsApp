@@ -10,3 +10,5 @@ data:
   OTEL_SERVICE_NAME: whatscrm-api
   FEATURE_QUEUE_PROCESSING: "true"
   FEATURE_ZERO_DOWNTIME_MODE: "true"
+  PUBLIC_BASE_URL: https://dashboard.nemnidhi.com
+  CORS_ORIGINS: https://dashboard.nemnidhi.com

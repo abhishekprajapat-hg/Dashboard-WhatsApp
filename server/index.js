@@ -21,6 +21,7 @@ import { teamRouter } from "./routes/team.js";
 import { templatesRouter } from "./routes/templates.js";
 import { mediaRouter } from "./routes/media.js";
 import { infrastructureRouter } from "./routes/infrastructure.js";
+import { legalRouter } from "./routes/legal.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { eventsRouter } from "./realtime/events.js";
@@ -78,6 +79,7 @@ app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", metricsContentType());
   res.send(await metricsText());
 });
+app.use("/legal", legalRouter);
 
 app.use("/api/auth", authRouter);
 app.use("/api/analytics", requireAuth, requireWorkspaceContext, analyticsRouter);

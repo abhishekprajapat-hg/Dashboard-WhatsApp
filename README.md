@@ -86,7 +86,7 @@ For `NODE_ENV=production`, the server validates secure required settings at star
 - `JWT_SECRET` must be set and at least 32 characters.
 - `S3_BUCKET` must be set when `MEDIA_STORAGE_DRIVER=s3`.
 
-Set `PUBLIC_BASE_URL` to the public API origin used for webhook/media URLs, and set `CORS_ORIGINS` to the allowed frontend origins, comma-separated.
+Set `PUBLIC_BASE_URL` to the public API origin used for webhook/media URLs, and set `CORS_ORIGINS` to the allowed frontend origins, comma-separated. Production values: `PUBLIC_BASE_URL=https://dashboard.nemnidhi.com`, `CORS_ORIGINS=https://dashboard.nemnidhi.com`.
 
 ### WhatsApp Cloud API connection
 
@@ -96,7 +96,11 @@ Admins can add Meta WhatsApp Cloud API credentials from **Settings -> WhatsApp**
 npm run connect:whatsapp --workspace server
 ```
 
-Use `/webhooks/whatsapp` as the Meta callback URL. If `WHATSAPP_APP_SECRET` or the dashboard app secret is configured, inbound Meta webhooks must include a valid `X-Hub-Signature-256` header.
+Use `/webhooks/whatsapp` as the Meta callback URL — in production that's `https://dashboard.nemnidhi.com/webhooks/whatsapp`. If `WHATSAPP_APP_SECRET` or the dashboard app secret is configured, inbound Meta webhooks must include a valid `X-Hub-Signature-256` header.
+
+### Meta App Review
+
+`/legal/terms-of-service` and `/legal/data-deletion` (served publicly, no auth, by `server/routes/legal.js`) plus the existing `https://www.nemnidhi.com/about` page cover the three URLs Meta's Basic Settings requires before an app can be submitted for review. See [`docs/META_APP_REVIEW.md`](./docs/META_APP_REVIEW.md) for the full submission checklist and permission justification text.
 
 ## Real MongoDB Setup
 
