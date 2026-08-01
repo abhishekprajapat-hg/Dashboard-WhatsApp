@@ -3,7 +3,7 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work this session pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `36dff66`
+**HEAD as of this handoff:** `1cb1f5e`
 
 ## What this session did
 
@@ -16,6 +16,7 @@ Starting point was a production audit (in conversation, not a file) that flagged
 5. **`c0efe2b`** — TypeScript checking added to the client (`client/tsconfig.json`, `tsc --noEmit` baked into `client/package.json`'s `build` script itself, not just a side CI step). There was **no tsconfig and no `typescript` package at all** before this despite 84 `.tsx`/`.ts` files.
 6. **`e740dd8`** — `npm test` wired into CI (it existed but was never actually run there). Added webhook HMAC signature verification tests (zero prior coverage) and a real integration suite for campaign create → send → pause (spawns the actual server as a child process against a test DB, not mocked).
 7. **`36dff66`** — The last unqueued automation action, `google_sheets`, wired through BullMQ the same way as `call_webhook`. Only the outbound Apps Script HTTP call is deferred; the CRM lead lookup/creation stays synchronous (fast local write, same as `add_to_crm`/`lead_stage`). All three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now consistently queued — nothing left unqueued in the inbound-automation critical path.
+8. **`1cb1f5e`** — All `npm audit` vulnerabilities fixed, 13 → 0. Most were safe patches or version pins blocking an otherwise in-range fix. Two needed real judgment calls rather than a blind `--force`: `react-router` turned out to be declared but never actually imported anywhere in the client (this SPA does its own view switching), so it was removed outright rather than upgraded; `@opentelemetry/sdk-node`/`auto-instrumentations-node` (a real, used, opt-in feature) were upgraded and verified by actually booting the server with `OTEL_ENABLED=true`, not just confirming the default-disabled path still works.
 
 Full detail, including *why* each change was made, is in the commit messages — they're written to be read, not just skimmed.
 
@@ -56,7 +57,6 @@ From the original 5-item list, everything is done at the agreed scope, and all t
 - Zod validation doesn't cover PATCH routes or read-heavy routes (analytics, dashboard, contacts, team, templates, conversations) — still manual `if (!field)` checks.
 - No E2E suite covering the full critical path (login → connect WhatsApp → webhook → reply → campaign → automation) — only campaign create/send/pause and webhook signature verification have real integration coverage. That's a genuinely larger, separately-scoped undertaking (discussed and deliberately deferred, not forgotten).
 - The client production bundle is a single ~1.4MB chunk (Vite's own build warning) — not urgent, but `manualChunks`/dynamic imports would help if load time ever becomes a concern.
-- `npm audit` reports a handful of vulnerabilities (1 low, 3 high, 1 critical at last check) — not investigated this session, worth a look.
 
 ## Verification approach used throughout
 
