@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle2, Info, MoreVertical, Phone, Search, Star, Video
 import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import type { Conversation, PendingMedia, WhatsAppMessage } from "./types";
-import { cn, initials } from "./utils";
+import { cn, initials, messageTimestamp } from "./utils";
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -36,18 +36,11 @@ interface ChatWindowProps {
   onLoadOlder: () => void;
 }
 
-function messageDate(message?: WhatsAppMessage) {
-  const raw = message?.sentAt || message?.receivedAt || message?.createdAt;
-  if (!raw) return null;
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
 function dateLabel(message: WhatsAppMessage, previous?: WhatsAppMessage) {
-  const date = messageDate(message);
+  const date = messageTimestamp(message);
   if (!date) return "";
 
-  const previousDate = messageDate(previous);
+  const previousDate = messageTimestamp(previous);
   if (previousDate && previousDate.toDateString() === date.toDateString()) return "";
 
   const today = new Date();

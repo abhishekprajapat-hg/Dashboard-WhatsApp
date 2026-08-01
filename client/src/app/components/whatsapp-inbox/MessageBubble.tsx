@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Check, CheckCheck, Clock3, Copy, Download, FileText, Forward, MapPin, MoreVertical, Reply, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { WhatsAppMessage } from "./types";
-import { cn, displayAttachmentUrl, primaryAttachment, visibleStatus } from "./utils";
+import { cn, displayAttachmentUrl, displayTime, primaryAttachment, visibleStatus } from "./utils";
 
 interface MessageBubbleProps {
   message: WhatsAppMessage;
@@ -86,7 +86,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
 
         <div className={cn("mt-1 flex items-center justify-end gap-1.5 text-[10px]", fromAgent ? "text-primary-foreground/75" : "text-muted-foreground")}>
           {message.starred ? <Star size={11} className="fill-amber-400 text-amber-400" /> : null}
-          <span>{message.time}</span>
+          <span>{displayTime(message)}</span>
           {fromAgent ? <StatusIcon status={message.status} /> : null}
           {fromAgent ? <span className="sr-only">{visibleStatus(message.status)}</span> : null}
         </div>

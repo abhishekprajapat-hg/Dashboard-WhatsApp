@@ -1,5 +1,21 @@
 import type { Attachment, Conversation, MessageStatus, PendingMedia, WhatsAppMessage } from "./types";
 
+// Timestamps come from the server as raw ISO strings on purpose - formatting them into
+// display text happens here, in the browser, so it uses the viewer's own timezone instead
+// of whatever timezone the server happens to run in.
+export function messageTimestamp(message?: Pick<WhatsAppMessage, "sentAt" | "receivedAt" | "createdAt">) {
+  const raw = message?.sentAt || message?.receivedAt || message?.createdAt;
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function displayTime(message: Pick<WhatsAppMessage, "sentAt" | "receivedAt" | "createdAt" | "time">) {
+  const date = messageTimestamp(message);
+  if (date) return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return message.time || "";
+}
+
 export function initials(name = "") {
   return name
     .split(" ")
