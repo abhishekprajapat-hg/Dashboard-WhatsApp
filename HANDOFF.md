@@ -3,7 +3,7 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work this session pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `e740dd8`
+**HEAD as of this handoff:** `36dff66`
 
 ## What this session did
 
@@ -15,6 +15,7 @@ Starting point was a production audit (in conversation, not a file) that flagged
 4. **`a8b478c`** — Centralized Zod validation (`server/middleware/validate.js`, `server/utils/zodHelpers.js`) on the highest-risk write routes: auth login, WhatsApp account connection, webhook/integration settings, campaign and automation flow creation/actions. PATCH routes and read-heavy routes are still on manual checks — not covered.
 5. **`c0efe2b`** — TypeScript checking added to the client (`client/tsconfig.json`, `tsc --noEmit` baked into `client/package.json`'s `build` script itself, not just a side CI step). There was **no tsconfig and no `typescript` package at all** before this despite 84 `.tsx`/`.ts` files.
 6. **`e740dd8`** — `npm test` wired into CI (it existed but was never actually run there). Added webhook HMAC signature verification tests (zero prior coverage) and a real integration suite for campaign create → send → pause (spawns the actual server as a child process against a test DB, not mocked).
+7. **`36dff66`** — The last unqueued automation action, `google_sheets`, wired through BullMQ the same way as `call_webhook`. Only the outbound Apps Script HTTP call is deferred; the CRM lead lookup/creation stays synchronous (fast local write, same as `add_to_crm`/`lead_stage`). All three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now consistently queued — nothing left unqueued in the inbound-automation critical path.
 
 Full detail, including *why* each change was made, is in the commit messages — they're written to be read, not just skimmed.
 
@@ -29,12 +30,13 @@ These surfaced from actually running the code end-to-end, not from reading it:
 - **The visual automation canvas's "Save" sent the wrong payload shape** to the create-flow API (a nested `trigger` object instead of the flat fields the Zod schema — and the actual server route — expect). Was silently producing the wrong trigger type before; would have been hard-rejected after the Zod work landed. Fixed in `AutomationView.tsx`.
 - **`ChatWindow.tsx`'s "Add to CRM" button** passed its handler directly to `onClick` instead of wrapping it, so a click would have called it with the raw `MouseEvent` instead of no arguments. TypeScript caught this the moment strict checking was turned on.
 - **`framer-motion`, its own `motion-dom` dependency, and `@xyflow/react`** had corrupted/incomplete local installs (same class of issue as the `bullmq` corruption from earlier in the project's history — see "Environment gotchas" below). `motion-dom`'s `dist/` was completely empty, meaning **`npm run build` could not produce a production bundle at all** before this was found and fixed. Unrelated to TypeScript, just found while verifying it.
+- **`ensureConversationInCrm` (`server/services/crm.js`) would crash outright on a genuinely new lead.** `Lead.findOneAndUpdate` set `status` and `providerMessageId` in both `$setOnInsert` and `$set` — Mongo rejects that combination on an actual insert (`ConflictingUpdateOperators`). Never surfaced before because nothing earlier in the session had exercised the lead-*creation* path with a truly new lead (everything either reused an existing lead or skipped CRM). This is shared code — `add_to_crm`, `lead_stage`, and the main inbound-webhook lead-detection flow were all exposed to the same crash on real production traffic, not just `google_sheets`. Fixed by dropping the redundant `$setOnInsert` fields (`$set` already computes both correctly either way).
 
 ## Design notes worth knowing before touching this code again
 
 - **`testMode` on automation flows is deliberately synchronous**, bypassing the queue entirely, and forces local-placeholder WhatsApp credentials inside the job processor itself (not just in the caller) — because the job re-fetches the account fresh by ID and has no visibility into "this is a test." If you add a new queued automation action, it needs the same `testMode` handling or testing a flow with that action could place a real API call.
 - **Inline fallback (no Redis) is a real, permanent code path**, not a test shortcut — `enqueueJob` returns `{queued: false}` when Redis/BullMQ isn't configured, and callers fall back to processing synchronously. Local dev without Redis is expected to work.
-- **`google_sheets` automation action is still synchronous**, same external-call-in-the-critical-path pattern as `call_webhook` was before item #2. Natural next target if this comes up again.
+- **All three queued automation actions follow the same shape**: only the slow/external part is deferred (WhatsApp send, webhook POST, Apps Script POST), any local DB prep stays synchronous, `testMode` bypasses the queue entirely and runs inline with the real outcome, and each processor's `trigger.failures` increment is gated on `!testMode` to avoid double-counting against `runInboundAutomations`' own run-level aggregate. If you add a fourth queued action, copy this shape rather than inventing a new one.
 - Two intentional behavior changes from the Zod work: a malformed `templateId`/`assignmentUserId` is now **rejected** instead of silently falling back to a default, and an automation flow with the webhook action enabled now **requires** a valid webhook URL up front (cross-field validation) instead of failing later when the action actually runs.
 
 ## Environment gotchas (will bite you again if you don't know them)
@@ -49,9 +51,8 @@ These surfaced from actually running the code end-to-end, not from reading it:
 
 ## What's not done
 
-From the original 5-item list, everything is done at the agreed scope. Known remaining gaps, roughly in the order they'd matter:
+From the original 5-item list, everything is done at the agreed scope, and all three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now queued. Known remaining gaps, roughly in the order they'd matter:
 
-- `google_sheets` automation action still runs synchronously in the inbound-webhook critical path (same class of fix as `call_webhook`, not yet applied).
 - Zod validation doesn't cover PATCH routes or read-heavy routes (analytics, dashboard, contacts, team, templates, conversations) — still manual `if (!field)` checks.
 - No E2E suite covering the full critical path (login → connect WhatsApp → webhook → reply → campaign → automation) — only campaign create/send/pause and webhook signature verification have real integration coverage. That's a genuinely larger, separately-scoped undertaking (discussed and deliberately deferred, not forgotten).
 - The client production bundle is a single ~1.4MB chunk (Vite's own build warning) — not urgent, but `manualChunks`/dynamic imports would help if load time ever becomes a concern.
