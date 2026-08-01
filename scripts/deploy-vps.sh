@@ -2,7 +2,10 @@
 # Polls origin/main for new commits and deploys them if found. Meant to run on a schedule
 # (cron) as the same user that owns /opt/dashboard-whatsapp and its PM2 process, e.g.:
 #
-#   */5 * * * * /opt/dashboard-whatsapp/scripts/deploy-vps.sh >> /opt/deploy-cron.log 2>&1
+#   */5 * * * * /opt/dashboard-whatsapp/scripts/deploy-vps.sh >> /opt/dashboard-whatsapp/deploy-cron.log 2>&1
+#
+# Log files live inside this checkout, not in /opt/ directly - the deploy user typically only
+# owns the repo directory, not /opt/ itself, so writes straight to /opt/*.log fail silently.
 #
 # Tracks the last successfully deployed commit in .last-deploy-sha (gitignored) rather than
 # just comparing against git's HEAD, so a failed deploy (bad build, etc.) is retried on the
@@ -13,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MARKER=".last-deploy-sha"
-LOG=/opt/deploy.log
+LOG="$(pwd)/deploy.log"
 PM2_APP=dashboard-api
 
 git fetch origin main --quiet
