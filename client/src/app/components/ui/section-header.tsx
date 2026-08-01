@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "./utils";
 
-interface SectionHeaderProps extends ComponentProps<"div"> {
+interface SectionHeaderProps extends Omit<ComponentProps<"div">, "title"> {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;

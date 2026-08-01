@@ -391,7 +391,10 @@ function BuilderCanvas({
     return () => window.clearTimeout(timer);
   }, [canvasMaximized, reactFlow]);
 
-  const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((items) => applyNodeChanges(changes, items)), []);
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<AutomationNodeData>>[]) => setNodes((items) => applyNodeChanges(changes, items)),
+    []
+  );
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((items) => normalizeCanvasEdges(applyEdgeChanges(changes, items))), []);
   const onConnect = useCallback((connection: Connection) => {
     setEdges((items) => normalizeCanvasEdges(addEdge({ ...connection, id: `${connection.source}-${connection.target}-${Date.now()}`, animated: true }, items)));
@@ -439,17 +442,11 @@ function BuilderCanvas({
       const payload = {
         name: selectedFlow?.name || "Visual Automation Flow",
         status: status || selectedFlow?.status || "draft",
-        trigger: {
-          type: selectedFlow?.triggerType || "new_message",
-          label: selectedFlow?.trigger || "New message",
-          description: selectedFlow?.description || "Visual automation builder flow",
-          category: selectedFlow?.category || "Visual",
-          keyword: "",
-          keywords: [],
-          runs: selectedFlow?.runs || 0,
-          versions: selectedFlow?.versions || [],
-          executionLogs: selectedFlow?.executionLogs || [],
-        },
+        triggerType: selectedFlow?.triggerType || "new_message",
+        trigger: selectedFlow?.trigger || "New message",
+        description: selectedFlow?.description || "Visual automation builder flow",
+        category: selectedFlow?.category || "Visual",
+        keyword: selectedFlow?.keyword || "",
         nodes: nodes.map(canvasNodeToServer),
         edges: normalizeCanvasEdges(edges),
       };
@@ -577,7 +574,7 @@ function BuilderCanvas({
           elementsSelectable={!canvasLocked}
         >
           <Background color="#23313d" variant={BackgroundVariant.Dots} gap={18} size={1} />
-          <MiniMap pannable zoomable nodeStrokeWidth={3} nodeColor={(node) => node.data?.color || "#22c55e"} />
+          <MiniMap pannable zoomable nodeStrokeWidth={3} nodeColor={(node: Node<AutomationNodeData>) => node.data.color || "#22c55e"} />
         </ReactFlow>
       </main>
 

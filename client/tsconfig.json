@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      // @xyflow/react's package.json only nests a "types" condition inside "node", not at the
+      // top level of its exports map, which TS's bundler resolution doesn't pick up even though
+      // the .d.ts files are genuinely present. Pointed directly at the real file as a workaround.
+      "@xyflow/react": ["../node_modules/@xyflow/react/dist/esm/index.d.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

@@ -136,7 +136,7 @@ export function ChatWindow({
           <div className="truncate text-sm font-semibold text-foreground">{conversation.name}</div>
           <div className="truncate text-xs text-muted-foreground">{typing ? "typing..." : conversation.agent ? `Assigned to ${conversation.agent}` : conversation.phone || "Online on WhatsApp"}</div>
         </div>
-        <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 sm:flex" onClick={onAddToCrm} disabled={crmSaving || isInCrm}>
+        <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 sm:flex" onClick={() => onAddToCrm()} disabled={crmSaving || isInCrm}>
           {isInCrm ? <CheckCircle2 size={14} /> : null}
           {isInCrm ? "In CRM" : crmSaving ? "Saving" : "Add CRM"}
         </button>

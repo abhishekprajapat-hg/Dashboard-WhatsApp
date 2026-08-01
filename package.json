@@ -12,6 +12,7 @@
     "dev:full": "concurrently \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
     "build": "npm run build --workspace client",
     "check:server": "npm run check --workspace server",
+    "check:client": "npm run check --workspace client",
     "test": "npm run test --workspace server",
     "seed": "npm run seed --workspace server"
   },

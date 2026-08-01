@@ -15,6 +15,23 @@ export const demoSession = {
   },
 };
 
+interface DemoRecentConversation {
+  name: string;
+  phone: string;
+  preview: string;
+  status: string;
+  time: string;
+}
+
+interface DemoTeamWorkloadMember {
+  userId: string;
+  name: string;
+  role: string;
+  lastActive: string;
+  open: number;
+  resolvedToday: number;
+}
+
 export const demoDashboard = {
   kpis: [
     { label: "Open conversations", value: "0", delta: "+0%" },
@@ -34,8 +51,8 @@ export const demoDashboard = {
   agentPerformance: [
     { name: "Admin", resolved: 0, avg: 0 },
   ],
-  teamWorkload: [],
-  recentConversations: [],
+  teamWorkload: [] as DemoTeamWorkloadMember[],
+  recentConversations: [] as DemoRecentConversation[],
   health: {
     whatsapp: "disconnected",
     onlineAgents: 1,

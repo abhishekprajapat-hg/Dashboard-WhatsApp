@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "./utils";
 
-interface PageHeaderProps extends ComponentProps<"div"> {
+interface PageHeaderProps extends Omit<ComponentProps<"div">, "title"> {
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;

@@ -81,7 +81,7 @@ interface WhatsAppTemplate {
   status: "approved" | "pending" | "rejected";
 }
 
-interface CampaignReport extends Campaign {
+interface CampaignReport extends Omit<Campaign, "recipients"> {
   recipients: {
     contactId: string;
     name: string;
