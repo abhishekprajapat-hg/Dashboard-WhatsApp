@@ -129,7 +129,7 @@ async function hasMatchingVerifyToken(token) {
   return accounts.some((account) => decodeCredentials(account).verifyToken === token);
 }
 
-function hasValidMetaSignature(req, appSecret) {
+export function hasValidMetaSignature(req, appSecret) {
   if (!appSecret) return true;
   const header = String(req.headers["x-hub-signature-256"] || "");
   const expectedPrefix = "sha256=";
