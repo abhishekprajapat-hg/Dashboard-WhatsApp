@@ -2,7 +2,9 @@ import { DragEvent, FormEvent, ReactNode, useCallback, useEffect, useState } fro
 import {
   Background,
   BackgroundVariant,
+  Handle,
   MiniMap,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   addEdge,
@@ -269,9 +271,13 @@ function catalogFor(kind: string) {
   return nodeCatalog.find((node) => node.kind === kind) || nodeCatalog[0];
 }
 
+const handleClass = "!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground";
+
 function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>) {
+  const isBranching = data.kind === "condition" || data.kind === "if_else";
   return (
-    <div className={`w-[210px] rounded-md border bg-card shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/20" : "border-border"}`}>
+    <div className={`relative w-[210px] rounded-md border bg-card shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/20" : "border-border"}`}>
+      <Handle type="target" position={Position.Left} className={handleClass} />
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <div className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: `${data.color}22`, color: data.color }}>
           {iconFor(data.icon)}
@@ -291,6 +297,16 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
           ))}
         </div>
       </div>
+      {isBranching ? (
+        <>
+          <Handle type="source" position={Position.Right} id="true" style={{ top: "38%" }} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary" />
+          <span className="pointer-events-none absolute right-1.5 top-[30%] text-[9px] font-semibold text-primary">T</span>
+          <Handle type="source" position={Position.Right} id="false" style={{ top: "72%" }} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-destructive" />
+          <span className="pointer-events-none absolute right-1.5 top-[64%] text-[9px] font-semibold text-destructive">F</span>
+        </>
+      ) : (
+        <Handle type="source" position={Position.Right} className={handleClass} />
+      )}
     </div>
   );
 }
@@ -433,6 +449,134 @@ function BuilderCanvas({
           : node
       )
     );
+  }
+
+  function renderNodeInspectorFields(node: Node<AutomationNodeData>) {
+    const cfg = node.data.config || {};
+
+    if (node.data.kind === "delay") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Duration</label>
+          <input
+            type="number"
+            min={0}
+            value={String(cfg.duration ?? "")}
+            onChange={(event) => updateSelectedConfig("duration", event.target.value)}
+            disabled={!canWrite}
+            placeholder="e.g. 5"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Unit</label>
+          <select
+            value={String(cfg.unit || "seconds")}
+            onChange={(event) => updateSelectedConfig("unit", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="seconds">Seconds</option>
+            <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
+            <option value="days">Days</option>
+          </select>
+        </>
+      );
+    }
+
+    if (node.data.kind === "condition" || node.data.kind === "if_else") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Field path</label>
+          <input
+            value={String(cfg.field ?? "")}
+            onChange={(event) => updateSelectedConfig("field", event.target.value)}
+            disabled={!canWrite}
+            placeholder="trigger.body"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Operator</label>
+          <select
+            value={String(cfg.operator || "equals")}
+            onChange={(event) => updateSelectedConfig("operator", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="equals">Equals</option>
+            <option value="not_equals">Not equals</option>
+            <option value="contains">Contains</option>
+            <option value="not_contains">Does not contain</option>
+            <option value="greater_than">Greater than</option>
+            <option value="less_than">Less than</option>
+            <option value="is_empty">Is empty</option>
+            <option value="is_not_empty">Is not empty</option>
+          </select>
+          <label className="block text-[10px] font-medium text-muted-foreground">Value</label>
+          <input
+            value={String(cfg.value ?? "")}
+            onChange={(event) => updateSelectedConfig("value", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Comparison value"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">True/false branches connect from this node's two right-side handles.</p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "api" || node.data.kind === "http_request") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Method</label>
+          <select
+            value={String(cfg.method || "GET")}
+            onChange={(event) => updateSelectedConfig("method", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <label className="block text-[10px] font-medium text-muted-foreground">URL</label>
+          <input
+            value={String(cfg.url ?? "")}
+            onChange={(event) => updateSelectedConfig("url", event.target.value)}
+            disabled={!canWrite}
+            placeholder="https://api.example.com/..."
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Headers (JSON)</label>
+          <textarea
+            value={String(cfg.headers ?? "")}
+            onChange={(event) => updateSelectedConfig("headers", event.target.value)}
+            disabled={!canWrite}
+            placeholder='{"Authorization": "Bearer ..."}'
+            className={textareaClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Body (JSON)</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder='{"key": "value"}'
+            className={textareaClass}
+          />
+        </>
+      );
+    }
+
+    return ["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
+      <input
+        key={field}
+        value={String(cfg[field] || "")}
+        onChange={(event) => updateSelectedConfig(field, event.target.value)}
+        disabled={!canWrite}
+        placeholder={field}
+        className={fieldClass}
+      />
+    ));
   }
 
   async function saveCanvas(status?: FlowStatus) {
@@ -606,16 +750,7 @@ function BuilderCanvas({
                     <div className="text-[11px] text-muted-foreground">{selectedNode.id}</div>
                   </div>
                 </div>
-                {["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
-                  <input
-                    key={field}
-                    value={String(selectedNode.data.config[field] || "")}
-                    onChange={(event) => updateSelectedConfig(field, event.target.value)}
-                    disabled={!canWrite}
-                    placeholder={field}
-                    className={fieldClass}
-                  />
-                ))}
+                {renderNodeInspectorFields(selectedNode)}
               </div>
             ) : null}
           </section>

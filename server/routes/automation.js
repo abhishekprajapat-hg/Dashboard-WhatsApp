@@ -11,6 +11,25 @@ import { optionalHttpUrlString, optionalObjectIdString, trimmedString } from "..
 
 export const automationRouter = Router();
 
+// config stays z.record(z.unknown()) - 25+ node kinds makes a fully-typed discriminated union not
+// worth it, each kind validates its own config at execution time (automationExecutors.js) instead.
+const automationNodeSchema = z.object({
+  id: trimmedString("Node id is required."),
+  type: trimmedString("Node type is required."),
+  position: z.object({ x: z.number(), y: z.number() }).optional(),
+  config: z.record(z.unknown()).optional().default({}),
+});
+
+// sourceHandle/targetHandle record which branch (e.g. condition/if_else "true"/"false") an edge
+// belongs to; null/omitted means "the single default edge" - how every pre-Phase-1 edge reads.
+const automationEdgeSchema = z.object({
+  id: z.string().optional(),
+  source: trimmedString("Edge source is required."),
+  target: trimmedString("Edge target is required."),
+  sourceHandle: z.string().nullable().optional(),
+  targetHandle: z.string().nullable().optional(),
+});
+
 const createFlowSchema = z
   .object({
     name: trimmedString("Flow name is required."),
@@ -34,8 +53,8 @@ const createFlowSchema = z
     callWebhook: z.boolean().optional().default(false),
     webhookUrl: optionalHttpUrlString(),
     webhookSecret: z.string().optional().default(""),
-    nodes: z.array(z.unknown()).optional(),
-    edges: z.array(z.unknown()).optional(),
+    nodes: z.array(automationNodeSchema).optional(),
+    edges: z.array(automationEdgeSchema).optional(),
   })
   .refine((data) => !data.callWebhook || data.webhookUrl !== "", {
     message: "Webhook URL is required when the webhook action is enabled.",
@@ -51,8 +70,8 @@ const testFlowSchema = z.object({
 // path that reconstructs nodes/edges from the individual trigger/action fields below.
 const updateFlowSchema = z.object({
   name: z.string().trim().optional(),
-  nodes: z.array(z.unknown()).optional(),
-  edges: z.array(z.unknown()).optional(),
+  nodes: z.array(automationNodeSchema).optional(),
+  edges: z.array(automationEdgeSchema).optional(),
   conditions: z.array(z.unknown()).optional(),
   actions: z.array(z.unknown()).optional(),
   trigger: z.union([z.string(), z.record(z.unknown())]).optional(),

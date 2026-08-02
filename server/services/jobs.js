@@ -9,6 +9,7 @@ import {
   processAutomationSendMessage,
   processAutomationWebhookAction,
 } from "./automationSender.js";
+import { resumeAutomationRun } from "./automationEngine.js";
 
 const queues = new Map();
 const workers = new Map();
@@ -67,6 +68,7 @@ export function startWorkers() {
     "automation.call-webhook": processAutomationWebhookAction,
     "automation.google-sheets": processAutomationGoogleSheetAction,
     "automation.send-message": processAutomationSendMessage,
+    "automation.resume-run": resumeAutomationRun,
   };
   workers.set("automations", new Worker(
     "automations",

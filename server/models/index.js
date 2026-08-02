@@ -2,6 +2,7 @@ export * from "./AuditLog.js";
 export * from "./AiDocument.js";
 export * from "./AiMemory.js";
 export * from "./AutomationFlow.js";
+export * from "./AutomationRun.js";
 export * from "./Campaign.js";
 export * from "./Contact.js";
 export * from "./Conversation.js";
