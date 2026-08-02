@@ -89,6 +89,8 @@ interface IntegrationsPayload {
   outboundWebhook: { enabled: boolean; url: string; secret: string };
   googleSheets: { enabled: boolean; webhookUrl: string; secret: string };
   aiProviders: { openai: AiProviderConfig; claude: AiProviderConfig; gemini: AiProviderConfig };
+  email: { enabled: boolean; apiKey: string; fromAddress: string; fromName: string };
+  sms: { enabled: boolean; accountSid: string; authToken: string; fromNumber: string };
 }
 
 interface WhatsAppConsolePayload {
@@ -154,6 +156,8 @@ const initialSettings: SettingsPayload = {
       claude: { enabled: false, apiKey: "" },
       gemini: { enabled: false, apiKey: "" },
     },
+    email: { enabled: false, apiKey: "", fromAddress: "", fromName: "" },
+    sms: { enabled: false, accountSid: "", authToken: "", fromNumber: "" },
   },
   roles: [],
 };
@@ -1148,6 +1152,140 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     </div>
                   ))}
                 </div>
+              </Card>
+
+              <Card className={`p-4 ${cardClass} space-y-4`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-sky-500/25 bg-sky-500/10 text-sky-300"><Send size={16} /></span>
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">Email (SendGrid)</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">Used by the automation email node to reply outside WhatsApp.</p>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={integrationForm.email.enabled}
+                      disabled={!canWrite}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        email: { ...current.email, enabled: event.target.checked },
+                      }))}
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>From address</Label>
+                    <Input
+                      value={integrationForm.email.fromAddress}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        email: { ...current.email, fromAddress: event.target.value },
+                      }))}
+                      placeholder="notifications@yourdomain.com"
+                      className={fieldClass}
+                      disabled={!canWrite}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>From name (optional)</Label>
+                    <Input
+                      value={integrationForm.email.fromName}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        email: { ...current.email, fromName: event.target.value },
+                      }))}
+                      placeholder="Your Company"
+                      className={fieldClass}
+                      disabled={!canWrite}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>API key</Label>
+                    <Input
+                      value={integrationForm.email.apiKey}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        email: { ...current.email, apiKey: event.target.value },
+                      }))}
+                      placeholder="SG...."
+                      className={fieldClass}
+                      type="password"
+                      disabled={!canWrite}
+                    />
+                  </div>
+                </div>
+                <span className="text-[11px] text-muted-foreground">API key: {maskSecret(integrationForm.email.apiKey)}</span>
+              </Card>
+
+              <Card className={`p-4 ${cardClass} space-y-4`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300"><MessageCircle size={16} /></span>
+                    <div>
+                      <h3 className="text-sm font-medium text-foreground">SMS (Twilio)</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">Same Twilio account as the Twilio WhatsApp channel, if connected - used by the automation SMS node.</p>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={integrationForm.sms.enabled}
+                      disabled={!canWrite}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        sms: { ...current.sms, enabled: event.target.checked },
+                      }))}
+                    />
+                    Enabled
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>From number</Label>
+                    <Input
+                      value={integrationForm.sms.fromNumber}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        sms: { ...current.sms, fromNumber: event.target.value },
+                      }))}
+                      placeholder="+15551234567"
+                      className={fieldClass}
+                      disabled={!canWrite}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Account SID</Label>
+                    <Input
+                      value={integrationForm.sms.accountSid}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        sms: { ...current.sms, accountSid: event.target.value },
+                      }))}
+                      placeholder="AC..."
+                      className={fieldClass}
+                      disabled={!canWrite}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Auth token</Label>
+                    <Input
+                      value={integrationForm.sms.authToken}
+                      onChange={(event) => setIntegrationForm((current) => ({
+                        ...current,
+                        sms: { ...current.sms, authToken: event.target.value },
+                      }))}
+                      placeholder="Twilio auth token"
+                      className={fieldClass}
+                      type="password"
+                      disabled={!canWrite}
+                    />
+                  </div>
+                </div>
+                <span className="text-[11px] text-muted-foreground">Auth token: {maskSecret(integrationForm.sms.authToken)}</span>
               </Card>
 
               <div className="flex flex-wrap items-center gap-3">

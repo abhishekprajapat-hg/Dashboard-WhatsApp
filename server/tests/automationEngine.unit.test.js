@@ -223,3 +223,49 @@ for (const provider of ["openai", "claude", "gemini"]) {
     assert.equal(result.status, "skipped");
   });
 }
+
+test("email executor skips when the contact has no email address, before checking configuration", async () => {
+  const executor = executorFor("email");
+  const result = await executor({ config: { subject: "Hi", body: "Hello" }, env: { contact: {}, integrations: {} }, testMode: false });
+  assert.equal(result.status, "skipped");
+});
+
+test("email executor fails clearly when the workspace hasn't configured it", async () => {
+  const executor = executorFor("email");
+  const env = { contact: { email: "lead@example.com" }, integrations: {} };
+  const result = await executor({ config: { subject: "Hi", body: "Hello" }, env, testMode: false });
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, "email_not_configured");
+});
+
+test("email executor skips the real send in test mode", async () => {
+  const executor = executorFor("email");
+  const env = { contact: { email: "lead@example.com" }, integrations: { email: { enabled: true, apiKey: "SG.x", fromAddress: "hi@example.com" } } };
+  const result = await executor({ config: { subject: "Hi", body: "Hello" }, env, testMode: true });
+  assert.equal(result.status, "ok");
+  assert.equal(result.action.skipped, true);
+  assert.equal(result.action.to, "lead@example.com");
+});
+
+test("sms executor skips when the contact has no phone number, before checking configuration", async () => {
+  const executor = executorFor("sms");
+  const result = await executor({ config: { body: "Hello" }, env: { contact: {}, integrations: {} }, testMode: false });
+  assert.equal(result.status, "skipped");
+});
+
+test("sms executor fails clearly when the workspace hasn't configured it", async () => {
+  const executor = executorFor("sms");
+  const env = { contact: { phone: "+15550002222" }, integrations: {} };
+  const result = await executor({ config: { body: "Hello" }, env, testMode: false });
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, "sms_not_configured");
+});
+
+test("sms executor skips the real send in test mode", async () => {
+  const executor = executorFor("sms");
+  const env = { contact: { phone: "+15550002222" }, integrations: { sms: { enabled: true, accountSid: "AC", authToken: "tok", fromNumber: "+15550001111" } } };
+  const result = await executor({ config: { body: "Hello" }, env, testMode: true });
+  assert.equal(result.status, "ok");
+  assert.equal(result.action.skipped, true);
+  assert.equal(result.action.to, "+15550002222");
+});

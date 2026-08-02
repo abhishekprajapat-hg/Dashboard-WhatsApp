@@ -48,6 +48,9 @@ export const config = {
     geminiModel: process.env.AI_GEMINI_MODEL || "gemini-1.5-flash",
     requestTimeoutMs: numberFromEnv("AI_REQUEST_TIMEOUT_MS", 30000),
   },
+  notifications: {
+    requestTimeoutMs: numberFromEnv("NOTIFICATION_REQUEST_TIMEOUT_MS", 15000),
+  },
   featureFlags: {
     infrastructurePanel: process.env.FEATURE_INFRASTRUCTURE_PANEL !== "false",
     queueProcessing: process.env.FEATURE_QUEUE_PROCESSING !== "false",

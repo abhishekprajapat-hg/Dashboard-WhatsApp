@@ -623,6 +623,30 @@ function BuilderCanvas({
       );
     }
 
+    if (node.data.kind === "email") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Subject</label>
+          <input
+            value={String(cfg.subject ?? "")}
+            onChange={(event) => updateSelectedConfig("subject", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Following up on your message"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Body</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Hi {{trigger.contactName}}, ..."
+            className={textareaClass}
+          />
+          <p className="text-[10px] text-muted-foreground">Sends to the contact's email address. Requires Email to be enabled under Settings &gt; Integrations.</p>
+        </>
+      );
+    }
+
     return ["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
       <input
         key={field}

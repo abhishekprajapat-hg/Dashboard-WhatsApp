@@ -428,6 +428,8 @@ export function updateIntegrations<T>(integrations: {
     claude?: { enabled?: boolean; apiKey?: string };
     gemini?: { enabled?: boolean; apiKey?: string };
   };
+  email?: { enabled?: boolean; apiKey?: string; fromAddress?: string; fromName?: string };
+  sms?: { enabled?: boolean; accountSid?: string; authToken?: string; fromNumber?: string };
 }) {
   return request<T>("/settings/integrations", {
     method: "PUT",

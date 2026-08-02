@@ -4,6 +4,7 @@ import { Contact, Conversation, Tag, Template } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
+import { sendEmail, sendSms } from "./notificationChannels.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
   enqueueAutomationGoogleSheetAction,
@@ -445,6 +446,83 @@ async function execVariables({ config: cfg, run }) {
   return { status: "ok", action: { type: "variables", name, value }, logMessage: "Set flow variable" };
 }
 
+// Needs a "subject" field the generic 7-field form doesn't have, so this is the one new node kind
+// in this pair that gets its own per-kind client inspector form (config: {subject, body}).
+// Recipient is always the triggering contact's email, matching how send_message always sends to
+// contact.phone with no per-node override.
+async function execEmail({ config: cfg, env, testMode }) {
+  const to = env.contact?.email;
+  const subject = String(cfg?.subject || "").trim();
+  const body = String(cfg?.body || "").trim();
+  if (!to) return { status: "skipped", logMessage: "Skipped email: contact has no email address", logLevel: "warn" };
+  if (!body) return { status: "skipped", logMessage: "Skipped email: empty body", logLevel: "warn" };
+
+  const emailConfig = env.integrations?.email;
+  if (!emailConfig?.enabled || !emailConfig?.apiKey || !emailConfig?.fromAddress) {
+    return {
+      status: "failed",
+      error: "email_not_configured",
+      action: { type: "email", status: "failed", error: "email_not_configured" },
+      logMessage: "Email is not configured for this workspace (Settings > Integrations)",
+      logLevel: "error",
+    };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "email", status: "skipped", skipped: true, to }, logMessage: "Email skipped in test mode" };
+  }
+
+  try {
+    const result = await sendEmail({ apiKey: emailConfig.apiKey, fromAddress: emailConfig.fromAddress, fromName: emailConfig.fromName, to, subject, body });
+    return { status: "ok", action: { type: "email", status: result.status, to }, logMessage: "Email sent" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "email", status: "failed", error: error.message },
+      logMessage: "Email failed to send",
+      logLevel: "error",
+    };
+  }
+}
+
+// Reuses the generic form's "body" field as the message text - fits cleanly, same as
+// send_message, no new client form needed. Recipient is always contact.phone.
+async function execSms({ config: cfg, env, testMode }) {
+  const to = env.contact?.phone;
+  const body = String(cfg?.body || "").trim();
+  if (!to) return { status: "skipped", logMessage: "Skipped sms: contact has no phone number", logLevel: "warn" };
+  if (!body) return { status: "skipped", logMessage: "Skipped sms: empty body", logLevel: "warn" };
+
+  const smsConfig = env.integrations?.sms;
+  if (!smsConfig?.enabled || !smsConfig?.accountSid || !smsConfig?.authToken || !smsConfig?.fromNumber) {
+    return {
+      status: "failed",
+      error: "sms_not_configured",
+      action: { type: "sms", status: "failed", error: "sms_not_configured" },
+      logMessage: "SMS is not configured for this workspace (Settings > Integrations)",
+      logLevel: "error",
+    };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "sms", status: "skipped", skipped: true, to }, logMessage: "SMS skipped in test mode" };
+  }
+
+  try {
+    const result = await sendSms({ accountSid: smsConfig.accountSid, authToken: smsConfig.authToken, fromNumber: smsConfig.fromNumber, to, body });
+    return { status: "ok", action: { type: "sms", status: result.status, to }, logMessage: "SMS sent" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "sms", status: "failed", error: error.message },
+      logMessage: "SMS failed to send",
+      logLevel: "error",
+    };
+  }
+}
+
 const executors = {
   send_message: execSendMessage,
   assign_user: execAssignUser,
@@ -464,6 +542,8 @@ const executors = {
   openai: makeAiExecutor("openai"),
   claude: makeAiExecutor("claude"),
   gemini: makeAiExecutor("gemini"),
+  email: execEmail,
+  sms: execSms,
 };
 
 export function executorFor(type) {

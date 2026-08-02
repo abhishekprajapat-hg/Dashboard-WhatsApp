@@ -22,6 +22,25 @@ const aiProviderConfigSchema = z.object({
   apiKey: z.string().optional().default(""),
 });
 
+// SendGrid-shaped: a single API key plus the verified sender identity SendGrid requires on
+// every send. fromName is optional (SendGrid accepts a bare from.email with no from.name).
+const emailConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  apiKey: z.string().optional().default(""),
+  fromAddress: z.string().optional().default(""),
+  fromName: z.string().optional().default(""),
+});
+
+// Twilio-shaped, matching the Account SID + Auth Token credentials whatsappProvider.js already
+// uses for the Twilio WhatsApp channel - this is the same provider/account, just the plain SMS
+// send path instead of the whatsapp:-prefixed one.
+const smsConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  accountSid: z.string().optional().default(""),
+  authToken: z.string().optional().default(""),
+  fromNumber: z.string().optional().default(""),
+});
+
 const integrationsSchema = z.object({
   outboundWebhook: webhookConfigSchema.optional().default({}),
   googleSheets: z.object({
@@ -34,12 +53,45 @@ const integrationsSchema = z.object({
     claude: aiProviderConfigSchema.optional().default({}),
     gemini: aiProviderConfigSchema.optional().default({}),
   }).optional().default({}),
+  email: emailConfigSchema.optional().default({}),
+  sms: smsConfigSchema.optional().default({}),
 });
 
 const testWebhookSchema = z.object({
   url: httpUrlString(),
   secret: z.string().optional().default(""),
 });
+
+function defaultIntegrations() {
+  return {
+    outboundWebhook: { enabled: false, url: "", secret: "" },
+    googleSheets: { enabled: false, webhookUrl: "", secret: "" },
+    aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
+    email: { enabled: false, apiKey: "", fromAddress: "", fromName: "" },
+    sms: { enabled: false, accountSid: "", authToken: "", fromNumber: "" },
+  };
+}
+
+// Backfills any keys missing from a stored integrations document with defaults, one level deep
+// (and one level deeper for aiProviders' three sub-providers) - a workspace that saved
+// integrations before a new integration type (aiProviders, then email/sms) existed has a document
+// missing those keys entirely, and `stored || defaults` only helps when the whole document is
+// absent, not when it's present but partial. Without this, the client crashes on
+// integrationForm.email.enabled with email undefined.
+function mergeIntegrations(stored = {}) {
+  const defaults = defaultIntegrations();
+  return {
+    outboundWebhook: { ...defaults.outboundWebhook, ...stored.outboundWebhook },
+    googleSheets: { ...defaults.googleSheets, ...stored.googleSheets },
+    aiProviders: {
+      openai: { ...defaults.aiProviders.openai, ...stored.aiProviders?.openai },
+      claude: { ...defaults.aiProviders.claude, ...stored.aiProviders?.claude },
+      gemini: { ...defaults.aiProviders.gemini, ...stored.aiProviders?.gemini },
+    },
+    email: { ...defaults.email, ...stored.email },
+    sms: { ...defaults.sms, ...stored.sms },
+  };
+}
 
 settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => {
   if (mongoose.connection.readyState === 1) {
@@ -78,22 +130,14 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
         key: role.key,
         permissions: role.permissions,
       })),
-      integrations: workspace?.settings?.integrations || {
-        outboundWebhook: { enabled: false, url: "", secret: "" },
-        googleSheets: { enabled: false, webhookUrl: "", secret: "" },
-        aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
-      },
+      integrations: mergeIntegrations(workspace?.settings?.integrations),
     });
   }
 
   res.json({
     whatsappAccounts: [],
     templates: [],
-    integrations: {
-      outboundWebhook: { enabled: false, url: "", secret: "" },
-      googleSheets: { enabled: false, webhookUrl: "", secret: "" },
-      aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
-    },
+    integrations: defaultIntegrations(),
     roles: Object.entries(roleDefinitions).map(([key, role]) => ({ id: `role_${key}`, key, ...role })),
   });
 });
@@ -114,6 +158,8 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), validat
     outboundWebhook: req.body.outboundWebhook,
     googleSheets: req.body.googleSheets,
     aiProviders: req.body.aiProviders,
+    email: req.body.email,
+    sms: req.body.sms,
   };
 
   currentWorkspace.settings = { ...settings, integrations };
