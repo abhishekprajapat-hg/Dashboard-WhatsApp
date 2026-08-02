@@ -722,6 +722,10 @@ export function testAutomationFlow<T>(id: string, message: string) {
   });
 }
 
+export function getAutomationRuns<T>(id: string) {
+  return request<T>(`/automation/${id}/runs`);
+}
+
 export function deleteAutomationFlow(id: string) {
   return request<void>(`/automation/${id}`, {
     method: "DELETE",

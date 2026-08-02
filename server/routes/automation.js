@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { AutomationFlow, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
+import { AutomationFlow, AutomationRun, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
 import { formatKeywords, parseKeywords } from "../utils/keywords.js";
 import { relativeTime } from "../utils/serializers.js";
@@ -212,6 +212,50 @@ function serializeFlow(flow) {
     executionLogs: runLogs.length ? runLogs.slice(-100) : flow.trigger?.executionLogs || [],
   };
 }
+
+function serializeAutomationRun(run) {
+  return {
+    id: run._id.toString(),
+    flowId: run.flowId.toString(),
+    status: run.status,
+    testMode: Boolean(run.testMode),
+    stepCount: Number(run.stepCount || 0),
+    trigger: {
+      body: run.trigger?.body ?? run.context?.trigger?.body ?? "",
+      isNewConversation: Boolean(run.trigger?.isNewConversation),
+      isNewLead: Boolean(run.trigger?.isNewLead),
+      stageChanged: Boolean(run.trigger?.stageChanged),
+    },
+    history: (run.history || []).map((step) => ({
+      nodeId: step.nodeId,
+      type: step.type,
+      status: step.status,
+      at: step.at,
+      branch: step.action?.branch ?? (typeof step.action?.result === "boolean" ? (step.action.result ? "true" : "false") : undefined),
+      action: step.action || null,
+      error: step.error || "",
+    })),
+    error: run.error || "",
+    resumeAt: run.resumeAt || null,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+  };
+}
+
+automationRouter.get("/:id/runs", requirePermission("automation:read"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.json({ data: [] });
+  }
+
+  const flow = await AutomationFlow.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }).select("_id");
+  if (!flow) return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
+
+  const runs = await AutomationRun.find({ flowId: flow._id, workspaceId: req.user.workspaceId })
+    .sort({ createdAt: -1 })
+    .limit(50);
+
+  res.json({ data: runs.map(serializeAutomationRun) });
+});
 
 automationRouter.get("/", requirePermission("automation:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {

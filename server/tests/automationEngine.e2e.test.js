@@ -256,3 +256,27 @@ test("the flow test endpoint skips the delay and runs synchronously in one pass"
   assert.equal(sendActions.length, 1);
   assert.equal(sendActions[0].status, "sent");
 });
+
+test("GET /api/automation/:id/runs returns the run history for the flow", async () => {
+  const { status, data } = await api(`/api/automation/${flowId}/runs`);
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(data.data));
+  // The two inbound-triggered runs from earlier tests (true branch + false branch) must both
+  // show up, most recent first, each with a real step-by-step history a client can render.
+  assert.ok(data.data.length >= 2, `expected at least 2 runs, got ${data.data.length}`);
+
+  const completedRuns = data.data.filter((run) => run.status === "completed" && !run.testMode);
+  assert.ok(completedRuns.length >= 2);
+
+  // Non-test-mode send_message actions are queued, not delivered synchronously - messageId is
+  // only populated on the /test endpoint's synchronous path (covered by the previous test).
+  const trueRun = completedRuns.find((run) => run.history.some((step) => step.type === "send_message" && step.action?.status === "queued"));
+  assert.ok(trueRun, "expected a run whose history includes a queued send_message step");
+  const conditionStep = trueRun.history.find((step) => step.type === "condition");
+  assert.ok(conditionStep, "expected the condition step to appear in run history");
+  assert.ok(conditionStep.branch === "true" || conditionStep.branch === "false");
+
+  const timestamps = data.data.map((run) => new Date(run.createdAt).getTime());
+  const sorted = [...timestamps].sort((a, b) => b - a);
+  assert.deepEqual(timestamps, sorted, "runs must be returned most-recent-first");
+});

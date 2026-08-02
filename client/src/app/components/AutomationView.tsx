@@ -44,6 +44,7 @@ import {
   Play,
   Plus,
   RefreshCcw,
+  Route,
   Save,
   ScrollText,
   Send,
@@ -67,6 +68,7 @@ import {
   createAutomationFlow,
   deleteAutomationFlow,
   getAutomationFlows,
+  getAutomationRuns,
   getTemplates,
   testAutomationFlow,
   updateAutomationCanvas,
@@ -134,6 +136,30 @@ interface TestResult {
   flow?: Flow;
 }
 
+interface AutomationRunStep {
+  nodeId: string;
+  type: string;
+  status: string;
+  at: string;
+  branch?: string;
+  action?: { type: string; [key: string]: unknown } | null;
+  error?: string;
+}
+
+interface AutomationRunSummary {
+  id: string;
+  flowId: string;
+  status: "running" | "waiting" | "completed" | "failed" | "cancelled";
+  testMode: boolean;
+  stepCount: number;
+  trigger: { body: string; isNewConversation: boolean; isNewLead: boolean; stageChanged: boolean };
+  history: AutomationRunStep[];
+  error: string;
+  resumeAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 type AutomationNodeData = {
   kind: string;
   label: string;
@@ -165,6 +191,22 @@ const statusDot: Record<string, string> = {
   active: "bg-primary shadow-[0_0_14px_rgba(34,197,94,0.45)]",
   inactive: "bg-muted-foreground",
   draft: "bg-yellow-400 shadow-[0_0_14px_rgba(250,204,21,0.35)]",
+};
+
+const runStatusStyle: Record<string, string> = {
+  running: "border-blue-500/30 bg-blue-500/15 text-blue-300",
+  waiting: "border-yellow-500/30 bg-yellow-500/15 text-yellow-300",
+  completed: "border-primary/30 bg-primary/15 text-primary",
+  failed: "border-destructive/30 bg-destructive/15 text-destructive",
+  cancelled: "border-border bg-secondary text-muted-foreground",
+};
+
+const stepStatusColor: Record<string, string> = {
+  ok: "text-primary",
+  queued: "text-blue-300",
+  skipped: "text-muted-foreground",
+  failed: "text-destructive",
+  waiting: "text-yellow-300",
 };
 
 function formatDateTime(value?: string) {
@@ -391,6 +433,17 @@ function BuilderCanvas({
   const [debugMode, setDebugMode] = useState(true);
   const [canvasMaximized, setCanvasMaximized] = useState(false);
   const [canvasLocked, setCanvasLocked] = useState(false);
+  const [runs, setRuns] = useState<AutomationRunSummary[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState("");
+
+  const loadRuns = useCallback((flowId: string) => {
+    setRunsLoading(true);
+    getAutomationRuns<{ data: AutomationRunSummary[] }>(flowId)
+      .then((response) => setRuns(response.data))
+      .catch(() => setRuns([]))
+      .finally(() => setRunsLoading(false));
+  }, []);
 
   useEffect(() => {
     if (!selectedFlow) return;
@@ -398,7 +451,10 @@ function BuilderCanvas({
     setEdges(selectedFlow.edges?.length ? normalizeCanvasEdges(selectedFlow.edges) : defaultEdges());
     setSelectedNodeId(selectedFlow.nodes?.[0]?.id || "trigger");
     setTestResult(null);
-  }, [selectedFlow?.id]);
+    setExpandedRunId("");
+    setRuns([]);
+    loadRuns(selectedFlow.id);
+  }, [selectedFlow?.id, loadRuns]);
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
 
@@ -620,6 +676,7 @@ function BuilderCanvas({
       const response = await testAutomationFlow<TestResult>(selectedFlow.id, testMessage);
       setTestResult(response);
       if (response.flow) onFlowSaved(response.flow);
+      loadRuns(selectedFlow.id);
     } catch (error) {
       setTestResult({ error: error instanceof Error ? error.message : "Test failed" });
     } finally {
@@ -826,6 +883,77 @@ function BuilderCanvas({
                   <div className="text-[10px] text-muted-foreground">{label}</div>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+              <Route size={14} /> Run History
+            </h3>
+            <div className="space-y-1.5 rounded-md border border-border bg-background p-2">
+              {runsLoading ? (
+                <div className="rounded border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground">
+                  Loading runs...
+                </div>
+              ) : runs.length ? (
+                runs.slice(0, 20).map((run) => {
+                  const expanded = expandedRunId === run.id;
+                  return (
+                    <div key={run.id} className="overflow-hidden rounded-md border border-border/70 bg-card/70">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRunId(expanded ? "" : run.id)}
+                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-secondary/50"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Badge variant="outline" className={runStatusStyle[run.status] || runStatusStyle.completed}>
+                            {run.status}
+                          </Badge>
+                          {run.testMode ? (
+                            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">test</span>
+                          ) : null}
+                          <span className="truncate text-muted-foreground">{run.trigger.body || "(no trigger body)"}</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(run.createdAt)}</span>
+                      </button>
+                      {expanded ? (
+                        <div className="space-y-1 border-t border-border/70 bg-background/60 px-2 py-2">
+                          {run.error ? <p className="text-[11px] text-destructive">{run.error}</p> : null}
+                          {run.history.length ? (
+                            run.history.map((step, index) => {
+                              const item = catalogFor(step.type);
+                              return (
+                                <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]">
+                                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
+                                    {iconFor(item.icon, 12)}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="font-medium text-foreground">{item.label}</span>
+                                      <span className={stepStatusColor[step.status] || "text-muted-foreground"}>{step.status}</span>
+                                      {step.branch ? (
+                                        <span className="rounded bg-secondary px-1 py-0.5 text-[10px] text-muted-foreground">→ {step.branch}</span>
+                                      ) : null}
+                                    </span>
+                                    {step.error ? <span className="block text-destructive">{step.error}</span> : null}
+                                    <span className="block text-[10px] text-muted-foreground">{formatDateTime(step.at)}</span>
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="px-1 py-1 text-[11px] text-muted-foreground">No steps recorded for this run.</p>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground">
+                  No runs yet. Run a test or wait for an inbound match.
+                </div>
+              )}
             </div>
           </section>
 
