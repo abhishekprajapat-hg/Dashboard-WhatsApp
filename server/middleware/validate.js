@@ -30,7 +30,11 @@ export function validateQuery(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.query);
     if (!result.success) return respondInvalid(res, result.error);
-    req.query = result.data;
+    // Express 5 defines req.query as a getter (parsed lazily from req.url) rather than a plain
+    // writable property, so a direct `req.query = ...` throws "Cannot set property query of
+    // #<IncomingMessage> which has only a getter". Redefining the property is the supported way
+    // to replace it post-parse.
+    Object.defineProperty(req, "query", { value: result.data, writable: true, configurable: true });
     next();
   };
 }

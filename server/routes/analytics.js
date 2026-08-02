@@ -1,5 +1,6 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import {
   AutomationFlow,
   Campaign,
@@ -12,8 +13,21 @@ import {
   WebhookEvent,
 } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { validateQuery } from "../middleware/validate.js";
+import { optionalDateString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const analyticsRouter = Router();
+
+// Was previously a silent fallback: an invalid memberId was just ignored (no filter applied)
+// instead of rejected, and out-of-range from/to/days values were quietly clamped by
+// parseDateRange rather than reported. Matches the same tightening already applied to other
+// routes this session - reject clearly instead of silently substituting a default.
+const analyticsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional(),
+  from: optionalDateString("from must be a valid date."),
+  to: optionalDateString("to must be a valid date."),
+  memberId: optionalObjectIdString,
+});
 
 function daysAgo(days) {
   const date = new Date();
@@ -459,7 +473,7 @@ async function buildAnalytics(req) {
   };
 }
 
-analyticsRouter.get("/summary", requirePermission("reports:read"), async (req, res) => {
+analyticsRouter.get("/summary", requirePermission("reports:read"), validateQuery(analyticsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     return res.json(emptyPayload());
   }
@@ -472,7 +486,7 @@ analyticsRouter.get("/summary", requirePermission("reports:read"), async (req, r
   }
 });
 
-analyticsRouter.get("/export/excel", requirePermission("reports:read"), async (req, res) => {
+analyticsRouter.get("/export/excel", requirePermission("reports:read"), validateQuery(analyticsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
   let analytics;
   try {
@@ -492,7 +506,7 @@ analyticsRouter.get("/export/excel", requirePermission("reports:read"), async (r
   res.send(jsonCsv(rows));
 });
 
-analyticsRouter.get("/export/pdf", requirePermission("reports:read"), async (req, res) => {
+analyticsRouter.get("/export/pdf", requirePermission("reports:read"), validateQuery(analyticsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) return res.status(503).send("MongoDB is required.");
   let analytics;
   try {

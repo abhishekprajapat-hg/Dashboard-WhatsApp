@@ -1,11 +1,30 @@
 ﻿import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { contacts } from "../data/demoData.js";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Contact, Conversation, Message, Tag } from "../models/index.js";
 import { serializeContact } from "../utils/serializers.js";
+import { trimmedString } from "../utils/zodHelpers.js";
 
 export const contactsRouter = Router();
+
+const listContactsQuerySchema = z.object({
+  search: z.string().trim().optional().default(""),
+  lifecycle: z.string().trim().toLowerCase().optional().default(""),
+});
+
+const createContactSchema = z.object({
+  name: trimmedString("Name is required."),
+  phone: trimmedString("Phone is required."),
+  email: z.string().trim().optional().default(""),
+  tags: z.array(z.string()).optional().default([]),
+});
+
+const updateContactSchema = createContactSchema.extend({
+  status: z.string().optional().default("active"),
+});
 
 async function ensureTags({ organizationId, workspaceId, names }) {
   const tags = [];
@@ -23,7 +42,7 @@ async function ensureTags({ organizationId, workspaceId, names }) {
   return tags;
 }
 
-contactsRouter.get("/", requirePermission("contacts:read"), async (req, res) => {
+contactsRouter.get("/", requirePermission("contacts:read"), validateQuery(listContactsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const workspaceId = req.user.workspaceId;
     const search = String(req.query.search || "").trim();
@@ -72,12 +91,8 @@ contactsRouter.get("/", requirePermission("contacts:read"), async (req, res) => 
   res.json({ data: results, total: results.length });
 });
 
-contactsRouter.post("/", requirePermission("contacts:write"), async (req, res) => {
-  const { name, phone, email = "", tags = [] } = req.body || {};
-
-  if (!name || !phone) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Name and phone are required." });
-  }
+contactsRouter.post("/", requirePermission("contacts:write"), validateBody(createContactSchema), async (req, res) => {
+  const { name, phone, email, tags } = req.body;
 
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const tagIds = await ensureTags({
@@ -119,16 +134,12 @@ contactsRouter.post("/", requirePermission("contacts:write"), async (req, res) =
   res.status(201).json({ data: contact });
 });
 
-contactsRouter.put("/:id", requirePermission("contacts:write"), async (req, res) => {
+contactsRouter.put("/:id", requirePermission("contacts:write"), validateBody(updateContactSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }
 
-  const { name, phone, email = "", tags = [], status = "active" } = req.body || {};
-
-  if (!name || !phone) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Name and phone are required." });
-  }
+  const { name, phone, email, tags, status } = req.body;
 
   const tagIds = await ensureTags({
     organizationId: req.user.organizationId,
