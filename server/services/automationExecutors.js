@@ -523,6 +523,45 @@ async function execSms({ config: cfg, env, testMode }) {
   }
 }
 
+// Config: {field} - a raw context path (same convention as condition/if_else's "field", resolved
+// via resolve() rather than {{}}-templated) pointing at the array to iterate, e.g.
+// "steps.apiNode.parsed.items" or "variables.contactList".
+//
+// The loop body is wired back to this same node in the flow graph (a real cycle, drawn by the
+// user) - each revisit reads this node's own prior step state (which the engine already
+// preserves at run.context.steps[node.id] between visits, same mechanism every other node relies
+// on for downstream interpolation) to know which item comes next, rather than the AutomationRun
+// model needing a separate stack of iteration frames. "loop" branch continues into the body;
+// "done" branch falls through once every item has been processed. See automationEngine.js's
+// STEP_LIMIT/VISIT_LIMIT comment for why the revisit cap had to move for this to work.
+async function execLoop({ node, run, resolve }) {
+  const fieldPath = String(node.config?.field || "").trim();
+  const priorState = run.context.steps[node.id];
+  // Only "continuing" if the prior visit was mid-loop, not finished - otherwise a nested loop's
+  // inner node, revisited by a new outer iteration, would wrongly think it's resuming the inner
+  // loop it already finished last time instead of starting over.
+  const continuing = Boolean(priorState && Array.isArray(priorState.items) && !priorState.done);
+
+  let items;
+  let index;
+  if (continuing) {
+    items = priorState.items;
+    index = priorState.index + 1;
+  } else {
+    const resolved = fieldPath ? resolve(fieldPath) : undefined;
+    items = Array.isArray(resolved) ? resolved : [];
+    index = 0;
+  }
+
+  const done = index >= items.length;
+  return {
+    status: "ok",
+    branch: done ? "done" : "loop",
+    action: { type: "loop", status: "ok", done, index, total: items.length, item: done ? undefined : items[index], items },
+    logMessage: done ? `Loop finished (${items.length} items)` : `Loop iteration ${index + 1}/${items.length}`,
+  };
+}
+
 const executors = {
   send_message: execSendMessage,
   assign_user: execAssignUser,
@@ -544,6 +583,7 @@ const executors = {
   gemini: makeAiExecutor("gemini"),
   email: execEmail,
   sms: execSms,
+  loop: execLoop,
 };
 
 export function executorFor(type) {

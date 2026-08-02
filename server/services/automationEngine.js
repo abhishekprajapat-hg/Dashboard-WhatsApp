@@ -6,8 +6,16 @@ import { enqueueJob } from "./jobs.js";
 const AUTOMATION_QUEUE = "automations";
 const RESUME_JOB = "automation.resume-run";
 
-const STEP_LIMIT = 200;
-const VISIT_LIMIT = 5;
+// The "loop" node kind (automationExecutors.js's execLoop) wires its body back to itself via a
+// real cycle in the graph - each revisit reads its own prior step state to advance to the next
+// item, so a run with a loop over N items genuinely needs ~N revisits of the loop node (and of
+// its body nodes) before hitting "done". Both limits were raised together from their Phase-1
+// values (200 / 5) specifically to make that usable: STEP_LIMIT is the real backstop against a
+// runaway/infinite loop (bounds the whole run regardless of how visits are distributed);
+// VISIT_LIMIT stays a separate, cheaper per-node guard for a genuinely stuck single node, kept
+// high enough that a legitimate loop won't trip it before STEP_LIMIT would anyway.
+const STEP_LIMIT = 1000;
+const VISIT_LIMIT = 300;
 
 // Builds a node map + outgoing-edges-by-source index for one flow. Backward-compat is the
 // important part: today's flat scan runs every node in flow.nodes regardless of wiring (edges
@@ -189,6 +197,7 @@ export async function advanceRun(run, flow, { testMode = false } = {}) {
       type: node.type,
       status: result.status,
       at: new Date(),
+      ...(result.branch ? { branch: result.branch } : {}),
       ...(result.action ? { action: result.action } : {}),
       ...(result.error ? { error: result.error } : {}),
       ...(result.logMessage ? { logMessage: result.logMessage, logLevel: result.logLevel || "info" } : {}),

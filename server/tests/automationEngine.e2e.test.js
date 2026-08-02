@@ -280,3 +280,67 @@ test("GET /api/automation/:id/runs returns the run history for the flow", async 
   const sorted = [...timestamps].sort((a, b) => b - a);
   assert.deepEqual(timestamps, sorted, "runs must be returned most-recent-first");
 });
+
+test("a loop node iterates a real array through a genuine graph cycle, then falls through to done", async () => {
+  const nodes = [
+    { id: "trigger", type: "trigger" },
+    { id: "json_1", type: "json_parser", config: { body: '["Alice","Bob","Carol"]' } },
+    { id: "loop_1", type: "loop", config: { field: "steps.json_1.parsed" } },
+    { id: "send_item", type: "send_message", config: { body: "Hi {{steps.loop_1.item}}" } },
+    { id: "send_done", type: "send_message", config: { body: "All items processed" } },
+  ];
+  const edges = [
+    { id: "trigger-json1", source: "trigger", target: "json_1" },
+    { id: "json1-loop1", source: "json_1", target: "loop_1" },
+    { id: "loop1-senditem", source: "loop_1", target: "send_item", sourceHandle: "loop" },
+    // The literal cycle: the loop body's last node wires back into the loop node itself.
+    { id: "senditem-loop1", source: "send_item", target: "loop_1" },
+    { id: "loop1-senddone", source: "loop_1", target: "send_done", sourceHandle: "done" },
+  ];
+
+  const flow = await api("/api/automation", {
+    method: "POST",
+    body: { name: "E2E Loop", triggerType: "new_message", sendReply: false, status: "active", nodes, edges },
+  });
+  assert.equal(flow.status, 201);
+  const loopFlowId = flow.data.data.id;
+
+  const from = "919990001003";
+  const webhookStatus = await postWebhook(
+    metaInboundPayload({ from, messageId: `automation_e2e_loop_${Date.now()}`, text: "trigger the loop" })
+  );
+  assert.equal(webhookStatus, 200);
+
+  const { data: conversations } = await api("/api/conversations");
+  const conversation = conversations.data.find((item) => item.phone === from);
+  assert.ok(conversation, "expected a conversation to exist for the loop test contact");
+  const loopConversationId = conversation.id;
+
+  // All 4 sends (3 loop iterations + the final "done" message) are queued, not synchronous -
+  // wait for the last one, by which point the earlier ones must already be present too.
+  await waitFor(async () => {
+    const { data } = await api(`/api/conversations/${loopConversationId}/messages`);
+    return data.data.find((message) => message.content === "All items processed");
+  });
+
+  const { data: messages } = await api(`/api/conversations/${loopConversationId}/messages`);
+  const replyBodies = messages.data.filter((message) => message.from === "agent").map((message) => message.content);
+  // The 4 sends are enqueued in the correct order within one synchronous advanceRun pass, but the
+  // automations worker processes its queue with concurrency:10 - delivery completion order across
+  // concurrently-processed jobs isn't guaranteed, so check the set, not the sequence. The loop's
+  // own deterministic per-iteration order is verified separately below via run.history, which
+  // reflects the engine's synchronous traversal and isn't affected by queue timing.
+  assert.deepEqual([...replyBodies].sort(), ["All items processed", "Hi Alice", "Hi Bob", "Hi Carol"]);
+
+  const run = await waitFor(async () => {
+    const found = await AutomationRun.findOne({ flowId: loopFlowId, "trigger.conversationId": new mongoose.Types.ObjectId(loopConversationId) }).sort({ createdAt: -1 });
+    return found?.status === "completed" ? found : null;
+  });
+
+  const loopSteps = run.history.filter((entry) => entry.type === "loop");
+  assert.equal(loopSteps.length, 4, "expected 4 visits to the loop node: 3 iterations + 1 done");
+  assert.deepEqual(loopSteps.map((step) => step.branch), ["loop", "loop", "loop", "done"]);
+  assert.deepEqual(loopSteps.slice(0, 3).map((step) => step.action.item), ["Alice", "Bob", "Carol"]);
+  assert.equal(loopSteps[3].action.done, true);
+  assert.equal(loopSteps[3].action.total, 3);
+});

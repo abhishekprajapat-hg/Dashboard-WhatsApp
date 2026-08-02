@@ -231,7 +231,10 @@ function serializeAutomationRun(run) {
       type: step.type,
       status: step.status,
       at: step.at,
-      branch: step.action?.branch ?? (typeof step.action?.result === "boolean" ? (step.action.result ? "true" : "false") : undefined),
+      // step.branch is the real persisted value (automationEngine.js's advanceRun records the
+      // executor's actual branch since the automation-engine loop fix); the action-based fallback
+      // stays only for runs recorded before that fix.
+      branch: step.branch ?? step.action?.branch ?? (typeof step.action?.result === "boolean" ? (step.action.result ? "true" : "false") : undefined),
       action: step.action || null,
       error: step.error || "",
     })),

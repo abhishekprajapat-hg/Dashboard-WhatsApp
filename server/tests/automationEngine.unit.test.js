@@ -269,3 +269,86 @@ test("sms executor skips the real send in test mode", async () => {
   assert.equal(result.action.skipped, true);
   assert.equal(result.action.to, "+15550002222");
 });
+
+function makeResolve(context) {
+  return (path) => path.split(".").reduce((acc, part) => acc?.[part], context);
+}
+
+test("loop executor: first visit resolves the field and returns the first item on the 'loop' branch", async () => {
+  const executor = executorFor("loop");
+  const nodeId = "loop_1";
+  const context = { trigger: {}, steps: {}, variables: { items: ["a", "b", "c"] } };
+  const run = { context };
+
+  const result = await executor({ node: { id: nodeId, config: { field: "variables.items" } }, run, resolve: makeResolve(context) });
+  assert.equal(result.branch, "loop");
+  assert.equal(result.action.done, false);
+  assert.equal(result.action.index, 0);
+  assert.equal(result.action.total, 3);
+  assert.equal(result.action.item, "a");
+});
+
+test("loop executor: subsequent visits advance the index using the node's own prior step state", async () => {
+  const executor = executorFor("loop");
+  const nodeId = "loop_1";
+  const context = { trigger: {}, steps: {}, variables: { items: ["a", "b", "c"] } };
+  const run = { context };
+  const node = { id: nodeId, config: { field: "variables.items" } };
+  const resolve = makeResolve(context);
+
+  const first = await executor({ node, run, resolve });
+  context.steps[nodeId] = first.action;
+
+  const second = await executor({ node, run, resolve });
+  assert.equal(second.branch, "loop");
+  assert.equal(second.action.index, 1);
+  assert.equal(second.action.item, "b");
+  context.steps[nodeId] = second.action;
+
+  const third = await executor({ node, run, resolve });
+  assert.equal(third.branch, "loop");
+  assert.equal(third.action.index, 2);
+  assert.equal(third.action.item, "c");
+  context.steps[nodeId] = third.action;
+
+  const fourth = await executor({ node, run, resolve });
+  assert.equal(fourth.branch, "done");
+  assert.equal(fourth.action.done, true);
+  assert.equal(fourth.action.index, 3);
+  assert.equal(fourth.action.total, 3);
+});
+
+test("loop executor: an unresolvable or non-array field is treated as zero items and finishes immediately", async () => {
+  const executor = executorFor("loop");
+  const context = { trigger: {}, steps: {}, variables: {} };
+  const result = await executor({ node: { id: "loop_1", config: { field: "variables.missing" } }, run: { context }, resolve: makeResolve(context) });
+  assert.equal(result.branch, "done");
+  assert.equal(result.action.total, 0);
+});
+
+test("loop executor: a nested inner loop starts fresh on a new outer iteration instead of resuming its finished state", async () => {
+  // Simulates: outer loop's body contains an inner loop that runs to completion once, then the
+  // outer loop advances to its next iteration and re-enters the inner loop node. Without the
+  // !priorState.done check, the inner loop would see its old finished state (items + a stale
+  // index already >= total) and incorrectly return "done" again without ever restarting.
+  const executor = executorFor("loop");
+  const nodeId = "inner_loop";
+  const context = { trigger: {}, steps: {}, variables: { items: ["x", "y"] } };
+  const run = { context };
+  const node = { id: nodeId, config: { field: "variables.items" } };
+  const resolve = makeResolve(context);
+
+  const first = await executor({ node, run, resolve });
+  context.steps[nodeId] = first.action;
+  const second = await executor({ node, run, resolve });
+  context.steps[nodeId] = second.action;
+  const finished = await executor({ node, run, resolve });
+  assert.equal(finished.branch, "done");
+  context.steps[nodeId] = finished.action;
+
+  // New outer iteration re-enters the same inner loop node - must restart, not stay "done".
+  const restarted = await executor({ node, run, resolve });
+  assert.equal(restarted.branch, "loop");
+  assert.equal(restarted.action.index, 0);
+  assert.equal(restarted.action.item, "x");
+});

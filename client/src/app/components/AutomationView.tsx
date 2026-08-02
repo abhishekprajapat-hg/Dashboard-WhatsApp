@@ -315,8 +315,26 @@ function catalogFor(kind: string) {
 
 const handleClass = "!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground";
 
+// Node kinds with more than one source handle - condition/if_else route true/false, loop routes
+// loop (still iterating, back into the body)/done (exhausted, continue the main flow). Every
+// other kind keeps the single unlabeled default handle below.
+const branchHandlesByKind: Record<string, { id: string; label: string; dotClassName: string; textClassName: string }[]> = {
+  condition: [
+    { id: "true", label: "T", dotClassName: "!bg-primary", textClassName: "text-primary" },
+    { id: "false", label: "F", dotClassName: "!bg-destructive", textClassName: "text-destructive" },
+  ],
+  if_else: [
+    { id: "true", label: "T", dotClassName: "!bg-primary", textClassName: "text-primary" },
+    { id: "false", label: "F", dotClassName: "!bg-destructive", textClassName: "text-destructive" },
+  ],
+  loop: [
+    { id: "loop", label: "↻", dotClassName: "!bg-yellow-500", textClassName: "text-yellow-300" },
+    { id: "done", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
+  ],
+};
+
 function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>) {
-  const isBranching = data.kind === "condition" || data.kind === "if_else";
+  const branchHandles = branchHandlesByKind[data.kind];
   return (
     <div className={`relative w-[210px] rounded-md border bg-card shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/20" : "border-border"}`}>
       <Handle type="target" position={Position.Left} className={handleClass} />
@@ -339,13 +357,24 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
           ))}
         </div>
       </div>
-      {isBranching ? (
-        <>
-          <Handle type="source" position={Position.Right} id="true" style={{ top: "38%" }} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary" />
-          <span className="pointer-events-none absolute right-1.5 top-[30%] text-[9px] font-semibold text-primary">T</span>
-          <Handle type="source" position={Position.Right} id="false" style={{ top: "72%" }} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-destructive" />
-          <span className="pointer-events-none absolute right-1.5 top-[64%] text-[9px] font-semibold text-destructive">F</span>
-        </>
+      {branchHandles ? (
+        branchHandles.flatMap((handle, index) => [
+          <Handle
+            key={`${handle.id}-handle`}
+            type="source"
+            position={Position.Right}
+            id={handle.id}
+            style={{ top: `${38 + index * 34}%` }}
+            className={`!h-2.5 !w-2.5 !border-2 !border-background ${handle.dotClassName}`}
+          />,
+          <span
+            key={`${handle.id}-label`}
+            className={`pointer-events-none absolute right-1.5 text-[9px] font-semibold ${handle.textClassName}`}
+            style={{ top: `${30 + index * 34}%` }}
+          >
+            {handle.label}
+          </span>,
+        ])
       ) : (
         <Handle type="source" position={Position.Right} className={handleClass} />
       )}
@@ -575,6 +604,25 @@ function BuilderCanvas({
             className={fieldClass}
           />
           <p className="text-[10px] text-muted-foreground">True/false branches connect from this node's two right-side handles.</p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "loop") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Items (field path)</label>
+          <input
+            value={String(cfg.field ?? "")}
+            onChange={(event) => updateSelectedConfig("field", event.target.value)}
+            disabled={!canWrite}
+            placeholder="steps.apiNode.parsed.items"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Wire the "loop" handle to the body of nodes to run per item, ending with an edge back to this node. Wire "done" to
+            continue after every item. Inside the body, use {"{{steps."}{node.id}{".item}}"} for the current item.
+          </p>
         </>
       );
     }
