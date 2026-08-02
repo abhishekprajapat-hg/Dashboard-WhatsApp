@@ -3,68 +3,71 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work this session pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `3f38f758480516ef762e85a7f0e7f46a864cfd85`
+**HEAD as of this handoff:** `90d22cf83269a78b6509abc1bb6019f7132f45be`
 
-## IN PROGRESS right now — resume here
+## Automation Phase 1 — DONE, deployed and verified (2026-08-02)
 
-**Task:** Automation feature Phase 1 — turning the visual flow builder into a real node-based
-workflow engine (graph traversal, condition/if-else branching, delay/wait nodes, a generic
-API/HTTP node, variable passing between nodes). User explicitly wants this to eventually be
-"state of the art" like n8n/Make.com; Phase 1 is the scoped-down, buildable first slice — see
-`docs/AUTOMATION_ENGINE_PLAN.md` (copied into the repo from the approved plan-mode file at
-`C:\Users\HP\.claude\plans\nifty-plotting-sun.md` so it survives outside this machine's plan
-directory) for the full approved plan: context, architecture, exact schema changes, execution
-algorithm, backward-compat guarantees, critical files list, and verification approach. Read that
-file in full before writing any code — this note is just a pointer, not a substitute.
+Turned the visual flow builder into a real node-based workflow engine: graph traversal,
+condition/if-else branching, delay/wait nodes (pause+resume via BullMQ), a generic API/HTTP node,
+and variable passing between nodes via `{{trigger.x}}`/`{{steps.x}}` interpolation. Full design is
+in `docs/AUTOMATION_ENGINE_PLAN.md` — still accurate as the as-built architecture, nothing
+deviated from the approved plan. Shipped as commit `90d22cf` (see its message for the full
+file-by-file breakdown).
 
-**Status: zero code written yet.** A task list was created (7 tasks, all still `pending`) but the
-session ran low on context before any implementation started. Do the tasks in this order (matches
-dependency order in the plan — each step builds on the last):
+**What's live:**
+- `server/models/AutomationFlow.js` — `nodes`/`edges` are real subdocument schemas now (was
+  `Mixed`), edges have `sourceHandle`/`targetHandle`.
+- `server/models/AutomationRun.js` (new) — persisted execution state, exported from
+  `server/models/index.js`.
+- `server/services/automationEngine.js` (new) — `normalizeFlowGraph` (orphan-node auto-healing),
+  `advanceRun` traversal loop, `interpolateConfig`, `resumeAutomationRun`.
+- `server/services/automationExecutors.js` (new) — dispatch table: the 7 pre-existing action types
+  adapted to the engine, plus `execCondition`/`execIfElse`/`execApi`/`execDelay`, and
+  `execUnsupported` as the fallback for the 18 not-yet-built catalog kinds (no-ops and continues,
+  doesn't error/block).
+- `server/services/integrations.js` — new `callGenericApi()` export for the api/http_request node
+  (`callOutboundWebhook` untouched).
+- `server/services/automationRunner.js` — thin, signature-unchanged entry point delegating to the
+  engine. `runInboundAutomations`'s callers (`server/routes/whatsapp.js:681`,
+  `server/routes/automation.js:480`) needed zero edits.
+- `server/services/jobs.js` — one new job name, `"automation.resume-run"`, in the existing
+  `automations` worker's dispatch map.
+- `server/routes/automation.js` — `createFlowSchema`/`updateFlowSchema`'s node/edge Zod validation
+  tightened from `z.array(z.unknown())` to real structural schemas.
+- `client/src/app/components/AutomationView.tsx` — real `<Handle>` ports on `AutomationNode`
+  (condition/if_else get labeled true/false source handles, everything else keeps one default),
+  per-kind inspector forms for delay/condition/if_else/api (the other 21 catalog kinds still use
+  the generic 7-field form).
+- New tests: `server/tests/automationEngine.unit.test.js` (13 tests, fast/no server) and
+  `server/tests/automationEngine.e2e.test.js` (5 tests, real spawned server — includes a genuine
+  non-mocked short-delay pause/persist/resume proof against BullMQ+Redis, following
+  `criticalPath.e2e.test.js`'s pattern). Full suite: **49/49 passing**, zero regressions.
 
-1. `server/models/AutomationFlow.js` — add real subdocument schemas for `nodes`/`edges` (replacing
-   `Mixed`), including new `sourceHandle`/`targetHandle` fields on edges. No migration needed —
-   see plan §1 for why.
-2. `server/models/AutomationRun.js` (new file) — persisted execution state, export from
-   `server/models/index.js`.
-3. `server/services/automationEngine.js` (new file) — `normalizeFlowGraph` (with orphan-node
-   auto-healing for backward compat), `advanceRun` traversal loop, `interpolateConfig`,
-   `resumeAutomationRun`.
-4. `server/services/automationExecutors.js` (new file) — dispatch table: adapt the 7
-   already-working action types (move their logic from `automationRunner.js` essentially
-   unchanged), add `execCondition`/`execIfElse`, `execApi`, `execUnsupported` fallback.
-5. `server/services/integrations.js` — add new `callGenericApi()` export. Do NOT touch the
-   existing `callOutboundWebhook`.
-6. `server/services/automationRunner.js` — rewire internals to delegate to the engine.
-   **`runInboundAutomations`'s signature and return shape must not change** — its two callers
-   (`server/routes/whatsapp.js:681`, `server/routes/automation.js:480`) need zero edits.
-7. `server/services/jobs.js` — add one entry (`"automation.resume-run"`) to the existing
-   `automations` worker's dispatch map. Everything else in this file is untouched.
-8. `server/routes/automation.js` — tighten `createFlowSchema`/`updateFlowSchema`'s node/edge Zod
-   validation from `z.array(z.unknown())` to real structural schemas.
-9. `client/src/app/components/AutomationView.tsx` — add real `<Handle>` ports to `AutomationNode`
-   (condition/if_else get true/false outputs, everything else keeps one default output), add
-   per-kind inspector forms for delay/condition/if_else/api only (leave the generic 7-field form
-   for the other 21 catalog kinds).
-10. New tests: `server/tests/automationEngine.unit.test.js` (fast, no server) and
-    `server/tests/automationEngine.e2e.test.js` (real spawned server, following
-    `criticalPath.e2e.test.js`'s exact pattern — condition branching + a real short delay/resume
-    proof, not a mocked clock).
-11. Run full suite (`npm test`, already `--test-concurrency=1`), manually smoke-test via a running
-    local server (same curl-based pattern used throughout this session — see "Verification
-    approach" below), then commit, push, and verify the auto-deploy pipeline picks it up (see
-    "Deployment" section below for exactly how to check).
+**Verified, not just tested:** manually exercised via the real dashboard UI (dragged a Condition
+node onto the canvas, confirmed it renders with labeled true/false handles vs. every other node's
+single default handle, confirmed the new per-kind inspector form, confirmed `Save` round-trips
+through the new Zod + Mongoose schemas). Confirmed live on production: `.last-deploy-sha` on the
+VPS matches `90d22cf`, `pm2 status dashboard-api` online with a clean restart in the logs.
 
-**Known constraints from the plan, don't relitigate these — they were deliberate decisions:**
-- Real (non-test) delay nodes require Redis/`FEATURE_QUEUE_PROCESSING` — production already has
-  this; local dev without Redis running can only test delay nodes via `testMode` (same constraint
+**One thing checked and ruled out, in case it comes up again:** production's
+`dashboard-api-error.log` has old `CastError`s from `server/routes/analytics.js`'s
+`buildAnalytics()` (`sanitizeFilter` rejecting unwrapped `$in`/`$lt` operators). These are **stale
+log lines predating commit `e617cc5`** (an earlier session's sanitizeFilter sweep, which already
+fixed `analytics.js`'s `trustedFilter()` no-op) — confirmed by `git log --follow -p` showing the
+fix predates this session, and by hitting `GET /api/analytics/summary` against current code
+locally (`HTTP 200`, real data, no error). Nothing to fix here; don't rediscover this.
+
+**Known constraints, deliberate not accidental:**
+- Real (non-test) delay nodes require Redis/`FEATURE_QUEUE_PROCESSING` — production has this;
+  local dev without Redis running can only test delay nodes via `testMode` (same constraint
   campaigns already have).
-- Old flows with disconnected/orphaned canvas nodes must keep running every action, just in a
-  slightly different (now wired-graph) order than before — this is the "orphan auto-heal" step in
-  `normalizeFlowGraph`, not optional.
+- Old flows with disconnected/orphaned canvas nodes keep running every action, just in a
+  slightly different (now wired-graph) order than before — the orphan-auto-heal step in
+  `normalizeFlowGraph`, not a bug.
 - 18 of the 25 node-catalog kinds (AI providers, email/SMS, loop, code_block, json_parser,
-  variables, sub_workflow, task, calendar) are explicitly out of scope for Phase 1 — they should
-  no-op through `execUnsupported` and continue the flow, not error or block. See the plan's
-  "Phase 2+" section for what's deferred and why.
+  variables, sub_workflow, task, calendar) are out of scope for Phase 1 by design — see the plan's
+  "Phase 2+" section for what's deferred and why. That's the natural next chunk of work if asked
+  to keep going on automation.
 
 ## What this session did (everything before the automation engine work)
 
