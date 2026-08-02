@@ -57,6 +57,45 @@ const sendCampaignSchema = z.object({
   sendNow: z.boolean().optional().default(false),
 });
 
+// Partial-update schema for PATCH /:id - sparse update, every field optional since the
+// handler only touches fields that were actually sent.
+const updateCampaignSchema = z.object({
+  name: z.string().trim().optional(),
+  status: z.string().optional(),
+  templateId: optionalObjectIdString,
+  scheduledAt: optionalDateString("Scheduled date must be a valid date."),
+  schedule: z.record(z.unknown()).optional(),
+  rateLimit: z
+    .object({
+      perMinute: z.coerce.number().positive().optional(),
+      batchSize: z.coerce.number().positive().optional(),
+    })
+    .optional(),
+  type: z.string().optional(),
+  campaignKind: z.string().optional(),
+  audience: z.string().optional(),
+  audienceType: z.string().optional(),
+  // Deliberately not reusing audienceFiltersSchema here - its `.default({})` would make
+  // req.body.audienceFilters always truthy, which would wrongly trigger the audience-rebuild
+  // block below on every PATCH even when the caller never touched audience targeting.
+  audienceFilters: z
+    .object({
+      audienceType: z.string().optional(),
+      leadStage: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      tagIds: z.array(z.string()).optional(),
+      createdFrom: z.string().optional(),
+      createdTo: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
+  leadStage: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  tagIds: z.array(z.string()).optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+});
+
 const campaignActionSchema = z.object({
   action: z.preprocess(
     (value) => String(value || "").toLowerCase(),
@@ -584,7 +623,7 @@ campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), validate
   });
 });
 
-campaignsRouter.patch("/:id", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.patch("/:id", requirePermission("campaigns:write"), validateBody(updateCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }

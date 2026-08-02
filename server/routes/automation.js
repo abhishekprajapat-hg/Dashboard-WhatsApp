@@ -46,6 +46,34 @@ const testFlowSchema = z.object({
   message: z.string().optional().default(""),
 });
 
+// Partial-update schema for PATCH /:id - every field is optional since the handler only
+// touches fields that were actually sent (sparse update), including the simpleEdit shorthand
+// path that reconstructs nodes/edges from the individual trigger/action fields below.
+const updateFlowSchema = z.object({
+  name: z.string().trim().optional(),
+  nodes: z.array(z.unknown()).optional(),
+  edges: z.array(z.unknown()).optional(),
+  conditions: z.array(z.unknown()).optional(),
+  actions: z.array(z.unknown()).optional(),
+  trigger: z.union([z.string(), z.record(z.unknown())]).optional(),
+  triggerType: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  status: z.string().optional(),
+  simpleEdit: z.boolean().optional(),
+  keyword: z.string().optional(),
+  sendReply: z.boolean().optional(),
+  actionMessage: z.string().optional(),
+  templateId: optionalObjectIdString,
+  assignmentUserId: optionalObjectIdString,
+  nextStatus: z.string().optional(),
+  tagName: z.string().optional(),
+  addToCrm: z.boolean().optional(),
+  leadStage: z.string().optional(),
+  sendToGoogleSheet: z.boolean().optional(),
+  versionLabel: z.string().optional(),
+});
+
 function toClientStatus(status) {
   if (status === "published") return "active";
   if (status === "paused") return "inactive";
@@ -282,7 +310,7 @@ automationRouter.post("/", requirePermission("automation:write"), validateBody(c
   res.status(201).json({ data: serializeFlow(flow) });
 });
 
-automationRouter.patch("/:id", requirePermission("automation:write"), async (req, res) => {
+automationRouter.patch("/:id", requirePermission("automation:write"), validateBody(updateFlowSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }

@@ -1,10 +1,28 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
 import { fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
+import { optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const templatesRouter = Router();
+
+// cleanPayload() below already coerces/defaults enum-ish fields (type, status, category) back to
+// safe values when they're missing or unrecognized, so this only needs to catch genuinely
+// malformed shapes (wrong types) rather than re-implement that coercion.
+const updateTemplateSchema = z.object({
+  name: z.string().trim().optional(),
+  type: z.string().optional(),
+  category: z.string().optional(),
+  language: z.string().optional(),
+  body: z.string().optional(),
+  variables: z.array(z.string()).optional(),
+  status: z.string().optional(),
+  providerTemplateId: z.string().optional(),
+  whatsappAccountId: optionalObjectIdString,
+});
 
 const templateTypes = ["whatsapp", "quick_reply", "automation", "campaign", "follow_up", "lead_stage"];
 const categories = ["marketing", "utility", "support", "sales", "payment", "appointment", "general"];
@@ -212,7 +230,7 @@ templatesRouter.get("/:id", requirePermission("templates:read"), async (req, res
   res.json({ data: serializeTemplate(template) });
 });
 
-templatesRouter.patch("/:id", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.patch("/:id", requirePermission("templates:write"), validateBody(updateTemplateSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const existing = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });

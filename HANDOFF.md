@@ -77,7 +77,7 @@ live customer traffic. If this cron job stops running, that kind of silent drift
 
 From the original 5-item list, everything is done at the agreed scope, and all three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now queued. Known remaining gaps, roughly in the order they'd matter:
 
-- Zod validation doesn't cover PATCH routes or read-heavy routes (analytics, dashboard, contacts, team, templates, conversations) — still manual `if (!field)` checks.
+- ~~Zod validation doesn't cover PATCH routes~~ — done: all 10 PATCH routes (`automation`, `campaigns`, `conversations` ×6, `team`, `templates`) now go through `validateBody`. Read-heavy routes (analytics, dashboard, contacts) still use manual `if (!field)` checks — not covered yet.
 - No E2E suite covering the full critical path (login → connect WhatsApp → webhook → reply → campaign → automation) — only campaign create/send/pause and webhook signature verification have real integration coverage. That's a genuinely larger, separately-scoped undertaking (discussed and deliberately deferred, not forgotten).
 - The client production bundle is a single ~1.4MB chunk (Vite's own build warning) — not urgent, but `manualChunks`/dynamic imports would help if load time ever becomes a concern.
 

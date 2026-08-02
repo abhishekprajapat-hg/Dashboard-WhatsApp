@@ -1,18 +1,57 @@
 ﻿import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { conversations } from "../data/demoData.js";
 import { Contact, Conversation, Membership, Message, Template } from "../models/index.js";
 import { WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
+import { optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const conversationsRouter = Router();
 
 conversationsRouter.use(requirePermission("inbox:read"));
+
+const updateStatusSchema = z.object({
+  status: z.preprocess(
+    (value) => String(value || "").toLowerCase(),
+    z.enum(["open", "waiting", "pending", "resolved", "archived"], { message: "A valid status is required." })
+  ),
+});
+
+const updateSettingsSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    muted: z.boolean().optional(),
+  })
+  .refine((data) => data.pinned !== undefined || data.muted !== undefined, {
+    message: "No supported setting was provided.",
+  });
+
+const updateAssignmentSchema = z.object({
+  userId: optionalObjectIdString.default(""),
+});
+
+const updateReceiptSchema = z.object({
+  status: z.preprocess(
+    (value) => String(value || "").toLowerCase(),
+    z.enum(["delivered", "read"], { message: "Receipt status must be delivered or read." })
+  ),
+});
+
+const updateMessageActionsSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    starred: z.boolean().optional(),
+  })
+  .refine((data) => data.pinned !== undefined || data.starred !== undefined, {
+    message: "No supported message action was provided.",
+  });
 
 function cleanAttachments(attachments = []) {
   if (!Array.isArray(attachments)) return [];
@@ -221,8 +260,8 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
 
 conversationsRouter.get("/:conversationId/messages/:messageId/info", getMessageInfoById);
 conversationsRouter.get("/:conversationId/messages", getConversationMessages);
-conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", requirePermission("inbox:write"), updateMessageReceiptById);
-conversationsRouter.patch("/:conversationId/messages/:messageId/actions", requirePermission("inbox:write"), updateMessageActionsById);
+conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", requirePermission("inbox:write"), validateBody(updateReceiptSchema), updateMessageReceiptById);
+conversationsRouter.patch("/:conversationId/messages/:messageId/actions", requirePermission("inbox:write"), validateBody(updateMessageActionsSchema), updateMessageActionsById);
 conversationsRouter.delete("/:conversationId/messages/:messageId", requirePermission("inbox:write"), deleteConversationMessageById);
 conversationsRouter.post("/:conversationId/messages/:messageId/delete", requirePermission("inbox:write"), deleteConversationMessageById);
 conversationsRouter.post("/:conversationId/messages/delete", requirePermission("inbox:write"), deleteConversationMessageFromBody);
@@ -263,7 +302,7 @@ conversationsRouter.patch("/:id/read", requirePermission("inbox:write"), async (
   res.json({ unread: 0 });
 });
 
-conversationsRouter.patch("/:id/status", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.patch("/:id/status", requirePermission("inbox:write"), validateBody(updateStatusSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -275,11 +314,7 @@ conversationsRouter.patch("/:id/status", requirePermission("inbox:write"), async
     resolved: "resolved",
     archived: "archived",
   };
-  const nextStatus = statusMap[String(req.body?.status || "").toLowerCase()];
-
-  if (!nextStatus) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid status is required." });
-  }
+  const nextStatus = statusMap[req.body.status];
 
   const conversation = await Conversation.findOneAndUpdate(
     { _id: req.params.id, workspaceId: req.user.workspaceId },
@@ -301,7 +336,7 @@ conversationsRouter.patch("/:id/status", requirePermission("inbox:write"), async
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.patch("/:id/settings", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.patch("/:id/settings", requirePermission("inbox:write"), validateBody(updateSettingsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -314,10 +349,6 @@ conversationsRouter.patch("/:id/settings", requirePermission("inbox:write"), asy
   if (typeof req.body?.muted === "boolean") {
     const operator = req.body.muted ? "$addToSet" : "$pull";
     update[operator] = { ...(update[operator] || {}), mutedByUserIds: req.user.sub };
-  }
-
-  if (Object.keys(update).length === 0) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "No supported setting was provided." });
   }
 
   const conversation = await Conversation.findOneAndUpdate(
@@ -447,12 +478,12 @@ conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"),
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write"), async (req, res) => {
+conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write"), validateBody(updateAssignmentSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const { userId = "" } = req.body || {};
+  const { userId } = req.body;
   const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!conversation) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
@@ -461,10 +492,6 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
   if (!userId) {
     conversation.assignedToUserId = undefined;
   } else {
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid team member is required." });
-    }
-
     const membership = await Membership.findOne({ workspaceId: req.user.workspaceId, userId, status: "active" });
     if (!membership) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Team member is not active in this workspace." });
@@ -829,11 +856,7 @@ async function updateMessageReceiptById(req, res) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Message not found." });
   }
 
-  const status = String(req.body?.status || "").toLowerCase();
-  if (!["delivered", "read"].includes(status)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Receipt status must be delivered or read." });
-  }
-
+  const status = req.body.status;
   const now = new Date();
   const message = await Message.findOneAndUpdate(
     {
@@ -903,10 +926,6 @@ async function updateMessageActionsById(req, res) {
   const allowed = {};
   if (typeof req.body?.pinned === "boolean") allowed.pinned = req.body.pinned;
   if (typeof req.body?.starred === "boolean") allowed.starred = req.body.starred;
-
-  if (Object.keys(allowed).length === 0) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "No supported message action was provided." });
-  }
 
   const message = await Message.findOneAndUpdate(
     {

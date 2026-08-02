@@ -1,13 +1,19 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { Conversation, Membership, Role, User } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { hashPassword } from "../utils/password.js";
 import { normalizeRoleKey, roleDefinitionFor } from "../utils/rbac.js";
 import { relativeTime } from "../utils/serializers.js";
 import { isEmail, passwordPolicy, requiredString } from "../utils/validation.js";
 
 export const teamRouter = Router();
+
+const updateMemberSchema = z.object({
+  role: z.string().trim().optional(),
+});
 
 function initials(name) {
   return name
@@ -139,7 +145,7 @@ teamRouter.post("/", requirePermission("team:write"), async (req, res) => {
   res.status(201).json({ data: serializeMember(membership) });
 });
 
-teamRouter.patch("/:id", requirePermission("team:write"), async (req, res) => {
+teamRouter.patch("/:id", requirePermission("team:write"), validateBody(updateMemberSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
   }
