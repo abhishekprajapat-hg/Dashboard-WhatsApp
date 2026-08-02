@@ -108,8 +108,8 @@ export async function runInboundAutomations({
         const template = await Template.findOne({
           _id: templateId,
           workspaceId: account.workspaceId,
-          type: { $in: ["quick_reply", "automation", "follow_up", "lead_stage"] },
-          status: { $in: ["active", "approved"] },
+          type: mongoose.trusted({ $in: ["quick_reply", "automation", "follow_up", "lead_stage"] }),
+          status: mongoose.trusted({ $in: ["active", "approved"] }),
         });
         if (template) {
           body = template.body || body;

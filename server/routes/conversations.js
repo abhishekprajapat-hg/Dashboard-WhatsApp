@@ -99,7 +99,7 @@ function cursorDate(value) {
 function conversationVisibilityFilter(req) {
   const filter = { workspaceId: req.user.workspaceId };
   if (!hasPermission(req.user, "team:read")) {
-    filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+    filter.$or = [{ assignedToUserId: req.user.sub }, { assignedToUserId: mongoose.trusted({ $exists: false }) }, { assignedToUserId: null }];
   }
   return filter;
 }
@@ -117,19 +117,19 @@ conversationsRouter.get("/", async (req, res) => {
       filter.status = status === "waiting" ? "pending" : status;
     }
     if (unread) {
-      filter[`unreadCountByUser.${req.user.sub}`] = { $gt: 0 };
+      filter[`unreadCountByUser.${req.user.sub}`] = mongoose.trusted({ $gt: 0 });
     }
     if (cursor) {
-      filter.lastMessageAt = { $lt: cursor };
+      filter.lastMessageAt = mongoose.trusted({ $lt: cursor });
     }
     if (search) {
       const phoneSearch = search.replace(/[^\d+]/g, "");
       const contactSearch = [
-        { name: { $regex: search, $options: "i" } },
-        { waName: { $regex: search, $options: "i" } },
+        { name: mongoose.trusted({ $regex: search, $options: "i" }) },
+        { waName: mongoose.trusted({ $regex: search, $options: "i" }) },
       ];
       if (phoneSearch) {
-        contactSearch.push({ phone: { $regex: phoneSearch, $options: "i" } });
+        contactSearch.push({ phone: mongoose.trusted({ $regex: phoneSearch, $options: "i" }) });
       }
       const matchingContacts = await Contact.find({
         workspaceId: req.user.workspaceId,
@@ -137,7 +137,7 @@ conversationsRouter.get("/", async (req, res) => {
       }).select("_id");
       const matchingMessages = await Message.find({
         workspaceId: req.user.workspaceId,
-        body: { $regex: search, $options: "i" },
+        body: mongoose.trusted({ $regex: search, $options: "i" }),
       }).select("conversationId").limit(100);
       filter.$and = [
         ...(filter.$and || []),
@@ -227,7 +227,7 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
   let conversation = await Conversation.findOne({
     contactId: contact._id,
     workspaceId: req.user.workspaceId,
-    status: { $ne: "archived" },
+    status: mongoose.trusted({ $ne: "archived" }),
   })
     .populate({ path: "contactId", populate: { path: "tagIds" } })
     .populate("assignedToUserId", "name")
@@ -831,7 +831,7 @@ async function getConversationMessages(req, res) {
   const limit = paginationLimit(req.query.limit, 50, 100);
   const before = cursorDate(req.query.before);
   const filter = visibleMessagesFilter(conversation._id, req.user.sub);
-  if (before) filter.createdAt = { $lt: before };
+  if (before) filter.createdAt = mongoose.trusted({ $lt: before });
 
   const messages = await Message.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1);
   const hasMore = messages.length > limit;

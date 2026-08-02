@@ -504,7 +504,7 @@ automationRouter.post("/:id/test", requirePermission("automation:write"), valida
     if (contact?._id) cleanupTasks.push(Message.deleteMany({ contactId: contact._id }));
     const createdTags = await Tag.find({ workspaceId: req.user.workspaceId, description: "Created by automation" }).select("_id");
     const testTagIds = createdTags.filter((tag) => !createdTagIdsBefore.has(tag._id.toString())).map((tag) => tag._id);
-    if (testTagIds.length) cleanupTasks.push(Tag.deleteMany({ _id: { $in: testTagIds } }));
+    if (testTagIds.length) cleanupTasks.push(Tag.deleteMany({ _id: mongoose.trusted({ $in: testTagIds }) }));
     await Promise.all(cleanupTasks);
   }
 });

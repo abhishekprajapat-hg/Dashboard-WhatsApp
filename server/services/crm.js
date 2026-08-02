@@ -1,4 +1,5 @@
-import { AuditLog, Lead, Membership, Tag } from "../models/index.js";
+import mongoose from "mongoose";
+import { AuditLog, Lead, Membership, Role, Tag } from "../models/index.js";
 import { leadStages } from "../models/Lead.js";
 
 const requirementPattern = /\b(need|require|requirement|looking|interested|want|buy|purchase|price|pricing|quote|quotation|demo|plan|package|service|proposal|call back|callback)\b/i;
@@ -85,8 +86,18 @@ async function chooseOwner({ workspaceId, contact, conversation }) {
   if (conversation.assignedToUserId) return getId(conversation.assignedToUserId);
   if (contact.ownerUserId) return getId(contact.ownerUserId);
 
+  // Membership has no `role` field of its own (only roleId, a reference to Role) - this used to
+  // query Membership directly on `role`, which never matched anything, so the "prefer an
+  // admin/manager" step silently always fell through to "earliest active member" below.
+  const preferredRoles = await Role.find({ workspaceId, key: mongoose.trusted({ $in: ["admin", "manager"] }) }).select("_id");
   const membership =
-    (await Membership.findOne({ workspaceId, status: "active", role: { $in: ["admin", "manager"] } }).sort({ createdAt: 1 })) ||
+    (preferredRoles.length
+      ? await Membership.findOne({
+          workspaceId,
+          status: "active",
+          roleId: mongoose.trusted({ $in: preferredRoles.map((role) => role._id) }),
+        }).sort({ createdAt: 1 })
+      : null) ||
     (await Membership.findOne({ workspaceId, status: "active" }).sort({ createdAt: 1 }));
   return membership?.userId;
 }

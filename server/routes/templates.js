@@ -80,7 +80,7 @@ async function uniqueSlug(workspaceId, name, excludeId) {
   const base = slugify(name);
   let candidate = base;
   let index = 2;
-  while (await Template.exists({ workspaceId, slug: candidate, ...(excludeId ? { _id: { $ne: excludeId } } : {}) })) {
+  while (await Template.exists({ workspaceId, slug: candidate, ...(excludeId ? { _id: mongoose.trusted({ $ne: excludeId }) } : {}) })) {
     candidate = `${base}-${index}`;
     index += 1;
   }
@@ -128,9 +128,9 @@ templatesRouter.get("/", requirePermission("templates:read"), async (req, res) =
   if (req.query.search) {
     const search = String(req.query.search).trim();
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { slug: { $regex: search, $options: "i" } },
-      { body: { $regex: search, $options: "i" } },
+      { name: mongoose.trusted({ $regex: search, $options: "i" }) },
+      { slug: mongoose.trusted({ $regex: search, $options: "i" }) },
+      { body: mongoose.trusted({ $regex: search, $options: "i" }) },
     ];
   }
 
@@ -171,7 +171,7 @@ templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), asy
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
-  const accountFilter = { workspaceId: req.user.workspaceId, status: { $in: ["connected", "needs_attention"] } };
+  const accountFilter = { workspaceId: req.user.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) };
   if (req.body?.accountId && mongoose.Types.ObjectId.isValid(req.body.accountId)) accountFilter._id = req.body.accountId;
   const accounts = await WhatsAppAccount.find(accountFilter);
   let synced = 0;

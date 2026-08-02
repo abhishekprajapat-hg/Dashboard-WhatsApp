@@ -16,12 +16,12 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
 
   const [conversationCount, aiEnabledCount, flowCount, leadCount] = await Promise.all([
     Conversation.countDocuments({ workspaceId: req.user.workspaceId }),
-    Conversation.countDocuments({ workspaceId: req.user.workspaceId, "metadata.ai": { $exists: true } }),
+    Conversation.countDocuments({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) }),
     AutomationFlow.countDocuments({ workspaceId: req.user.workspaceId }),
     Lead.countDocuments({ workspaceId: req.user.workspaceId, status: "open" }),
   ]);
 
-  const recent = await Conversation.find({ workspaceId: req.user.workspaceId, "metadata.ai": { $exists: true } })
+  const recent = await Conversation.find({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) })
     .populate("contactId", "name phone waName")
     .sort({ updatedAt: -1 })
     .limit(8);

@@ -61,7 +61,7 @@ dashboardRouter.get("/summary", requirePermission("dashboard:read"), async (req,
     const canMonitorTeam = hasPermission(req.user, "reports:read");
     const visibilityFilter = canMonitorTeam
       ? { workspaceId }
-      : { workspaceId, $or: [{ assignedToUserId: req.user.sub }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }] };
+      : { workspaceId, $or: [{ assignedToUserId: req.user.sub }, { assignedToUserId: mongoose.trusted({ $exists: false }) }, { assignedToUserId: null }] };
 
     const [
       openConversations,
@@ -75,7 +75,7 @@ dashboardRouter.get("/summary", requirePermission("dashboard:read"), async (req,
       teamWorkload,
     ] = await Promise.all([
       Conversation.countDocuments({ ...visibilityFilter, status: "open" }),
-      Contact.countDocuments({ workspaceId, createdAt: { $gte: today } }),
+      Contact.countDocuments({ workspaceId, createdAt: mongoose.trusted({ $gte: today }) }),
       Conversation.countDocuments(visibilityFilter),
       Conversation.countDocuments({ ...visibilityFilter, status: "resolved" }),
       Conversation.find(visibilityFilter)

@@ -49,7 +49,7 @@ async function unreadTotalForUser(workspaceId, user) {
   if (!workspaceId || !userId) return 0;
   const filter = { workspaceId };
   if (typeof user === "object" && !hasPermission(user, "team:read")) {
-    filter.$or = [{ assignedToUserId: userId }, { assignedToUserId: { $exists: false } }, { assignedToUserId: null }];
+    filter.$or = [{ assignedToUserId: userId }, { assignedToUserId: mongoose.trusted({ $exists: false }) }, { assignedToUserId: null }];
   }
   const conversations = await Conversation.find(filter).select("unreadCountByUser");
   return conversations.reduce(

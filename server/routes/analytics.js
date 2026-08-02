@@ -60,8 +60,13 @@ function formatDuration(minutes) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+// Was a no-op (`return filter;`, never actually calling mongoose.trusted) despite every call
+// site treating it as if it sanitized the value - every "protected" $-operator filter built with
+// this helper was still hitting the same sanitizeFilter CastError as the unwrapped ones
+// elsewhere in the codebase, for any of these call sites that reach a real find/count/distinct
+// query rather than an aggregate() pipeline (which bypasses sanitizeFilter regardless).
 function trustedFilter(filter) {
-  return filter;
+  return mongoose.trusted(filter);
 }
 
 function jsonCsv(rows = []) {
