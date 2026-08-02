@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import { Contact, Conversation, Tag, Template } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
+import { callAiProvider } from "./aiProviders.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
   enqueueAutomationGoogleSheetAction,
@@ -357,6 +358,57 @@ async function execUnsupported({ node }) {
   return { status: "skipped", logMessage: `Node type "${node.type}" is not yet supported`, logLevel: "warn" };
 }
 
+const aiProviderLabels = { openai: "OpenAI", claude: "Claude", gemini: "Gemini" };
+
+// Reuses the generic form's "body" field as the prompt (interpolateConfig already resolves
+// {{trigger.x}}/{{steps.x}}/{{variables.x}} tokens in it before this runs) - no new client form
+// needed, same reasoning as execJsonParser/execVariables. The API key is never per-node config
+// (which would round-trip through flow JSON/execution logs); it's read from the workspace's
+// settings, the same place callOutboundWebhook reads its webhook secret from.
+function makeAiExecutor(provider) {
+  const label = aiProviderLabels[provider];
+  return async function execAiProvider({ node, config: cfg, env, testMode }) {
+    const prompt = String(cfg?.body || "").trim();
+    if (!prompt) return { status: "skipped", logMessage: `Skipped ${label}: empty prompt`, logLevel: "warn" };
+
+    const providerConfig = env.integrations?.aiProviders?.[provider];
+    if (!providerConfig?.enabled || !providerConfig?.apiKey) {
+      return {
+        status: "failed",
+        error: "ai_provider_not_configured",
+        action: { type: provider, status: "failed", error: "ai_provider_not_configured" },
+        logMessage: `${label} is not configured for this workspace (Settings > Integrations)`,
+        logLevel: "error",
+      };
+    }
+
+    if (testMode) {
+      return {
+        status: "ok",
+        action: { type: provider, status: "skipped", skipped: true, response: `[test mode - ${label} call skipped]` },
+        logMessage: `${label} call skipped in test mode`,
+      };
+    }
+
+    try {
+      const result = await callAiProvider({ provider, apiKey: providerConfig.apiKey, prompt });
+      return {
+        status: "ok",
+        action: { type: provider, status: "ok", response: result.text },
+        logMessage: `${label} call completed`,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        error: error.message,
+        action: { type: provider, status: "failed", error: error.message },
+        logMessage: `${label} call failed`,
+        logLevel: "error",
+      };
+    }
+  };
+}
+
 // Reuses the generic 7-field inspector form's "body" input as the JSON source string - no client
 // change needed. Parses it and stores the result under action.parsed so downstream nodes can
 // interpolate {{steps.<nodeId>.parsed.field}}.
@@ -409,6 +461,9 @@ const executors = {
   delay: execDelay,
   json_parser: execJsonParser,
   variables: execVariables,
+  openai: makeAiExecutor("openai"),
+  claude: makeAiExecutor("claude"),
+  gemini: makeAiExecutor("gemini"),
 };
 
 export function executorFor(type) {

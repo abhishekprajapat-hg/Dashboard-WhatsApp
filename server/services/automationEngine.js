@@ -1,5 +1,6 @@
 import { AutomationFlow, AutomationRun, Contact, Conversation, Message, WhatsAppAccount } from "../models/index.js";
 import { executorFor } from "./automationExecutors.js";
+import { getWorkspaceIntegrations } from "./integrations.js";
 import { enqueueJob } from "./jobs.js";
 
 const AUTOMATION_QUEUE = "automations";
@@ -115,13 +116,14 @@ export function interpolateConfig(value, context) {
 // in-memory state across a delay, matching automationSender.js's processors.
 async function loadRunEnv(run) {
   const trigger = run.trigger || {};
-  const [account, contact, conversation, inboundMessage] = await Promise.all([
+  const [account, contact, conversation, inboundMessage, integrations] = await Promise.all([
     trigger.accountId ? WhatsAppAccount.findOne({ _id: trigger.accountId, workspaceId: run.workspaceId }) : Promise.resolve(null),
     trigger.contactId ? Contact.findOne({ _id: trigger.contactId, workspaceId: run.workspaceId }) : Promise.resolve(null),
     trigger.conversationId ? Conversation.findOne({ _id: trigger.conversationId, workspaceId: run.workspaceId }) : Promise.resolve(null),
     trigger.inboundMessageId ? Message.findOne({ _id: trigger.inboundMessageId, workspaceId: run.workspaceId }) : Promise.resolve(null),
+    getWorkspaceIntegrations(run.workspaceId),
   ]);
-  return { account, contact, conversation, inboundMessage };
+  return { account, contact, conversation, inboundMessage, integrations };
 }
 
 // The traversal loop. Walks from run.cursor (or the trigger's first successor on a fresh run),

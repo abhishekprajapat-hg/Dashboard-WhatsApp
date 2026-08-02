@@ -26,6 +26,7 @@ import {
   Database,
   ExternalLink,
   LockKeyhole,
+  Sparkles,
 } from "lucide-react";
 import {
   createWhatsAppAccount,
@@ -79,9 +80,15 @@ interface SettingsPayload {
   roles: { id: string; name: string; permissions: string[] }[];
 }
 
+interface AiProviderConfig {
+  enabled: boolean;
+  apiKey: string;
+}
+
 interface IntegrationsPayload {
   outboundWebhook: { enabled: boolean; url: string; secret: string };
   googleSheets: { enabled: boolean; webhookUrl: string; secret: string };
+  aiProviders: { openai: AiProviderConfig; claude: AiProviderConfig; gemini: AiProviderConfig };
 }
 
 interface WhatsAppConsolePayload {
@@ -142,6 +149,11 @@ const initialSettings: SettingsPayload = {
   integrations: {
     outboundWebhook: { enabled: false, url: "", secret: "" },
     googleSheets: { enabled: false, webhookUrl: "", secret: "" },
+    aiProviders: {
+      openai: { enabled: false, apiKey: "" },
+      claude: { enabled: false, apiKey: "" },
+      gemini: { enabled: false, apiKey: "" },
+    },
   },
   roles: [],
 };
@@ -207,6 +219,12 @@ function statusDotClass(status = "") {
 function maskSecret(value?: string) {
   return value ? "••••••••••••" : "Not configured";
 }
+
+const aiProviderMeta: { id: "openai" | "claude" | "gemini"; label: string; placeholder: string }[] = [
+  { id: "openai", label: "OpenAI", placeholder: "sk-..." },
+  { id: "claude", label: "Claude (Anthropic)", placeholder: "sk-ant-..." },
+  { id: "gemini", label: "Gemini (Google)", placeholder: "AIza..." },
+];
 
 interface SettingsViewProps {
   canWrite?: boolean;
@@ -1078,6 +1096,57 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                       disabled={!canWrite}
                     />
                   </div>
+                </div>
+              </Card>
+
+              <Card className={`p-4 ${cardClass} space-y-4`}>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-purple-500/25 bg-purple-500/10 text-purple-300"><Sparkles size={16} /></span>
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground">AI providers</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">API keys used by the automation OpenAI/Claude/Gemini nodes - read from workspace settings, never stored in flow config.</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {aiProviderMeta.map((provider) => (
+                    <div key={provider.id} className="space-y-2 rounded-md border border-border/70 bg-background/60 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-medium text-foreground">{provider.label}</span>
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={integrationForm.aiProviders[provider.id].enabled}
+                            disabled={!canWrite}
+                            onChange={(event) => setIntegrationForm((current) => ({
+                              ...current,
+                              aiProviders: {
+                                ...current.aiProviders,
+                                [provider.id]: { ...current.aiProviders[provider.id], enabled: event.target.checked },
+                              },
+                            }))}
+                          />
+                          Enabled
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={integrationForm.aiProviders[provider.id].apiKey}
+                          onChange={(event) => setIntegrationForm((current) => ({
+                            ...current,
+                            aiProviders: {
+                              ...current.aiProviders,
+                              [provider.id]: { ...current.aiProviders[provider.id], apiKey: event.target.value },
+                            },
+                          }))}
+                          placeholder={provider.placeholder}
+                          className={fieldClass}
+                          type="password"
+                          disabled={!canWrite}
+                        />
+                        <span className="shrink-0 text-[11px] text-muted-foreground">{maskSecret(integrationForm.aiProviders[provider.id].apiKey)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </Card>
 

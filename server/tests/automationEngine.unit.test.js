@@ -200,3 +200,26 @@ test("variables executor skips when no variable name is configured", async () =>
   assert.equal(result.status, "skipped");
   assert.deepEqual(run.context.variables, {});
 });
+
+for (const provider of ["openai", "claude", "gemini"]) {
+  test(`${provider} executor fails clearly when the workspace hasn't configured it`, async () => {
+    const executor = executorFor(provider);
+    const result = await executor({ config: { body: "Summarize this conversation" }, env: { integrations: {} }, testMode: false });
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "ai_provider_not_configured");
+  });
+
+  test(`${provider} executor skips the real API call in test mode`, async () => {
+    const executor = executorFor(provider);
+    const env = { integrations: { aiProviders: { [provider]: { enabled: true, apiKey: "sk-configured" } } } };
+    const result = await executor({ config: { body: "Summarize this conversation" }, env, testMode: true });
+    assert.equal(result.status, "ok");
+    assert.equal(result.action.skipped, true);
+  });
+
+  test(`${provider} executor skips on an empty prompt without checking configuration`, async () => {
+    const executor = executorFor(provider);
+    const result = await executor({ config: { body: "" }, env: { integrations: {} }, testMode: false });
+    assert.equal(result.status, "skipped");
+  });
+}

@@ -17,12 +17,22 @@ const webhookConfigSchema = z.object({
   secret: z.string().optional().default(""),
 });
 
+const aiProviderConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  apiKey: z.string().optional().default(""),
+});
+
 const integrationsSchema = z.object({
   outboundWebhook: webhookConfigSchema.optional().default({}),
   googleSheets: z.object({
     enabled: z.boolean().optional().default(false),
     webhookUrl: optionalHttpUrlString(),
     secret: z.string().optional().default(""),
+  }).optional().default({}),
+  aiProviders: z.object({
+    openai: aiProviderConfigSchema.optional().default({}),
+    claude: aiProviderConfigSchema.optional().default({}),
+    gemini: aiProviderConfigSchema.optional().default({}),
   }).optional().default({}),
 });
 
@@ -71,6 +81,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
       integrations: workspace?.settings?.integrations || {
         outboundWebhook: { enabled: false, url: "", secret: "" },
         googleSheets: { enabled: false, webhookUrl: "", secret: "" },
+        aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
       },
     });
   }
@@ -81,6 +92,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
     integrations: {
       outboundWebhook: { enabled: false, url: "", secret: "" },
       googleSheets: { enabled: false, webhookUrl: "", secret: "" },
+      aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
     },
     roles: Object.entries(roleDefinitions).map(([key, role]) => ({ id: `role_${key}`, key, ...role })),
   });
@@ -101,6 +113,7 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), validat
     ...(settings.integrations || {}),
     outboundWebhook: req.body.outboundWebhook,
     googleSheets: req.body.googleSheets,
+    aiProviders: req.body.aiProviders,
   };
 
   currentWorkspace.settings = { ...settings, integrations };

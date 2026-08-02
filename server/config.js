@@ -39,6 +39,15 @@ export const config = {
     serviceName: process.env.OTEL_SERVICE_NAME || "whatscrm-api",
     enabled: process.env.OTEL_ENABLED === "true",
   },
+  // Model names are env-overridable, not hardcoded into automationExecutors.js/aiProviders.js -
+  // provider model ids get deprecated/renamed on their own schedule, independent of this app's
+  // release cycle.
+  ai: {
+    openaiModel: process.env.AI_OPENAI_MODEL || "gpt-4o-mini",
+    claudeModel: process.env.AI_CLAUDE_MODEL || "claude-3-5-haiku-latest",
+    geminiModel: process.env.AI_GEMINI_MODEL || "gemini-1.5-flash",
+    requestTimeoutMs: numberFromEnv("AI_REQUEST_TIMEOUT_MS", 30000),
+  },
   featureFlags: {
     infrastructurePanel: process.env.FEATURE_INFRASTRUCTURE_PANEL !== "false",
     queueProcessing: process.env.FEATURE_QUEUE_PROCESSING !== "false",

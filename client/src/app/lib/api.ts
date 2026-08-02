@@ -423,6 +423,11 @@ export function getSettings<T>() {
 export function updateIntegrations<T>(integrations: {
   outboundWebhook?: { enabled?: boolean; url?: string; secret?: string };
   googleSheets?: { enabled?: boolean; webhookUrl?: string; secret?: string };
+  aiProviders?: {
+    openai?: { enabled?: boolean; apiKey?: string };
+    claude?: { enabled?: boolean; apiKey?: string };
+    gemini?: { enabled?: boolean; apiKey?: string };
+  };
 }) {
   return request<T>("/settings/integrations", {
     method: "PUT",
