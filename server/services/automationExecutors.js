@@ -357,6 +357,42 @@ async function execUnsupported({ node }) {
   return { status: "skipped", logMessage: `Node type "${node.type}" is not yet supported`, logLevel: "warn" };
 }
 
+// Reuses the generic 7-field inspector form's "body" input as the JSON source string - no client
+// change needed. Parses it and stores the result under action.parsed so downstream nodes can
+// interpolate {{steps.<nodeId>.parsed.field}}.
+async function execJsonParser({ config: cfg }) {
+  const raw = String(cfg?.body ?? "").trim();
+  if (!raw) return { status: "skipped", logMessage: "Skipped json_parser: empty input", logLevel: "warn" };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "json_parser", status: "failed", error: error.message },
+      logMessage: "JSON parser failed: invalid JSON",
+      logLevel: "error",
+    };
+  }
+  return { status: "ok", action: { type: "json_parser", status: "ok", parsed }, logMessage: "Parsed JSON payload" };
+}
+
+// Reuses the generic form's "variable" (name) and "body" (value) fields - no client change
+// needed. Sets run.context.variables[name], a run-wide bag any later node can read via
+// {{variables.name}} - unlike a node's own action output, which only lives under
+// steps.<thatNodeId>.*, this is meant to be set once and referenced from anywhere downstream.
+async function execVariables({ config: cfg, run }) {
+  const name = String(cfg?.variable || "").trim();
+  if (!name) return { status: "skipped", logMessage: "Skipped variables: no variable name", logLevel: "warn" };
+
+  run.context.variables = run.context.variables || {};
+  const value = cfg?.body ?? "";
+  run.context.variables[name] = value;
+  return { status: "ok", action: { type: "variables", name, value }, logMessage: "Set flow variable" };
+}
+
 const executors = {
   send_message: execSendMessage,
   assign_user: execAssignUser,
@@ -371,6 +407,8 @@ const executors = {
   api: execApi,
   http_request: execApi,
   delay: execDelay,
+  json_parser: execJsonParser,
+  variables: execVariables,
 };
 
 export function executorFor(type) {

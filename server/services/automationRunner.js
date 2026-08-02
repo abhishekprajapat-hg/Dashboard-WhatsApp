@@ -98,6 +98,7 @@ export async function runInboundAutomations({
           stageChanged,
         },
         steps: {},
+        variables: {},
       },
     });
 

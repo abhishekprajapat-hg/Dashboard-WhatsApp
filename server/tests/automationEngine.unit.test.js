@@ -157,3 +157,46 @@ test("delay executor returns waitMs outside test mode when queue processing is u
     assert.equal(result.waitMs, 2000);
   }
 });
+
+test("json_parser executor parses config.body into action.parsed", async () => {
+  const executor = executorFor("json_parser");
+  const result = await executor({ config: { body: '{"orderId": 42, "items": ["a", "b"]}' } });
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.action.parsed, { orderId: 42, items: ["a", "b"] });
+});
+
+test("json_parser executor fails clearly on invalid JSON, doesn't throw", async () => {
+  const executor = executorFor("json_parser");
+  const result = await executor({ config: { body: "{not valid json" } });
+  assert.equal(result.status, "failed");
+  assert.ok(result.error);
+  assert.equal(result.action.status, "failed");
+});
+
+test("json_parser executor skips on empty input", async () => {
+  const executor = executorFor("json_parser");
+  const result = await executor({ config: { body: "" } });
+  assert.equal(result.status, "skipped");
+});
+
+test("variables executor sets run.context.variables[name], readable via {{variables.x}} downstream", async () => {
+  const executor = executorFor("variables");
+  const run = { context: { trigger: {}, steps: {}, variables: {} } };
+  const result = await executor({ config: { variable: "customerName", body: "Priya" }, run });
+
+  assert.equal(result.status, "ok");
+  assert.equal(run.context.variables.customerName, "Priya");
+
+  // Proves the actual integration: a later node's config referencing {{variables.customerName}}
+  // resolves against the same context object the variables node just mutated.
+  const resolved = interpolateConfig({ body: "Hi {{variables.customerName}}, thanks!" }, run.context);
+  assert.equal(resolved.body, "Hi Priya, thanks!");
+});
+
+test("variables executor skips when no variable name is configured", async () => {
+  const executor = executorFor("variables");
+  const run = { context: { trigger: {}, steps: {}, variables: {} } };
+  const result = await executor({ config: { body: "orphan value" }, run });
+  assert.equal(result.status, "skipped");
+  assert.deepEqual(run.context.variables, {});
+});

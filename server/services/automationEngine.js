@@ -135,6 +135,9 @@ export async function advanceRun(run, flow, { testMode = false } = {}) {
 
   run.context = run.context || { trigger: {}, steps: {} };
   run.context.steps = run.context.steps || {};
+  // Run-wide bag the "variables" node kind writes to and any node can read via
+  // {{variables.name}} - distinct from steps.<nodeId>.*, which only holds one node's own output.
+  run.context.variables = run.context.variables || {};
   run.visitCounts = run.visitCounts || {};
 
   let currentId = run.cursor?.nodeId || firstSuccessor(outgoing, triggerNodeId);
