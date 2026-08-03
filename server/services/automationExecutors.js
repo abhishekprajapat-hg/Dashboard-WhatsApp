@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
-import { Contact, Conversation, Tag, Template } from "../models/index.js";
+import { AutomationFlow, AutomationRun, Contact, Conversation, Tag, Template } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
@@ -14,6 +14,12 @@ import {
   processAutomationSendMessage,
   processAutomationWebhookAction,
 } from "./automationSender.js";
+// Circular import, same accepted pattern as jobs.js <-> automationEngine.js: automationEngine.js
+// imports executorFor from this file, and execSubWorkflow below needs advanceRun to actually run
+// the target flow. Safe because advanceRun is only called from inside a function body (when a
+// sub_workflow node executes), well after both modules have finished loading - never at
+// module-eval time.
+import { advanceRun } from "./automationEngine.js";
 
 // Per-node-kind dispatch table for the automation engine. Each executor receives
 // { node, config, resolve, env, run, flow, testMode } and returns
@@ -562,6 +568,76 @@ async function execLoop({ node, run, resolve }) {
   };
 }
 
+const MAX_SUB_WORKFLOW_DEPTH = 5;
+
+// Calls another published flow as a synchronous sub-routine: creates a new AutomationRun for the
+// target flow (parentRunId links it back to this run, for the Run History UI to eventually show
+// nesting), seeds its context.variables.input from this node's interpolated "body" config so the
+// sub-flow can read {{variables.input}}, and awaits its completion before continuing - the same
+// synchronous, no-queue pattern as every other Phase 2 node kind.
+//
+// Depth is guarded by chain.length rather than rejecting exact cycles outright, so bounded
+// self-recursion (a flow calling itself a fixed number of times) still works - only runaway depth
+// is blocked, regardless of whether the cycle is direct (A->A) or mutual (A->B->A->B->...).
+//
+// If the sub-flow's own graph pauses on a delay node, this does NOT block waiting for it - the
+// child resumes independently later via its own BullMQ job, and this step reports
+// subRunStatus: "waiting" and lets the parent continue immediately. Propagating a pause up through
+// nested runs would need a much bigger change (multi-level wait/resume); not attempted here.
+async function execSubWorkflow({ node, config: cfg, run, testMode }) {
+  const targetFlowId = String(node.config?.flowId || "").trim();
+  if (!targetFlowId || !mongoose.Types.ObjectId.isValid(targetFlowId)) {
+    return { status: "skipped", logMessage: "Skipped sub_workflow: no target flow selected", logLevel: "warn" };
+  }
+
+  const chain = Array.isArray(run.chain) ? run.chain : [];
+  if (chain.length >= MAX_SUB_WORKFLOW_DEPTH) {
+    return {
+      status: "failed",
+      error: "sub_workflow_depth_exceeded",
+      action: { type: "sub_workflow", status: "failed", error: "sub_workflow_depth_exceeded" },
+      logMessage: `Sub-workflow call skipped: exceeded max nesting depth (${MAX_SUB_WORKFLOW_DEPTH})`,
+      logLevel: "error",
+    };
+  }
+
+  const targetFlow = await AutomationFlow.findOne({ _id: targetFlowId, workspaceId: run.workspaceId, status: "published" });
+  if (!targetFlow) {
+    return {
+      status: "failed",
+      error: "sub_workflow_not_found",
+      action: { type: "sub_workflow", status: "failed", error: "sub_workflow_not_found" },
+      logMessage: "Sub-workflow call failed: target flow not found or not published",
+      logLevel: "error",
+    };
+  }
+
+  const childRun = await AutomationRun.create({
+    organizationId: run.organizationId,
+    workspaceId: run.workspaceId,
+    flowId: targetFlow._id,
+    parentRunId: run._id,
+    chain: [...chain, targetFlow._id],
+    testMode,
+    trigger: { ...(run.trigger || {}) },
+    context: { trigger: run.context?.trigger || {}, steps: {}, variables: { input: cfg?.body ?? "" } },
+  });
+
+  await advanceRun(childRun, targetFlow, { testMode });
+
+  return {
+    status: childRun.status === "failed" ? "failed" : "ok",
+    action: {
+      type: "sub_workflow",
+      status: childRun.status,
+      subFlowId: targetFlow._id.toString(),
+      subRunId: childRun._id.toString(),
+    },
+    logMessage: `Sub-workflow "${targetFlow.name}" ${childRun.status}`,
+    logLevel: childRun.status === "failed" ? "error" : "info",
+  };
+}
+
 const executors = {
   send_message: execSendMessage,
   assign_user: execAssignUser,
@@ -584,6 +660,7 @@ const executors = {
   email: execEmail,
   sms: execSms,
   loop: execLoop,
+  sub_workflow: execSubWorkflow,
 };
 
 export function executorFor(type) {

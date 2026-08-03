@@ -344,3 +344,85 @@ test("a loop node iterates a real array through a genuine graph cycle, then fall
   assert.equal(loopSteps[3].action.done, true);
   assert.equal(loopSteps[3].action.total, 3);
 });
+
+test("a sub_workflow node calls another flow synchronously, passes input, and links the runs via parentRunId", async () => {
+  const childNodes = [
+    { id: "trigger", type: "trigger" },
+    { id: "send_child", type: "send_message", config: { body: "Child says: {{variables.input}}" } },
+  ];
+  const childEdges = [{ id: "trigger-send", source: "trigger", target: "send_child" }];
+  // A "callable" sub-workflow needs a trigger that won't also match real inbound events on its
+  // own - otherwise the same webhook that fires the parent would independently fire this flow a
+  // second time through the normal trigger-matching path, unrelated to the sub_workflow call.
+  const childFlow = await api("/api/automation", {
+    method: "POST",
+    body: {
+      name: "E2E Sub-workflow Child",
+      triggerType: "keyword_match",
+      keyword: "never_matches_this_e2e_test_inbound_body",
+      sendReply: false,
+      status: "active",
+      nodes: childNodes,
+      edges: childEdges,
+    },
+  });
+  assert.equal(childFlow.status, 201);
+  const childFlowId = childFlow.data.data.id;
+
+  const parentNodes = [
+    { id: "trigger", type: "trigger" },
+    { id: "sub_1", type: "sub_workflow", config: { flowId: childFlowId, body: "hello from parent" } },
+    { id: "send_parent", type: "send_message", config: { body: "Parent continues" } },
+  ];
+  const parentEdges = [
+    { id: "trigger-sub1", source: "trigger", target: "sub_1" },
+    { id: "sub1-sendparent", source: "sub_1", target: "send_parent" },
+  ];
+  const parentFlow = await api("/api/automation", {
+    method: "POST",
+    body: { name: "E2E Sub-workflow Parent", triggerType: "new_message", sendReply: false, status: "active", nodes: parentNodes, edges: parentEdges },
+  });
+  assert.equal(parentFlow.status, 201);
+  const parentFlowId = parentFlow.data.data.id;
+
+  const from = "919990001004";
+  const webhookStatus = await postWebhook(
+    metaInboundPayload({ from, messageId: `automation_e2e_subworkflow_${Date.now()}`, text: "trigger the parent" })
+  );
+  assert.equal(webhookStatus, 200);
+
+  const { data: conversations } = await api("/api/conversations");
+  const conversation = conversations.data.find((item) => item.phone === from);
+  assert.ok(conversation, "expected a conversation to exist for the sub-workflow test contact");
+  const subWorkflowConversationId = conversation.id;
+
+  // Both sends (child's, then parent's continuation) are queued, not synchronous - wait for the
+  // parent's, by which point the child's must already be present too since the parent only
+  // reaches send_parent after execSubWorkflow's advanceRun(childRun, ...) has fully resolved.
+  await waitFor(async () => {
+    const { data } = await api(`/api/conversations/${subWorkflowConversationId}/messages`);
+    return data.data.find((message) => message.content === "Parent continues");
+  });
+
+  const { data: messages } = await api(`/api/conversations/${subWorkflowConversationId}/messages`);
+  const replyBodies = messages.data.filter((message) => message.from === "agent").map((message) => message.content);
+  assert.deepEqual([...replyBodies].sort(), ["Child says: hello from parent", "Parent continues"]);
+
+  const parentRun = await waitFor(async () => {
+    const found = await AutomationRun.findOne({ flowId: parentFlowId, "trigger.conversationId": new mongoose.Types.ObjectId(subWorkflowConversationId) }).sort({ createdAt: -1 });
+    return found?.status === "completed" ? found : null;
+  });
+  assert.deepEqual(parentRun.chain.map((id) => id.toString()), [parentFlowId]);
+
+  const subWorkflowStep = parentRun.history.find((entry) => entry.type === "sub_workflow");
+  assert.ok(subWorkflowStep, "expected a sub_workflow step in the parent run's history");
+  assert.equal(subWorkflowStep.action.status, "completed");
+  assert.equal(subWorkflowStep.action.subFlowId, childFlowId);
+
+  const childRun = await AutomationRun.findById(subWorkflowStep.action.subRunId);
+  assert.ok(childRun, "expected the child run to exist");
+  assert.equal(childRun.parentRunId.toString(), parentRun._id.toString());
+  assert.deepEqual(childRun.chain.map((id) => id.toString()), [parentFlowId, childFlowId]);
+  assert.equal(childRun.context.variables.input, "hello from parent");
+  assert.equal(childRun.status, "completed");
+});

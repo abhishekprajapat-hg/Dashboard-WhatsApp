@@ -446,10 +446,12 @@ function BuilderCanvas({
   selectedFlow,
   onFlowSaved,
   canWrite = false,
+  availableFlows = [],
 }: {
   selectedFlow?: Flow;
   onFlowSaved: (flow: Flow) => void;
   canWrite?: boolean;
+  availableFlows?: Flow[];
 }) {
   const reactFlow = useReactFlow();
   const [nodes, setNodes] = useState<Node<AutomationNodeData>[]>(defaultNodes);
@@ -622,6 +624,40 @@ function BuilderCanvas({
           <p className="text-[10px] text-muted-foreground">
             Wire the "loop" handle to the body of nodes to run per item, ending with an edge back to this node. Wire "done" to
             continue after every item. Inside the body, use {"{{steps."}{node.id}{".item}}"} for the current item.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "sub_workflow") {
+      const callableFlows = availableFlows.filter((flow) => flow.status === "active");
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Flow to call</label>
+          <select
+            value={String(cfg.flowId ?? "")}
+            onChange={(event) => updateSelectedConfig("flowId", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="">Select a flow...</option>
+            {callableFlows.map((flow) => (
+              <option key={flow.id} value={flow.id}>
+                {flow.name}
+              </option>
+            ))}
+          </select>
+          <label className="block text-[10px] font-medium text-muted-foreground">Input (optional)</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Passed to the called flow as {{variables.input}}"
+            className={textareaClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Only active flows can be called. Runs the called flow synchronously and waits for it to finish (unless it hits its
+            own delay node).
           </p>
         </>
       );
@@ -1534,7 +1570,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
             </div>
           </aside>
 
-          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} />
+          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} availableFlows={flowList} />
         </div>
       </div>
     </ReactFlowProvider>

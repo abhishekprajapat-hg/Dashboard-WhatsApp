@@ -10,6 +10,15 @@ const automationRunSchema = new mongoose.Schema(
     flowId: { type: mongoose.Schema.Types.ObjectId, ref: "AutomationFlow", required: true, index: true },
     status: { type: String, enum: ["running", "waiting", "completed", "failed", "cancelled"], default: "running", index: true },
     testMode: { type: Boolean, default: false },
+    // Set when this run was created by a "sub_workflow" node in another run, rather than by a
+    // real trigger - lets the Run History UI eventually show nesting. Null for top-level runs.
+    parentRunId: { type: mongoose.Schema.Types.ObjectId, ref: "AutomationRun", default: null, index: true },
+    // The flowIds active in this call stack (this run's own flow last), seeded to [flow._id] on a
+    // top-level run and extended by one entry per nested sub_workflow call. execSubWorkflow uses
+    // chain.length as a depth guard (capped at MAX_SUB_WORKFLOW_DEPTH) rather than rejecting exact
+    // cycles outright, so bounded self-recursion still works - only runaway depth is blocked,
+    // regardless of whether the cycle is direct (A->A) or mutual (A->B->A->B->...).
+    chain: { type: [mongoose.Schema.Types.ObjectId], default: [] },
     // Seed context: inbound message/contact/conversation ids and trigger-match flags, so a
     // resumed job can re-fetch everything fresh from Mongo without trusting in-memory state.
     trigger: { type: mongoose.Schema.Types.Mixed, default: {} },

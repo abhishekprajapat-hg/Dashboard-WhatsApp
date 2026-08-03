@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import mongoose from "mongoose";
 import { interpolateConfig, normalizeFlowGraph } from "../services/automationEngine.js";
 import { executorFor } from "../services/automationExecutors.js";
 
@@ -351,4 +352,25 @@ test("loop executor: a nested inner loop starts fresh on a new outer iteration i
   assert.equal(restarted.branch, "loop");
   assert.equal(restarted.action.index, 0);
   assert.equal(restarted.action.item, "x");
+});
+
+// sub_workflow's real DB-touching paths (target not found, successful nested call, input
+// passthrough, parentRunId linkage) are covered by automationEngine.e2e.test.js instead - only
+// the branches that return before touching the database belong here.
+
+test("sub_workflow executor skips when no target flow is selected, without checking depth", async () => {
+  const executor = executorFor("sub_workflow");
+  const result = await executor({ node: { config: {} }, run: { chain: [] } });
+  assert.equal(result.status, "skipped");
+});
+
+test("sub_workflow executor fails clearly when the call chain is already at max depth", async () => {
+  const executor = executorFor("sub_workflow");
+  const deepChain = Array.from({ length: 5 }, (_, index) => new mongoose.Types.ObjectId());
+  const result = await executor({
+    node: { config: { flowId: new mongoose.Types.ObjectId().toString() } },
+    run: { chain: deepChain },
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, "sub_workflow_depth_exceeded");
 });

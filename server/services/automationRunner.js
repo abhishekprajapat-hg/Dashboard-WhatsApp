@@ -78,6 +78,7 @@ export async function runInboundAutomations({
       organizationId: account.organizationId,
       workspaceId: account.workspaceId,
       flowId: flow._id,
+      chain: [flow._id],
       testMode,
       trigger: {
         accountId: account._id,
