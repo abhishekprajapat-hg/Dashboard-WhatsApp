@@ -2,150 +2,294 @@
 
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
-**Branch:** `main` — all work this session pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `90d22cf83269a78b6509abc1bb6019f7132f45be`
+**Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
+**HEAD as of this handoff:** `4be9fde` (full SHA: check `git log -1`)
 
-## Automation Phase 1 — DONE, deployed and verified (2026-08-02)
+## Automation Phase 2 — DONE, deployed (2026-08-02, same day as Phase 1)
+
+Seven features shipped in sequence, each its own commit, each following the same discipline: real
+tests (unit + where DB/queue behavior matters, e2e), manual verification via the actual dashboard
+UI, then commit+push only after the user explicitly said so. In commit order:
+
+1. **`d70d7e7` SSRF hardening.** Neither `callOutboundWebhook` nor the new `callGenericApi` (api
+   node) had any protection against reaching internal services. Added `assertPublicUrl`/`safeFetch`
+   in `server/services/integrations.js` using Node's built-in `net.BlockList` (no new dependency) —
+   blocks private/loopback/link-local/reserved ranges including the `169.254.169.254` cloud
+   metadata address, re-validates on every redirect hop (fetch's automatic redirects would
+   otherwise bypass the check entirely). **Known accepted gap, documented in code:** doesn't pin
+   the TCP connection to the validated IP, so a DNS answer that changes between check and connect
+   (active rebinding, needs attacker control of DNS + a timing race) isn't blocked — judged not
+   worth a custom HTTP dispatcher for that threat model.
+2. **`08f478f` Execution-history / run-timeline UI.** New `GET /api/automation/:id/runs`
+   (workspace-scoped, latest 50, full step history per run) + a "Run History" panel in
+   `AutomationView.tsx`'s inspector sidebar — collapsed list of runs that expand into the
+   step-by-step timeline. Purely additive on top of Phase 1's `AutomationRun` model.
+3. **`ff9cdd7` `json_parser` + `variables` nodes.** `execJsonParser` parses the generic form's
+   `body` field as JSON into `action.parsed`. `execVariables` sets a **run-wide**
+   `context.variables[name]` bag (not nested under the setting node's own step) so any later node
+   can read `{{variables.name}}` — this is the mechanism `sub_workflow`'s input-passing and
+   `loop`'s item-source later reused. Both reuse the existing generic 7-field inspector form, no
+   client changes needed.
+4. **`17eff16` AI provider nodes (OpenAI/Claude/Gemini).** Design mirrors the *existing*
+   `outboundWebhook`/`googleSheets` integration pattern exactly (per explicit user steer to match
+   the codebase's theme, not invent a new one): `Workspace.settings.integrations.aiProviders.
+   {openai,claude,gemini}` (`{enabled, apiKey}`), same Zod schema shape, same Settings UI card
+   pattern. New `server/services/aiProviders.js` — request-building/response-parsing factored into
+   pure functions per provider (unit-testable without live API keys), `callAiProvider()` does the
+   actual fetch with a 30s timeout. Executors (`makeAiExecutor` factory) reuse the generic form's
+   `body` field as the prompt, fail clearly when not configured, **skip the real call in test mode**
+   (matches `delay`'s test-mode pattern — avoids real API costs/non-determinism when testing a
+   flow). Model names are env-overridable (`AI_OPENAI_MODEL` etc. in `config.js`), not hardcoded —
+   provider model IDs get deprecated on their own schedule.
+5. **`3190505` Email/SMS channel nodes.** SMS uses **Twilio** (same Account SID + Auth Token
+   credentials `whatsappProvider.js` already uses for the Twilio WhatsApp channel, just the plain
+   `Messages.json` send without the `whatsapp:` prefix). Email uses **SendGrid** (confirmed with
+   user; Bearer-auth REST API, same shape as the OpenAI integration). New
+   `server/services/notificationChannels.js` (`sendEmail`/`sendSms`, same pure-builder-functions
+   pattern as `aiProviders.js`). `execEmail` needed a genuinely new client inspector form (Subject +
+   Body — nothing in the generic 7 fields fits "subject"); `execSms` reuses the generic form's
+   `body` field. **Real bug found and fixed here, not test-only:** `GET /settings` only backfilled
+   the full default `integrations` shape when the *entire* stored object was missing, not when
+   individual newer keys were absent from an *existing* workspace's document — any workspace that
+   had already saved some integration (which this dev workspace had, from testing AI providers)
+   crashed the Settings page on `integrationForm.email.enabled` reading `undefined`. Fixed with a
+   proper per-field merge, `mergeIntegrations()` in `server/routes/settings.js` — this also
+   retroactively protects the *next* integration type added the same way.
+6. **`c97e3f1` `loop` node.** Simpler than `docs/AUTOMATION_ENGINE_PLAN.md`'s Phase 2 sketch
+   anticipated — no "stack of iteration frames" needed on `AutomationRun`. The loop body is wired
+   back to the loop node itself (a real cycle, drawn by the user), and each revisit reads its own
+   prior step state (already preserved by the engine for every node — the same mechanism
+   downstream interpolation relies on) to track `index`/`items` across re-entries. Branches
+   `"loop"`/`"done"`, same `sourceHandle` mechanism condition/if_else already used. **Nested-loop
+   correctness needed one careful fix:** continuation only counts if the prior state wasn't already
+   `done` — otherwise an inner loop revisited by a new outer iteration wrongly thinks it's resuming
+   its already-finished run instead of starting over. Raised `automationEngine.js`'s `STEP_LIMIT`
+   (200→1000) and `VISIT_LIMIT` (5→300) so real loops don't hit the old cycle guard; `STEP_LIMIT`
+   remains the actual backstop against a runaway/infinite loop. **Real engine bug found and fixed
+   here:** `run.history` never actually persisted which branch an executor took — used transiently
+   for `pickNext()` routing then discarded, papered over for condition/if_else via an ad-hoc
+   `action.result` heuristic in the serializer. Fixed at the source (`advanceRun` now records
+   `result.branch` directly onto the history entry), which also fixes the Run History UI panel for
+   loop and any future branching node, not just this one. `AutomationView.tsx`'s hardcoded
+   true/false handle rendering was generalized into a data-driven `branchHandlesByKind` lookup so
+   loop's handles (and any future branching node) fit without more one-off code.
+7. **`4be9fde` `sub_workflow` node.** Calls another published flow as a synchronous sub-routine —
+   same pattern as every other Phase 2 node (parent waits, no queue). Node config `{flowId, body}`
+   — `body` is interpolated and seeded into the child run's `context.variables.input`, reusing
+   `variables`' bag mechanism rather than inventing new plumbing. `AutomationRun` gained
+   `parentRunId` (links a sub-run back to its caller) and `chain` (the active call stack's
+   flowIds, depth-capped at 5 — chosen over exact-cycle rejection so *bounded* self-recursion still
+   works; only runaway depth is blocked, direct or mutual). **If the child hits its own delay node,
+   the parent does NOT wait for it** — the child pauses independently via its normal BullMQ resume,
+   and the parent sees `subRunStatus: "waiting"` and continues immediately. Propagating a pause up
+   through nested runs would need a much bigger change; documented as a known limitation, not
+   attempted. Needed importing `advanceRun` from `automationEngine.js` into
+   `automationExecutors.js` — the *reverse* of the existing one-directional dependency, creating a
+   circular import. Same accepted pattern already proven safe in this codebase (`jobs.js` ↔
+   `automationEngine.js`); verified it still loads cleanly with both cycles present. **Testing found
+   a real design gotcha, not a code bug:** a flow meant to be "callable only" needs a trigger that
+   won't also match real inbound events on its own, or it fires twice — once via `sub_workflow`,
+   once via its own normal trigger matching the same webhook. No engine fix needed/possible here;
+   it's inherent to a flow being both independently-triggered and callable. Documented in the e2e
+   test (gives the child a non-matching `keyword_match` trigger).
+
+**Not done, by design — see plan's "Phase 2+" section for what's deferred and why:**
+- `code_block` — explicitly flagged as needing a real sandboxing decision before it's safe to ship.
+  Don't start this without talking through the sandboxing approach first (VM2 is deprecated/known-
+  vulnerable; `node:vm` alone isn't a real security boundary; likely needs an actual separate
+  process/container or a hosted sandboxing service).
+- `task`/`calendar` — no backend model exists for either yet; would need new Mongoose models before
+  any executor work makes sense.
+- Execution-history UI doesn't yet show `parentRunId` nesting (sub_workflow's child runs are
+  linked in the data but not visually nested in the panel) — quick follow-up if wanted.
+
+## Automation Phase 1 — DONE, deployed (2026-08-02)
 
 Turned the visual flow builder into a real node-based workflow engine: graph traversal,
 condition/if-else branching, delay/wait nodes (pause+resume via BullMQ), a generic API/HTTP node,
 and variable passing between nodes via `{{trigger.x}}`/`{{steps.x}}` interpolation. Full design is
-in `docs/AUTOMATION_ENGINE_PLAN.md` — still accurate as the as-built architecture, nothing
-deviated from the approved plan. Shipped as commit `90d22cf` (see its message for the full
-file-by-file breakdown).
+in `docs/AUTOMATION_ENGINE_PLAN.md` — still accurate as the as-built architecture for Phase 1;
+Phase 2 additions above are documented here, not in that file. Shipped as commit `90d22cf`.
 
-**What's live:**
-- `server/models/AutomationFlow.js` — `nodes`/`edges` are real subdocument schemas now (was
-  `Mixed`), edges have `sourceHandle`/`targetHandle`.
-- `server/models/AutomationRun.js` (new) — persisted execution state, exported from
-  `server/models/index.js`.
-- `server/services/automationEngine.js` (new) — `normalizeFlowGraph` (orphan-node auto-healing),
+**What's live (Phase 1):**
+- `server/models/AutomationFlow.js` — `nodes`/`edges` are real subdocument schemas (was `Mixed`),
+  edges have `sourceHandle`/`targetHandle`.
+- `server/models/AutomationRun.js` — persisted execution state, exported from
+  `server/models/index.js`. (Phase 2 added `parentRunId`/`chain` to this — see above.)
+- `server/services/automationEngine.js` — `normalizeFlowGraph` (orphan-node auto-healing),
   `advanceRun` traversal loop, `interpolateConfig`, `resumeAutomationRun`.
-- `server/services/automationExecutors.js` (new) — dispatch table: the 7 pre-existing action types
+- `server/services/automationExecutors.js` — dispatch table: the 7 pre-existing action types
   adapted to the engine, plus `execCondition`/`execIfElse`/`execApi`/`execDelay`, and
-  `execUnsupported` as the fallback for the 18 not-yet-built catalog kinds (no-ops and continues,
-  doesn't error/block).
-- `server/services/integrations.js` — new `callGenericApi()` export for the api/http_request node
-  (`callOutboundWebhook` untouched).
+  `execUnsupported` as the fallback for not-yet-built catalog kinds (no-ops and continues, doesn't
+  error/block). Phase 2 added `execJsonParser`/`execVariables`/`makeAiExecutor`/`execEmail`/
+  `execSms`/`execLoop`/`execSubWorkflow` to this same file.
+- `server/services/integrations.js` — `callGenericApi()` for the api/http_request node
+  (`callOutboundWebhook` untouched by Phase 1; Phase 2 added SSRF guards to both).
 - `server/services/automationRunner.js` — thin, signature-unchanged entry point delegating to the
   engine. `runInboundAutomations`'s callers (`server/routes/whatsapp.js:681`,
   `server/routes/automation.js:480`) needed zero edits.
-- `server/services/jobs.js` — one new job name, `"automation.resume-run"`, in the existing
-  `automations` worker's dispatch map.
+- `server/services/jobs.js` — `"automation.resume-run"` in the existing `automations` worker's
+  dispatch map.
 - `server/routes/automation.js` — `createFlowSchema`/`updateFlowSchema`'s node/edge Zod validation
-  tightened from `z.array(z.unknown())` to real structural schemas.
-- `client/src/app/components/AutomationView.tsx` — real `<Handle>` ports on `AutomationNode`
-  (condition/if_else get labeled true/false source handles, everything else keeps one default),
-  per-kind inspector forms for delay/condition/if_else/api (the other 21 catalog kinds still use
-  the generic 7-field form).
-- New tests: `server/tests/automationEngine.unit.test.js` (13 tests, fast/no server) and
-  `server/tests/automationEngine.e2e.test.js` (5 tests, real spawned server — includes a genuine
-  non-mocked short-delay pause/persist/resume proof against BullMQ+Redis, following
-  `criticalPath.e2e.test.js`'s pattern). Full suite: **49/49 passing**, zero regressions.
+  tightened from `z.array(z.unknown())` to real structural schemas. Phase 2 added `GET /:id/runs`.
+- `client/src/app/components/AutomationView.tsx` — real `<Handle>` ports on `AutomationNode`,
+  per-kind inspector forms for delay/condition/if_else/api (Phase 2 added email/loop/sub_workflow
+  forms; the remaining catalog kinds still use the generic 7-field form).
 
-**Verified, not just tested:** manually exercised via the real dashboard UI (dragged a Condition
-node onto the canvas, confirmed it renders with labeled true/false handles vs. every other node's
-single default handle, confirmed the new per-kind inspector form, confirmed `Save` round-trips
-through the new Zod + Mongoose schemas). Confirmed live on production: `.last-deploy-sha` on the
-VPS matches `90d22cf`, `pm2 status dashboard-api` online with a clean restart in the logs.
+## Design notes worth knowing before touching this code again
+
+- **Every Phase 2 node kind runs synchronously within `advanceRun`'s traversal loop, not queued** —
+  api, AI providers, email, SMS, json_parser, variables, loop, sub_workflow all block the step
+  until they resolve (bounded by their own timeouts where relevant). Only `delay` pauses the whole
+  run via BullMQ. Only the original 3 legacy action types (`send_message`, `call_webhook`,
+  `google_sheets`) go through `automationSender.js`'s separate enqueue-a-BullMQ-job wrappers,
+  because their queuing predates the engine and was deliberately preserved unchanged. **If you add
+  a new node kind, match the synchronous pattern** unless you have a specific reason to queue it —
+  don't mix the two styles without a reason.
+- **`testMode` skips the real external call for every "slow/costly" Phase 2 node** (AI providers,
+  email, SMS) and returns a canned/skipped response — same reasoning as `delay`'s test-mode skip
+  (avoid real costs/non-determinism when testing a flow via `/api/automation/:id/test`). If you add
+  a new node kind that calls a paid/external API, give it the same `testMode` short-circuit.
+- **Reuse the generic 7-field inspector form (`body`/`url`/`keyword`/`status`/`stage`/`variable`/
+  `code`) before adding a new per-kind client form.** json_parser, variables, and sms all fit
+  cleanly by reusing `body` (or `variable`+`body`). Only add a new form when there's a genuine
+  field-shape mismatch (email needed Subject; api needed method/headers; loop needed a field path;
+  sub_workflow needed a flow picker + input).
+- **Two accepted circular imports exist and are both safe:** `jobs.js` ↔ `automationEngine.js`
+  (jobs.js needs `resumeAutomationRun`, engine needs `enqueueJob`) and, since Phase 2's
+  `sub_workflow`, `automationExecutors.js` ↔ `automationEngine.js` (executors needs `advanceRun`
+  to run a child flow, engine needs `executorFor`). Safe because in both cases the imported
+  function is only ever called from inside a function body, well after both modules finish
+  loading — never at module-eval time. If you add a third node kind that needs something from
+  `automationEngine.js`, this pattern is already proven; don't avoid it out of caution, just don't
+  call the imported thing at the top level of either file.
+- **`run.history` entries now persist the executor's real `branch`** (`advanceRun` records
+  `result.branch` directly) — read `step.branch` directly if you're consuming run history; don't
+  reinvent the old `action.result`-boolean heuristic still kept as a fallback in
+  `routes/automation.js`'s serializer for pre-Phase-2 run documents.
+- **A node meant to be "callable only" (a `sub_workflow` target) needs a trigger that won't also
+  match real inbound events** — e.g. `keyword_match` with a keyword nobody will type, not
+  `new_message` (which matches everything). This isn't an engine bug, just how trigger-matching and
+  direct-invocation currently coexist; worth surfacing in the UI/product at some point (e.g. a
+  "callable only, no auto-trigger" flow mode) but not built.
+- **`testMode` on automation flows is deliberately synchronous**, bypassing the queue entirely, and
+  forces local-placeholder WhatsApp credentials inside the job processor itself — because the job
+  re-fetches the account fresh by ID and has no visibility into "this is a test." If you add a new
+  *queued* automation action (the legacy 3-action style), it needs the same `testMode` handling.
+- **Inline fallback (no Redis) is a real, permanent code path**, not a test shortcut — `enqueueJob`
+  returns `{queued: false}` when Redis/BullMQ isn't configured, callers fall back to synchronous
+  processing. Local dev without Redis is expected to work (except real, non-test `delay`/`loop`
+  waits, which genuinely need the queue — no sane synchronous fallback for "wait 3 hours").
+
+## Environment gotchas (will bite you again if you don't know them)
+
+- **This sandbox's ability to spawn child test servers from within `node:test` degrades over a
+  long session and can become totally unreliable** (not just intermittent) — by the end of this
+  session, all 3 server-spawning test files (`automationEngine.e2e.test.js`,
+  `campaign.integration.test.js`, `criticalPath.e2e.test.js`) failed with "Server did not become
+  ready within 20000ms" **even run individually in isolation**, while all 84 non-spawning unit
+  tests passed clean every time. Confirmed environmental, not a code regression, by: (a) manually
+  booting the server directly via Bash (not through `node:test`'s spawn) and driving the exact same
+  HTTP scenarios successfully, and (b) the failures hit files untouched by the current change too.
+  **If you hit this: don't assume the code is broken.** Try a fresh session/terminal first — this
+  session's failures started as occasional-but-resolves-on-retry and got progressively worse, which
+  points at accumulated resource/session state, not a fixed condition. If a fresh session still
+  can't spawn test servers, that's worth investigating for real; if it works fine there, it was
+  this session's accumulated state.
+- **`dangerouslyDisableSandbox: true` is required for any Bash command that spawns a real listening
+  server** (dev server, test server) — without it, health checks against `127.0.0.1` fail even
+  though the process itself boots fine.
+- **This machine runs Windows, and `npm install` regenerates `package-lock.json` in a way that
+  strips the Linux-only `optionalDependencies` pointer** (`@rollup/rollup-linux-x64-gnu` etc.,
+  needed for the Linux CI/Docker build). Check `git diff package-lock.json` before committing after
+  any local `npm install`.
+- **MongoDB 8.3.4 (latest via winget) crashes on boot on this machine**
+  (`STATUS_ENTRYPOINT_NOT_FOUND`, root cause never identified). **MongoDB 6.0.27 works fine** and is
+  what's installed (`C:\Program Files\MongoDB\Server\6.0\bin\mongod.exe`).
+- **Corrupted npm installs have been a recurring theme** (`bullmq`, `framer-motion`, `motion-dom`,
+  `@xyflow/react` all hit this) — packages with a `package.json` claiming files that don't exist on
+  disk. Fix: delete that package's `node_modules` folder, `npm cache clean --force`, reinstall.
+- **`@xyflow/react`'s `package.json` `exports` map only nests `"types"` inside `"node"`**, tripping
+  up `"moduleResolution": "bundler"`. Worked around via a `paths` override in `client/tsconfig.json`
+  — don't "fix" this by reinstalling, the files are fine.
+- **The `Glob` tool has given false negatives for deeply-nested `node_modules` subtrees.** Verify
+  directly (e.g. a Node `fs.readdirSync` walk) before concluding a package is broken.
+- **A live Upstash Redis instance is configured in `server/.env`** (`REDIS_URL`, gitignored). Reset
+  from the Upstash console's Settings tab for the `regular-longhorn-109637` database if it needs
+  rotating — no data loss.
+- **Local dev loop**: start `mongod` as a background process (`mongod.exe --dbpath <repo>/.mongo-data
+  --bind_ip 127.0.0.1 --port 27017`), run `node scripts/seed.js` in `server/` for a base workspace
+  (`admin@test.com` / `123456`), then `node index.js` in `server/` and `npm run dev` (or root
+  `npm run dev:full`) for the client. `Stop-Process` on `mongod` can be unreliable in this sandbox;
+  a Mongo-native shutdown (`admin().command({shutdown: 1, force: true})`) works when it is.
+
+## Deployment
+
+Production (`dashboard.nemnidhi.com`) runs on a Hostinger KVM1 VPS at `/opt/dashboard-whatsapp`, a
+git clone (not Docker). API runs under PM2 as the `dashboard` Linux user, process name
+`dashboard-api`, port 4000; nginx serves `client/dist` and proxies `/api/`, `/webhooks/`, `/legal/`,
+`/socket.io/`, `/health`.
+
+Deploys are automatic: `scripts/deploy-vps.sh` runs via cron every 5 minutes as the `dashboard`
+user (`crontab -l -u dashboard` to confirm; output redirected to
+`/opt/dashboard-whatsapp/deploy-cron.log`), polling `origin/main` — pulls, conditionally
+`npm install`, always `npm run build`, restarts PM2 only if `server/` changed. Tracks the last
+*successfully deployed* commit in `.last-deploy-sha` (gitignored), separate from git's HEAD, so a
+failed build gets retried next tick instead of silently counting as deployed.
+
+**Verification gotcha found this session:** `.last-deploy-sha` can legitimately lag a few minutes
+behind `git log -1` on the VPS right after a push, purely because the next cron tick hasn't fired
+yet — this is NOT necessarily a failed deploy. Don't panic-diagnose a build failure from a single
+mismatched check; re-check `.last-deploy-sha` and `git log -1` a few minutes later before assuming
+something's actually broken. `deploy-cron.log` (path above) is the authoritative source if a real
+mismatch persists — it has full `npm install`/`npm run build`/PM2-restart output per cycle.
+
+Standard check sequence on the VPS:
+```bash
+cat /opt/dashboard-whatsapp/.last-deploy-sha
+pm2 status dashboard-api
+pm2 logs dashboard-api --lines 50 --nostream
+cd /opt/dashboard-whatsapp && git log -1 --oneline
+```
 
 **One thing checked and ruled out, in case it comes up again:** production's
 `dashboard-api-error.log` has old `CastError`s from `server/routes/analytics.js`'s
 `buildAnalytics()` (`sanitizeFilter` rejecting unwrapped `$in`/`$lt` operators). These are **stale
-log lines predating commit `e617cc5`** (an earlier session's sanitizeFilter sweep, which already
-fixed `analytics.js`'s `trustedFilter()` no-op) — confirmed by `git log --follow -p` showing the
-fix predates this session, and by hitting `GET /api/analytics/summary` against current code
-locally (`HTTP 200`, real data, no error). Nothing to fix here; don't rediscover this.
+log lines predating commit `e617cc5`** (an earlier session's sanitizeFilter sweep, already fixed) —
+confirmed by `git log --follow -p` and by hitting `GET /api/analytics/summary` locally (`HTTP 200`,
+real data, no error). Nothing to fix here; don't rediscover this.
 
-**Known constraints, deliberate not accidental:**
-- Real (non-test) delay nodes require Redis/`FEATURE_QUEUE_PROCESSING` — production has this;
-  local dev without Redis running can only test delay nodes via `testMode` (same constraint
-  campaigns already have).
-- Old flows with disconnected/orphaned canvas nodes keep running every action, just in a
-  slightly different (now wired-graph) order than before — the orphan-auto-heal step in
-  `normalizeFlowGraph`, not a bug.
-- 18 of the 25 node-catalog kinds (AI providers, email/SMS, loop, code_block, json_parser,
-  variables, sub_workflow, task, calendar) are out of scope for Phase 1 by design — see the plan's
-  "Phase 2+" section for what's deferred and why. That's the natural next chunk of work if asked
-  to keep going on automation.
+## History (prior sessions, before the automation engine work)
 
-## What this session did (everything before the automation engine work)
+Starting point was a production audit (in conversation, not a file) that flagged 5 priorities, all
+done, each its own commit(s) on `main`: `180483a` (campaign sends queued via BullMQ),
+`fb8b1b2` (automation send_message/call_webhook queued), `b44f597` (2 security fixes — credential
+secret fallback, `isLocalCredential` prefix-match bug), `a8b478c` (centralized Zod validation on
+highest-risk routes), `c0efe2b` (TypeScript added to client — there was none before despite 84
+`.tsx`/`.ts` files), `e740dd8` (`npm test` wired into CI + webhook HMAC tests + campaign
+integration test), `36dff66` (last unqueued action, `google_sheets`, queued), `1cb1f5e` (`npm
+audit` 13→0). Full detail, including *why*, is in the commit messages.
 
-Starting point was a production audit (in conversation, not a file) that flagged 5 priorities. All 5 are done, each as its own commit(s) on `main`:
-
-1. **`180483a`** — Campaign sends queued through BullMQ instead of blocking the HTTP request. New `server/services/campaignSender.js`. Rate limiting is now actually enforced (per-recipient delay spacing), not just stored and ignored.
-2. **`fb8b1b2`** — Automation-triggered sends (`send_message`) and webhook calls (`call_webhook`) queued the same way. New `server/services/automationSender.js`. Flow tests (`POST /:id/test`) stay synchronous on purpose — see "Design notes" below.
-3. **`b44f597`** — Two security bugs fixed: `WHATSAPP_CREDENTIAL_SECRET` no longer falls back to `JWT_SECRET` (rotating JWT would have permanently bricked stored WhatsApp credentials); `isLocalCredential` narrowed from a `startsWith("local-")` prefix check to an exact match (a real token starting with those characters would have silently never been sent).
-4. **`a8b478c`** — Centralized Zod validation (`server/middleware/validate.js`, `server/utils/zodHelpers.js`) on the highest-risk write routes: auth login, WhatsApp account connection, webhook/integration settings, campaign and automation flow creation/actions. PATCH routes and read-heavy routes are still on manual checks — not covered.
-5. **`c0efe2b`** — TypeScript checking added to the client (`client/tsconfig.json`, `tsc --noEmit` baked into `client/package.json`'s `build` script itself, not just a side CI step). There was **no tsconfig and no `typescript` package at all** before this despite 84 `.tsx`/`.ts` files.
-6. **`e740dd8`** — `npm test` wired into CI (it existed but was never actually run there). Added webhook HMAC signature verification tests (zero prior coverage) and a real integration suite for campaign create → send → pause (spawns the actual server as a child process against a test DB, not mocked).
-7. **`36dff66`** — The last unqueued automation action, `google_sheets`, wired through BullMQ the same way as `call_webhook`. Only the outbound Apps Script HTTP call is deferred; the CRM lead lookup/creation stays synchronous (fast local write, same as `add_to_crm`/`lead_stage`). All three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now consistently queued — nothing left unqueued in the inbound-automation critical path.
-8. **`1cb1f5e`** — All `npm audit` vulnerabilities fixed, 13 → 0. Most were safe patches or version pins blocking an otherwise in-range fix. Two needed real judgment calls rather than a blind `--force`: `react-router` turned out to be declared but never actually imported anywhere in the client (this SPA does its own view switching), so it was removed outright rather than upgraded; `@opentelemetry/sdk-node`/`auto-instrumentations-node` (a real, used, opt-in feature) were upgraded and verified by actually booting the server with `OTEL_ENABLED=true`, not just confirming the default-disabled path still works.
-
-Full detail, including *why* each change was made, is in the commit messages — they're written to be read, not just skimmed.
-
-## Bugs found and fixed along the way (not originally on the list)
-
-These surfaced from actually running the code end-to-end, not from reading it:
-
-- **`mongoose.set("sanitizeFilter", true)`** (in `server/db.js`) silently breaks any raw `$operator` query object that isn't wrapped in `mongoose.trusted(...)`. A prior session fixed ~6 instances across the campaign/audience-filter path, but building the E2E critical-path test (2026-08-02) turned up far more: **~20 more unwrapped instances** across `conversations.js` (inbox search, unread filter, pagination cursors, message-visibility, `by-contact` lookup — the Inbox search bar and "load older messages" were both fully broken in production), `dashboard.js` (dashboard summary for any non-team-read user, "new contacts today"), `assistant.js` (AI Assistant overview crashed outright), `templates.js` (template search, slug-uniqueness check, sync-account filter), `automation.js` (test-flow tag cleanup), `crm.js`, and `automationRunner.js` (template-based automation replies). Also found `trustedFilter()` in `analytics.js` was a **no-op** (`return filter;`, never actually called `mongoose.trusted`) — every call site that used it for a real `find`/`count`/`distinct` (not an `aggregate()` `$match`, which bypasses `sanitizeFilter` entirely and never needed wrapping) was silently still vulnerable. If you see a `CastError` mentioning a `$`-prefixed key being cast as a literal value, this is almost certainly why — check for an unwrapped operator, and don't trust a helper name without reading what it does.
-- **`chooseOwner()` in `crm.js`** (picks who a new lead gets assigned to) queried `Membership.findOne({ role: { $in: [...] } })` — but `Membership` has no `role` field, only `roleId` (a reference to `Role`). This never matched anything, so "prefer an admin/manager" silently always fell through to "earliest active member" regardless of role. Fixed to look up `Role` by `key` first, then filter `Membership` by `roleId`.
-- **BullMQ had never actually been exercised against real Redis.** The shared Redis client (`services/cache.js`) sets `maxRetriesPerRequest: 3`, but BullMQ's `Worker` requires `maxRetriesPerRequest: null` on its own connection. `jobs.js` now uses a dedicated connection for BullMQ, separate from the cache client.
-- **Pause didn't cancel already-enqueued jobs**, only marked the DB status — a resume before those stale jobs fired would have double-sent. Fixed with a status check inside each job (`processCampaignRecipient`/`processAutomationSendMessage`) that no-ops if the recipient isn't still `"queued"` when the job actually runs.
-- **`metadata.campaignId`/`metadata.automationFlowId` stored as strings** instead of ObjectIds inside `Mixed` fields (Mongoose doesn't auto-cast `Mixed` subfields) — broke the campaign timeline / would have broken any future automation-run history feature querying by that field as an ObjectId.
-- **The visual automation canvas's "Save" sent the wrong payload shape** to the create-flow API (a nested `trigger` object instead of the flat fields the Zod schema — and the actual server route — expect). Was silently producing the wrong trigger type before; would have been hard-rejected after the Zod work landed. Fixed in `AutomationView.tsx`.
-- **`ChatWindow.tsx`'s "Add to CRM" button** passed its handler directly to `onClick` instead of wrapping it, so a click would have called it with the raw `MouseEvent` instead of no arguments. TypeScript caught this the moment strict checking was turned on.
-- **`framer-motion`, its own `motion-dom` dependency, and `@xyflow/react`** had corrupted/incomplete local installs (same class of issue as the `bullmq` corruption from earlier in the project's history — see "Environment gotchas" below). `motion-dom`'s `dist/` was completely empty, meaning **`npm run build` could not produce a production bundle at all** before this was found and fixed. Unrelated to TypeScript, just found while verifying it.
-- **`ensureConversationInCrm` (`server/services/crm.js`) would crash outright on a genuinely new lead.** `Lead.findOneAndUpdate` set `status` and `providerMessageId` in both `$setOnInsert` and `$set` — Mongo rejects that combination on an actual insert (`ConflictingUpdateOperators`). Never surfaced before because nothing earlier in the session had exercised the lead-*creation* path with a truly new lead (everything either reused an existing lead or skipped CRM). This is shared code — `add_to_crm`, `lead_stage`, and the main inbound-webhook lead-detection flow were all exposed to the same crash on real production traffic, not just `google_sheets`. Fixed by dropping the redundant `$setOnInsert` fields (`$set` already computes both correctly either way).
-
-## Design notes worth knowing before touching this code again
-
-- **`testMode` on automation flows is deliberately synchronous**, bypassing the queue entirely, and forces local-placeholder WhatsApp credentials inside the job processor itself (not just in the caller) — because the job re-fetches the account fresh by ID and has no visibility into "this is a test." If you add a new queued automation action, it needs the same `testMode` handling or testing a flow with that action could place a real API call.
-- **Inline fallback (no Redis) is a real, permanent code path**, not a test shortcut — `enqueueJob` returns `{queued: false}` when Redis/BullMQ isn't configured, and callers fall back to processing synchronously. Local dev without Redis is expected to work.
-- **All three queued automation actions follow the same shape**: only the slow/external part is deferred (WhatsApp send, webhook POST, Apps Script POST), any local DB prep stays synchronous, `testMode` bypasses the queue entirely and runs inline with the real outcome, and each processor's `trigger.failures` increment is gated on `!testMode` to avoid double-counting against `runInboundAutomations`' own run-level aggregate. If you add a fourth queued action, copy this shape rather than inventing a new one.
-- Two intentional behavior changes from the Zod work: a malformed `templateId`/`assignmentUserId` is now **rejected** instead of silently falling back to a default, and an automation flow with the webhook action enabled now **requires** a valid webhook URL up front (cross-field validation) instead of failing later when the action actually runs.
-
-## Environment gotchas (will bite you again if you don't know them)
-
-- **This machine runs Windows, and `npm install` regenerates `package-lock.json` in a way that strips the Linux-only `optionalDependencies` pointer** (`@rollup/rollup-linux-x64-gnu` etc., added for a Linux CI/Docker build). Every `npm install` you run locally will do this again. Before committing after any local `npm install`, check `git diff package-lock.json` for a removed `"dependencies": {...}` block right after the `"workspaces"` array in the root package entry, and manually restore it if stripped (see any of this session's commits touching `package-lock.json` for the exact shape).
-- **MongoDB 8.3.4 (the latest via winget) crashes on boot on this machine** (`STATUS_ENTRYPOINT_NOT_FOUND`, unrelated to the VC++ redistributable or CPU AVX support — root cause never fully identified). **MongoDB 6.0.27 works fine** and is what's actually installed and used (`C:\Program Files\MongoDB\Server\6.0\bin\mongod.exe`). Both versions may still be present; use 6.0.
-- **Corrupted npm installs have been a recurring theme** (`bullmq`, `framer-motion`, `motion-dom`, `@xyflow/react` all hit this at different points) — packages with a `package.json` claiming files that don't actually exist on disk. If something can't resolve a module or type that should obviously be there, check whether the actual files exist before assuming it's a config/code problem. Fix is usually: delete the package's `node_modules` folder, `npm cache clean --force`, reinstall.
-- **`@xyflow/react`'s `package.json` `exports` map only nests a `"types"` condition inside `"node"`**, not at the top level — trips up TypeScript's `"moduleResolution": "bundler"` even when the `.d.ts` files are genuinely present. Worked around with a `paths` override in `client/tsconfig.json` pointing directly at the real file. Don't "fix" this by reinstalling — the files are fine, it's a resolution quirk.
-- **The `Glob` tool gave false negatives multiple times this session** for deeply-nested `node_modules` subtrees (returned "No files found" for files that genuinely existed, confirmed via a direct Node.js `fs.readdirSync` walk). If `Glob` says a file doesn't exist somewhere under `node_modules`, don't trust it — verify directly before concluding a package is broken.
-- **A live Upstash Redis instance is configured in `server/.env`** (`REDIS_URL`, gitignored, not in this repo). The token was rotated once already this session after being pasted in chat — if it needs rotating again, that's a one-click "Reset Credentials" in the Upstash console's Settings tab for the `regular-longhorn-109637` database, no data loss.
-- **Local dev loop**: start `mongod` as a background process (`mongod.exe --dbpath <repo>/.mongo-data --bind_ip 127.0.0.1 --port 27017`), run `node scripts/seed.js` in `server/` for a base workspace (`admin@test.com` / `123456`), then `node index.js` in `server/` and `npm run dev` (or the root `npm run dev:full`) for the client. To stop `mongod` cleanly, OS-level `Stop-Process` was unreliable in this sandbox (access denied on the process); use a Mongo-native shutdown instead: connect with the driver and run `admin().command({shutdown: 1, force: true})`.
-
-## Deployment (as of 2026-08-01)
-
-Production (`dashboard.nemnidhi.com`) runs on a Hostinger KVM1 VPS at `/opt/dashboard-whatsapp`,
-as a git clone (not Docker — the VPS has no Docker installed, despite `docker-compose.yml`/
-`Dockerfile` existing in this repo for local dev). The API runs under PM2 as the `dashboard` Linux
-user, process name `dashboard-api`, port 4000; nginx (`/etc/nginx/sites-available/dashboard-nemnidhi`,
-**not** `infra/nginx/default.conf` — that file is only for the Docker Compose setup) serves
-`client/dist` as static files and proxies `/api/`, `/webhooks/`, `/legal/`, `/socket.io/`, `/health`
-to the API.
-
-Deploys are automatic: `scripts/deploy-vps.sh` runs via cron every 5 minutes as the `dashboard`
-user, polling `origin/main` and deploying if there's a new commit — pulls, conditionally runs
-`npm install` (only if `package.json`/`package-lock.json` changed) and always `npm run build`,
-restarts PM2 only if anything under `server/` changed. It tracks the last successfully deployed
-commit in `.last-deploy-sha` (gitignored) rather than trusting git's HEAD, so a failed build gets
-retried on the next tick instead of being silently treated as deployed.
-
-This exists because production was found to be running a commit from **July 6** — 13 commits
-behind `main`, missing this entire session's work — because deploys had been entirely manual and
-nobody was checking. That caused a real production bug (campaigns crashing on send via a
-`ConflictingUpdateOperators` error in `crm.js` that was already fixed on `main`) to go unnoticed on
-live customer traffic. If this cron job stops running, that kind of silent drift is the risk.
-
-## What's not done
-
-From the original 5-item list, everything is done at the agreed scope, and all three automation actions (`send_message`, `call_webhook`, `google_sheets`) are now queued. Known remaining gaps, roughly in the order they'd matter:
-
-- ~~Zod validation doesn't cover PATCH routes or read-heavy routes~~ — done: all 10 PATCH routes (`automation`, `campaigns`, `conversations` ×6, `team`, `templates`) go through `validateBody`; `analytics` (date range + `memberId`), `contacts` (search/lifecycle query + create/update body), and `dashboard` (genuinely takes no query params - nothing to validate) are covered too. Doing this found a real bug in the validation middleware itself: `validateQuery` had never been used anywhere in the codebase before, and it did `req.query = result.data`, which throws under Express 5 (`req.query` is a getter-only property here, unlike Express 4) - fixed with `Object.defineProperty`. Worth knowing if anyone adds `validateQuery` to a new route and it 500s.
-- ~~No E2E suite covering the full critical path~~ — done: `tests/criticalPath.e2e.test.js` drives login → connect WhatsApp (real API call, not seeded) → create template → inbound webhook → agent reply → campaign send → automation flow creation and auto-trigger, all against a real spawned server. Building it is what surfaced the much larger `sanitizeFilter` sweep above — a good argument for not skipping this kind of test. `npm test` now runs with `--test-concurrency=1`; the new file plus the existing campaign integration test both spawn real child-process servers, and running them concurrently caused flaky timeouts from resource contention on this dev machine.
-- The client production bundle is a single ~1.4MB chunk (Vite's own build warning) — not urgent, but `manualChunks`/dynamic imports would help if load time ever becomes a concern.
+**Bugs found and fixed along the way (not originally on any list), most still relevant if you touch
+nearby code:**
+- `mongoose.set("sanitizeFilter", true)` silently breaks any raw `$operator` query not wrapped in
+  `mongoose.trusted(...)`. ~20 unwrapped instances were found and fixed across `conversations.js`,
+  `dashboard.js`, `assistant.js`, `templates.js`, `automation.js`, `crm.js`, `automationRunner.js`.
+  `trustedFilter()` in `analytics.js` was a **no-op** until fixed (`return filter;`, never called
+  `mongoose.trusted`). **If you see a `CastError` on a `$`-prefixed key being cast as a literal,
+  check for an unwrapped operator first.**
+- `chooseOwner()` in `crm.js` queried `Membership.findOne({ role: {...} })` but `Membership` has no
+  `role` field, only `roleId`. Fixed to look up `Role` by `key` first.
+- BullMQ's `Worker` needs `maxRetriesPerRequest: null` on its own Redis connection, separate from
+  the shared cache client's bounded-retry connection — `jobs.js` uses a dedicated one.
+  `ensureConversationInCrm` crashed on a genuinely new lead (`ConflictingUpdateOperators` — a field
+  set in both `$setOnInsert` and `$set`).
+- `framer-motion`/`motion-dom`/`@xyflow/react` had corrupted local installs (`motion-dom`'s `dist/`
+  was completely empty — `npm run build` couldn't produce a bundle at all before this was found).
 
 ## Verification approach used throughout
 
-Every change this session was verified by actually running it — booting a local Mongo + the real server, seeding test data, hitting real HTTP endpoints, and (for the TypeScript work) driving the actual browser UI — not just read for plausibility. The campaign and webhook integration tests added in the last commit formalize that same pattern into something that runs on every push instead of needing a human to redo it by hand.
+Every change across every session has been verified by actually running it — booting a local Mongo
++ the real server, seeding test data, hitting real HTTP endpoints, and driving the actual browser
+UI — not just read for plausibility. The e2e/integration test suites formalize the highest-value
+parts of that into something that runs on every push instead of needing a human to redo it by hand.
