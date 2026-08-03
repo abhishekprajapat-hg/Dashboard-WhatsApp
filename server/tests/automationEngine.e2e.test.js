@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import { startTestServer } from "./helpers/testServer.js";
 import { seedTestWorkspace } from "./helpers/seedTestWorkspace.js";
-import { AutomationRun } from "../models/index.js";
+import { AutomationRun, CalendarEvent, Task } from "../models/index.js";
 
 // Drives the real node-based automation engine (Phase 1) end to end: a trigger -> condition
 // branch, where the true branch replies immediately and the false branch waits at a real
@@ -425,4 +425,75 @@ test("a sub_workflow node calls another flow synchronously, passes input, and li
   assert.deepEqual(childRun.chain.map((id) => id.toString()), [parentFlowId, childFlowId]);
   assert.equal(childRun.context.variables.input, "hello from parent");
   assert.equal(childRun.status, "completed");
+});
+
+test("task and calendar nodes create real Task/CalendarEvent documents, linked to the triggering contact/conversation", async () => {
+  const nodes = [
+    { id: "trigger", type: "trigger" },
+    { id: "task_1", type: "task", config: { title: "Follow up on pricing", body: "Sent via automation", duration: 2, unit: "days" } },
+    { id: "cal_1", type: "calendar", config: { title: "Discovery call", body: "Book intro call", duration: 3, unit: "hours", lengthMinutes: 45 } },
+    { id: "send_done", type: "send_message", config: { body: "Task and event created" } },
+  ];
+  const edges = [
+    { id: "trigger-task1", source: "trigger", target: "task_1" },
+    { id: "task1-cal1", source: "task_1", target: "cal_1" },
+    { id: "cal1-send", source: "cal_1", target: "send_done" },
+  ];
+
+  const flow = await api("/api/automation", {
+    method: "POST",
+    body: { name: "E2E Task + Calendar", triggerType: "new_message", sendReply: false, status: "active", nodes, edges },
+  });
+  assert.equal(flow.status, 201);
+  const taskCalFlowId = flow.data.data.id;
+
+  const from = "919990001005";
+  const webhookStatus = await postWebhook(
+    metaInboundPayload({ from, messageId: `automation_e2e_taskcal_${Date.now()}`, text: "trigger task and calendar" })
+  );
+  assert.equal(webhookStatus, 200);
+
+  const { data: conversations } = await api("/api/conversations");
+  const conversation = conversations.data.find((item) => item.phone === from);
+  assert.ok(conversation, "expected a conversation to exist for the task/calendar test contact");
+  const taskCalConversationId = conversation.id;
+
+  await waitFor(async () => {
+    const { data } = await api(`/api/conversations/${taskCalConversationId}/messages`);
+    return data.data.find((message) => message.content === "Task and event created");
+  });
+
+  const run = await waitFor(async () => {
+    const found = await AutomationRun.findOne({ flowId: taskCalFlowId, "trigger.conversationId": new mongoose.Types.ObjectId(taskCalConversationId) }).sort({ createdAt: -1 });
+    return found?.status === "completed" ? found : null;
+  });
+
+  const taskStep = run.history.find((entry) => entry.type === "task");
+  assert.ok(taskStep, "expected a task step in run history");
+  assert.equal(taskStep.action.title, "Follow up on pricing");
+
+  const calStep = run.history.find((entry) => entry.type === "calendar");
+  assert.ok(calStep, "expected a calendar step in run history");
+  assert.equal(calStep.action.title, "Discovery call");
+
+  const task = await Task.findById(taskStep.action.taskId);
+  assert.ok(task, "expected a real Task document to exist");
+  assert.equal(task.title, "Follow up on pricing");
+  assert.equal(task.description, "Sent via automation");
+  assert.equal(task.status, "open");
+  assert.ok(task.dueAt, "expected dueAt to be set");
+  const dueInDays = (task.dueAt.getTime() - Date.now()) / 86400000;
+  assert.ok(dueInDays > 1.9 && dueInDays < 2.1, `expected dueAt ~2 days out, got ${dueInDays} days`);
+  assert.equal(task.contactId.toString(), conversation.contactId);
+  assert.equal(task.conversationId.toString(), taskCalConversationId);
+
+  const event = await CalendarEvent.findById(calStep.action.eventId);
+  assert.ok(event, "expected a real CalendarEvent document to exist");
+  assert.equal(event.title, "Discovery call");
+  assert.equal(event.description, "Book intro call");
+  const startsInHours = (event.startAt.getTime() - Date.now()) / 3600000;
+  assert.ok(startsInHours > 2.9 && startsInHours < 3.1, `expected startAt ~3 hours out, got ${startsInHours} hours`);
+  assert.equal((event.endAt.getTime() - event.startAt.getTime()) / 60000, 45);
+  assert.equal(event.contactId.toString(), conversation.contactId);
+  assert.equal(event.conversationId.toString(), taskCalConversationId);
 });

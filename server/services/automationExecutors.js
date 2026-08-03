@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
-import { AutomationFlow, AutomationRun, Contact, Conversation, Tag, Template } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, Tag, Task, Template } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
@@ -362,6 +362,76 @@ async function execDelay({ node, testMode }) {
   return { status: "ok", waitMs, action: { type: "delay", status: "waiting", waitMs }, logMessage: "Delay started" };
 }
 
+function relativeOffsetMs(cfg, defaultUnit) {
+  const amount = Number(cfg.duration ?? 0);
+  const unit = delayUnitMs[String(cfg.unit || defaultUnit).toLowerCase()] ? String(cfg.unit).toLowerCase() : defaultUnit;
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * delayUnitMs[unit]) : 0;
+}
+
+// Config reuses delay's {duration, unit} shape for "due in N days/hours/..." rather than an
+// absolute date - the flow author designs this before knowing when it'll actually run, so a
+// relative offset from execution time is the only value that makes sense at design time. No
+// dedicated Task-list UI exists yet (deliberately out of scope - see HANDOFF.md); this only
+// creates the record, same as add_tag/lead_stage write CRM data without owning a UI of their own.
+async function execTask({ node, env, run }) {
+  const cfg = node.config || {};
+  const title = String(cfg.title || "").trim();
+  if (!title) return { status: "skipped", logMessage: "Skipped task: no title", logLevel: "warn" };
+
+  const offsetMs = relativeOffsetMs(cfg, "days");
+  const dueAt = offsetMs ? new Date(Date.now() + offsetMs) : null;
+  const assignedToUserId = mongoose.Types.ObjectId.isValid(cfg.userId) ? cfg.userId : null;
+
+  const task = await Task.create({
+    organizationId: run.organizationId,
+    workspaceId: run.workspaceId,
+    title,
+    description: String(cfg.body || ""),
+    dueAt,
+    assignedToUserId,
+    contactId: env.contact?._id || null,
+    conversationId: env.conversation?._id || null,
+  });
+
+  return {
+    status: "ok",
+    action: { type: "task", status: "ok", taskId: task._id.toString(), title, dueAt },
+    logMessage: "Task created",
+  };
+}
+
+// Same relative-offset reasoning as execTask for startAt. lengthMinutes (default 30) sets endAt -
+// kept as a plain minutes field rather than a second duration/unit pair since event lengths are
+// almost always sub-day and a unit dropdown would be overkill.
+async function execCalendar({ node, env, run }) {
+  const cfg = node.config || {};
+  const title = String(cfg.title || "").trim();
+  if (!title) return { status: "skipped", logMessage: "Skipped calendar: no title", logLevel: "warn" };
+
+  const startAt = new Date(Date.now() + relativeOffsetMs(cfg, "hours"));
+  const lengthMinutes = Number(cfg.lengthMinutes ?? 30);
+  const endAt = Number.isFinite(lengthMinutes) && lengthMinutes > 0 ? new Date(startAt.getTime() + lengthMinutes * 60000) : null;
+  const assignedToUserId = mongoose.Types.ObjectId.isValid(cfg.userId) ? cfg.userId : null;
+
+  const event = await CalendarEvent.create({
+    organizationId: run.organizationId,
+    workspaceId: run.workspaceId,
+    title,
+    description: String(cfg.body || ""),
+    startAt,
+    endAt,
+    assignedToUserId,
+    contactId: env.contact?._id || null,
+    conversationId: env.conversation?._id || null,
+  });
+
+  return {
+    status: "ok",
+    action: { type: "calendar", status: "ok", eventId: event._id.toString(), title, startAt, endAt },
+    logMessage: "Calendar event created",
+  };
+}
+
 async function execUnsupported({ node }) {
   return { status: "skipped", logMessage: `Node type "${node.type}" is not yet supported`, logLevel: "warn" };
 }
@@ -694,6 +764,8 @@ const executors = {
   loop: execLoop,
   sub_workflow: execSubWorkflow,
   code_block: execCodeBlock,
+  task: execTask,
+  calendar: execCalendar,
 };
 
 export function executorFor(type) {

@@ -756,6 +756,79 @@ function BuilderCanvas({
       );
     }
 
+    if (node.data.kind === "task" || node.data.kind === "calendar") {
+      const isCalendar = node.data.kind === "calendar";
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Title</label>
+          <input
+            value={String(cfg.title ?? "")}
+            onChange={(event) => updateSelectedConfig("title", event.target.value)}
+            disabled={!canWrite}
+            placeholder={isCalendar ? "Follow-up call" : "Send pricing follow-up"}
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Description</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Notes for whoever picks this up"
+            className={textareaClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">
+            {isCalendar ? "Starts in" : "Due in"}
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={String(cfg.duration ?? "")}
+            onChange={(event) => updateSelectedConfig("duration", event.target.value)}
+            disabled={!canWrite}
+            placeholder="e.g. 2"
+            className={fieldClass}
+          />
+          <select
+            value={String(cfg.unit || (isCalendar ? "hours" : "days"))}
+            onChange={(event) => updateSelectedConfig("unit", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="seconds">Seconds</option>
+            <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
+            <option value="days">Days</option>
+          </select>
+          {isCalendar && (
+            <>
+              <label className="block text-[10px] font-medium text-muted-foreground">Length (minutes)</label>
+              <input
+                type="number"
+                min={0}
+                value={String(cfg.lengthMinutes ?? "")}
+                onChange={(event) => updateSelectedConfig("lengthMinutes", event.target.value)}
+                disabled={!canWrite}
+                placeholder="30"
+                className={fieldClass}
+              />
+            </>
+          )}
+          <label className="block text-[10px] font-medium text-muted-foreground">Assigned to (user ID, optional)</label>
+          <input
+            value={String(cfg.userId ?? "")}
+            onChange={(event) => updateSelectedConfig("userId", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Leave blank to leave unassigned"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            {isCalendar ? "Starts" : "Due"} relative to when this step runs, computed at execution time - not a
+            fixed date. Linked automatically to the triggering contact/conversation when available.
+          </p>
+        </>
+      );
+    }
+
     return ["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
       <input
         key={field}

@@ -3,9 +3,57 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `42bea1e` (full SHA: check `git log -1`) — the `code_block` work below is
-committed, pushed, and confirmed deployed to production (see the deploy-verification note at the
-end of that section).
+**HEAD as of this handoff:** `43be879` (full SHA: check `git log -1`) — `code_block` is committed,
+pushed, and confirmed deployed to production. `task`/`calendar` (below) is implemented and verified
+locally; not yet committed - confirm with the user before committing/pushing.
+
+## `task`/`calendar` nodes — implemented 2026-08-03, models + executors only (no viewing UI yet)
+
+Picked up the other deliberately-deferred Phase 2 item. Scope was explicitly narrowed with the
+user first: **models + executors only**, no dedicated page to browse created tasks/events this
+pass - every other Phase 2 node writes to something with an existing UI surface (tags/CRM stage
+show on the CRM board, assignee shows on the conversation); `task`/`calendar` are the first ones
+writing to brand-new data with nowhere to view it yet. Confirmed via research (no existing
+Task/Calendar/Event/Reminder concept anywhere in the codebase - closest analog was `Lead.followUpAt`,
+a bare timestamp, not a task object) before designing anything from scratch.
+
+- **`server/models/Task.js`** / **`server/models/CalendarEvent.js`** - new Mongoose models,
+  following house schema conventions from `Lead.js`/`Contact.js`: `organizationId`+`workspaceId`
+  (required, indexed, paired), `contactId`/`conversationId` (optional refs, the standard
+  dual-link pattern), `assignedToUserId` (mirrors `Conversation.assignedToUserId`'s "assign to a
+  team member" convention, not `ownerUserId`'s "record ownership" one), `{ timestamps: true }`.
+  Task adds `status` (`open`/`completed`) and `dueAt`; CalendarEvent adds `startAt`/`endAt`. Named
+  `CalendarEvent` not `Calendar` - it's an event *within* a calendar, and every other model name in
+  this codebase is the record type, not its container.
+- **`execTask`/`execCalendar` in `automationExecutors.js`** - config reuses `delay`'s existing
+  `{duration, unit}` shape for a **relative** offset ("due in 2 days" / "starts in 3 hours") rather
+  than an absolute date, computed at execution time via a new `relativeOffsetMs()` helper built on
+  the same `delayUnitMs` map `execDelay` already defines - a flow author designs the node before
+  knowing when it'll actually run, so only a relative offset makes sense at design time. Calendar
+  adds a plain `lengthMinutes` field (default 30) for `endAt`, not a second duration/unit pair -
+  event lengths are almost always sub-day, a unit dropdown would be overkill. Both auto-link
+  `contactId`/`conversationId` from `env` (same as `execEmail`/`execSms`, no per-node override) and
+  accept an optional `userId` in config for `assignedToUserId` (validated via
+  `mongoose.Types.ObjectId.isValid`, silently null if absent/invalid - no team-member picker UI,
+  see below). Skip (not fail) on empty title, matching every other Phase 2 node's empty-input
+  convention.
+- **Client**: dedicated inspector form (title/description/duration+unit/optional userId,
+  calendar adds length-in-minutes) - mirrors `delay`'s existing duration+unit UI exactly, reusing
+  the same `<select>` options. The `userId` field is a **plain text input, not a team-member
+  dropdown** - deliberately minimal since `assign_user` (the existing, older node) has the exact
+  same gap already (no picker UI at all, `config.userId` isn't even one of the generic form's 7
+  fields, so it's currently unsettable from the UI) - not fixing that pre-existing gap here, out of
+  scope for this pass.
+- **Tests**: no unit tests - matches this codebase's established precedent that DB-writing
+  executors (`execAssignUser`, `makeCrmExecutor`, `execGoogleSheets`, `execCallWebhook`) are never
+  unit-tested, only covered at the e2e level. Added a real e2e scenario to
+  `automationEngine.e2e.test.js` (trigger -> task -> calendar -> send_message, asserting real
+  `Task`/`CalendarEvent` documents exist with correct `dueAt`/`startAt`/`endAt` math and
+  `contactId`/`conversationId` linkage). Hit this session's now-familiar sandbox flakiness (server
+  spawn from `node:test` times out - see "Environment gotchas"); verified manually instead via a
+  directly-booted server + real HTTP requests + direct Mongo queries against the created documents,
+  same fallback used for `code_block`. Full non-spawning suite (89 tests across the whole server)
+  still green.
 
 ## `code_block` node — implemented 2026-08-03, sandboxing via isolated-vm
 
@@ -158,8 +206,9 @@ UI, then commit+push only after the user explicitly said so. In commit order:
 
 **Not done, by design — see plan's "Phase 2+" section for what's deferred and why:**
 - ~~`code_block`~~ — done, see the section above this one.
-- `task`/`calendar` — no backend model exists for either yet; would need new Mongoose models before
-  any executor work makes sense.
+- ~~`task`/`calendar`~~ — models + executors done, see the section above this one. Still no
+  dedicated viewing UI (deliberately out of scope for that pass) - a Tasks/Calendar list view is
+  the natural follow-up if this is worth surfacing beyond the automation flow itself.
 - Execution-history UI doesn't yet show `parentRunId` nesting (sub_workflow's child runs are
   linked in the data but not visually nested in the panel) — quick follow-up if wanted.
 
