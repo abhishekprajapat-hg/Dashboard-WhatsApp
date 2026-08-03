@@ -3,8 +3,9 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `d964e08` (full SHA: check `git log -1`) — the `code_block` work below is
-committed locally on top of this but not yet pushed; confirm with the user before pushing.
+**HEAD as of this handoff:** `42bea1e` (full SHA: check `git log -1`) — the `code_block` work below is
+committed, pushed, and confirmed deployed to production (see the deploy-verification note at the
+end of that section).
 
 ## `code_block` node — implemented 2026-08-03, sandboxing via isolated-vm
 
@@ -53,13 +54,19 @@ no container/orchestration infra on the single Hostinger VPS this app deploys to
 - **Known limitation, same shape as other Phase 2 nodes**: runs synchronously inline in
   `advanceRun`'s traversal loop, so a slow/runaway script blocks the whole run until the timeout
   fires (not queued) — matches every other Phase 2 node kind's design.
-- **Native dependency risk worth flagging for the next session**: `isolated-vm` is a native addon
-  (compiles via node-gyp). Verified it installs and runs cleanly on this dev machine (Windows,
-  Node 24) with a prebuilt/compiled binary via plain `npm install`. **Not yet verified on the
-  production VPS** (Hostinger KVM1, git-clone + PM2 deploy, no Docker) — the deploy cron's
-  `npm install` step needs build tooling (python3, a C++ toolchain) available on that box, or the
-  next deploy will fail at `npm install` for this package specifically. Check `deploy-cron.log`
-  after the first deploy that includes this change.
+- **Native dependency risk — resolved, verified on production.** `isolated-vm` is a native addon
+  (compiles via node-gyp). Confirmed installing/running cleanly on the dev machine (Windows, Node
+  24) first. Pushed as `42bea1e`; the VPS cron deploy at `2026-08-03T02:50:04Z` picked it up,
+  detected `package-lock.json`/`server/package.json` changed, ran `npm install` (no manual
+  intervention, no extra build tooling installed), then `npm run build` and a PM2 restart, all
+  logged as `deploy complete (42bea1e...)` in `deploy.log` — proof `npm install` didn't fail,
+  since `deploy-vps.sh` runs with `set -euo pipefail` and would have stopped (and left
+  `.last-deploy-sha` on the previous commit) if it had. Confirmed `.last-deploy-sha` reads
+  `42bea1e028ae3036cac35cc78465d5beafd7d27a` and the PM2 process (named `nemnidhi-backend` in
+  production — this doc's `dashboard-api` name is stale, worth fixing next time someone's in
+  there) is `online` with 0 restarts, meaning `codeSandbox.js`'s `import ivm from "isolated-vm"`
+  loaded cleanly at boot, not just locally. `https://dashboard.nemnidhi.com/health` returns
+  `200 OK`. No further action needed on this.
 
 ## Automation Phase 2 — DONE, deployed (2026-08-02, same day as Phase 1)
 
