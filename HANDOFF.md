@@ -62,11 +62,11 @@ no container/orchestration infra on the single Hostinger VPS this app deploys to
   logged as `deploy complete (42bea1e...)` in `deploy.log` — proof `npm install` didn't fail,
   since `deploy-vps.sh` runs with `set -euo pipefail` and would have stopped (and left
   `.last-deploy-sha` on the previous commit) if it had. Confirmed `.last-deploy-sha` reads
-  `42bea1e028ae3036cac35cc78465d5beafd7d27a` and the PM2 process (named `nemnidhi-backend` in
-  production — this doc's `dashboard-api` name is stale, worth fixing next time someone's in
-  there) is `online` with 0 restarts, meaning `codeSandbox.js`'s `import ivm from "isolated-vm"`
-  loaded cleanly at boot, not just locally. `https://dashboard.nemnidhi.com/health` returns
-  `200 OK`. No further action needed on this.
+  `42bea1e028ae3036cac35cc78465d5beafd7d27a` and the PM2 process `dashboard-api` (run
+  `sudo -u dashboard pm2 status` to see it - see the PM2-per-user gotcha in "Environment gotchas"
+  below if you check this as root and don't see it) is `online` with 0 restarts, meaning
+  `codeSandbox.js`'s `import ivm from "isolated-vm"` loaded cleanly at boot, not just locally.
+  `https://dashboard.nemnidhi.com/health` returns `200 OK`. No further action needed on this.
 
 ## Automation Phase 2 — DONE, deployed (2026-08-02, same day as Phase 1)
 
@@ -304,13 +304,25 @@ mismatched check; re-check `.last-deploy-sha` and `git log -1` a few minutes lat
 something's actually broken. `deploy-cron.log` (path above) is the authoritative source if a real
 mismatch persists — it has full `npm install`/`npm run build`/PM2-restart output per cycle.
 
-Standard check sequence on the VPS:
+Standard check sequence on the VPS (run as the `dashboard` user - see the PM2-per-user gotcha
+right below for why this matters):
 ```bash
-cat /opt/dashboard-whatsapp/.last-deploy-sha
-pm2 status dashboard-api
-pm2 logs dashboard-api --lines 50 --nostream
-cd /opt/dashboard-whatsapp && git log -1 --oneline
+cd /opt/dashboard-whatsapp && cat .last-deploy-sha && git log -1 --oneline
+sudo -u dashboard pm2 status
+sudo -u dashboard pm2 logs dashboard-api --lines 50 --nostream
 ```
+
+**PM2-per-user gotcha found this session, silent-failure trap:** PM2 runs a separate daemon per
+Linux user - `sudo -u dashboard pm2 status` and plain `pm2 status` as `root` show **completely
+different process lists**, and neither errors when the process you're looking for isn't in the
+list you happened to query. Running `pm2 status`/`pm2 describe dashboard-api` as `root` doesn't
+fail or say "not found" - it silently shows *root's own* PM2 processes instead, which on this VPS
+includes an **unrelated app also hosted here**, `nemnidhi-backend`
+(`/var/www/samvid-os/backend/src/server.js`, nothing to do with this project - do not restart,
+rename, or otherwise touch it). Mistaking that for this app's process cost real time and nearly
+led to an unnecessary "fix" (renaming an unrelated production process) before the mismatch was
+traced to the wrong Linux user rather than an actual naming problem. **Always check as
+`sudo -u dashboard pm2 ...`**, never plain `pm2 ...` as root, when looking at this app's process.
 
 **One thing checked and ruled out, in case it comes up again:** production's
 `dashboard-api-error.log` has old `CastError`s from `server/routes/analytics.js`'s
