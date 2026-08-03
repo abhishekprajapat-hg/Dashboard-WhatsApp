@@ -51,6 +51,13 @@ export const config = {
   notifications: {
     requestTimeoutMs: numberFromEnv("NOTIFICATION_REQUEST_TIMEOUT_MS", 15000),
   },
+  // Bounds for the code_block automation node's isolated-vm sandbox - kept low/conservative since
+  // this runs inline in advanceRun's synchronous traversal loop (blocks the whole run until it
+  // resolves, like every other Phase 2 node) on a resource-constrained single VPS.
+  codeBlock: {
+    timeoutMs: numberFromEnv("CODE_BLOCK_TIMEOUT_MS", 5000),
+    memoryLimitMb: numberFromEnv("CODE_BLOCK_MEMORY_LIMIT_MB", 32),
+  },
   featureFlags: {
     infrastructurePanel: process.env.FEATURE_INFRASTRUCTURE_PANEL !== "false",
     queueProcessing: process.env.FEATURE_QUEUE_PROCESSING !== "false",

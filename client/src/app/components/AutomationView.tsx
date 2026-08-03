@@ -731,6 +731,31 @@ function BuilderCanvas({
       );
     }
 
+    if (node.data.kind === "code_block") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Code (JavaScript)</label>
+          <textarea
+            value={String(cfg.code ?? "")}
+            onChange={(event) => updateSelectedConfig("code", event.target.value)}
+            disabled={!canWrite}
+            placeholder={"return context.trigger.body?.toUpperCase();"}
+            rows={10}
+            spellCheck={false}
+            className={`${textareaClass} font-mono`}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Runs in an isolated sandbox with no network/file access. Read run data via{" "}
+            <code>context.trigger</code>, <code>context.steps</code>, <code>context.variables</code> (not{" "}
+            {"{{...}}"} tokens). End with <code>return</code> to make the value available downstream as{" "}
+            {"{{steps."}
+            {node.id}
+            {".result}}"}.
+          </p>
+        </>
+      );
+    }
+
     return ["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
       <input
         key={field}

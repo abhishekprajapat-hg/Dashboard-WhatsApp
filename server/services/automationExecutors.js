@@ -5,6 +5,7 @@ import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
 import { sendEmail, sendSms } from "./notificationChannels.js";
+import { runSandboxedCode } from "./codeSandbox.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
   enqueueAutomationGoogleSheetAction,
@@ -568,6 +569,37 @@ async function execLoop({ node, run, resolve }) {
   };
 }
 
+// Reads node.config.code directly (the raw, un-interpolated config), not the `config` param
+// interpolateConfig already produced - {{trigger.x}}-style textual substitution into a source
+// string is the wrong model for actual code (quoting/escaping hazards, would break any code that
+// legitimately contains "{{"). Instead the whole run context is exposed as a real `context` object
+// inside the sandbox - read context.trigger.x / context.steps.nodeId.x / context.variables.x, the
+// same shape {{}} interpolation resolves against, just as live data instead of string tokens.
+// Runs in isolated-vm (see codeSandbox.js) - a real V8 isolate with no require/process/fs/network
+// access and a CPU-time + memory cap, not node:vm or vm2. No testMode short-circuit: unlike the AI
+// provider/email/SMS nodes this doesn't call a paid external API, so there's no cost/non-determinism
+// reason to skip it when testing a flow.
+async function execCodeBlock({ node, run }) {
+  const source = String(node.config?.code || "").trim();
+  if (!source) return { status: "skipped", logMessage: "Skipped code_block: no code", logLevel: "warn" };
+
+  try {
+    const result = await runSandboxedCode({
+      code: source,
+      context: { trigger: run.context?.trigger || {}, steps: run.context?.steps || {}, variables: run.context?.variables || {} },
+    });
+    return { status: "ok", action: { type: "code_block", status: "ok", result }, logMessage: "Code block executed" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "code_block", status: "failed", error: error.message },
+      logMessage: "Code block failed",
+      logLevel: "error",
+    };
+  }
+}
+
 const MAX_SUB_WORKFLOW_DEPTH = 5;
 
 // Calls another published flow as a synchronous sub-routine: creates a new AutomationRun for the
@@ -661,6 +693,7 @@ const executors = {
   sms: execSms,
   loop: execLoop,
   sub_workflow: execSubWorkflow,
+  code_block: execCodeBlock,
 };
 
 export function executorFor(type) {

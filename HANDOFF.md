@@ -3,7 +3,63 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `4be9fde` (full SHA: check `git log -1`)
+**HEAD as of this handoff:** `d964e08` (full SHA: check `git log -1`) — the `code_block` work below is
+committed locally on top of this but not yet pushed; confirm with the user before pushing.
+
+## `code_block` node — implemented 2026-08-03, sandboxing via isolated-vm
+
+Picked up the one deliberately-deferred Phase 2 item flagged in the "Not done, by design" section
+below. Sandboxing approach was discussed with the user first (per that section's explicit
+instruction) before writing any code: **isolated-vm** was chosen over a child-process-per-execution
+model and a hosted sandbox service — it's a real V8 isolate (separate heap/global from the host,
+not `node:vm`'s shared-realm non-boundary and not deprecated/vulnerable `vm2`), runs in-process so
+it fits the existing synchronous-per-node execution model every other Phase 2 node uses, and needs
+no container/orchestration infra on the single Hostinger VPS this app deploys to.
+
+- **`server/services/codeSandbox.js`** — `runSandboxedCode({ code, context, timeoutMs,
+  memoryLimitMb })`. Creates a fresh `ivm.Isolate` per call (disposed in `finally`), injects
+  `context` as plain copied data via `ExternalCopy` (never live objects/functions — the sandboxed
+  code has no reference back into the host process), compiles the source wrapped in an IIFE, and
+  runs it with a real V8-level timeout + memory cap. No `require`/`process`/`fs`, and no `fetch` is
+  exposed — code_block is compute-only; use the `api` node for outbound HTTP.
+- **`execCodeBlock` in `automationExecutors.js`** — reads `node.config.code` **raw** (the
+  un-interpolated config), not the `config` param `interpolateConfig` already produced. This is
+  deliberate: `{{trigger.x}}`-style textual substitution into a source string is the wrong model
+  for actual code (quoting/escaping hazards, breaks any code that legitimately contains `{{`).
+  Instead the whole run context is exposed as a real `context` object inside the sandbox —
+  `context.trigger`/`context.steps`/`context.variables`, live data instead of string tokens. Output
+  goes to `action.result`, readable downstream via `{{steps.<nodeId>.result}}`, same convention as
+  `json_parser`'s `.parsed`. No `testMode` short-circuit (unlike AI providers/email/SMS) — it
+  doesn't call a paid external API, so there's no cost/non-determinism reason to skip it in tests.
+- **Config**: `config.codeBlock.timeoutMs` (`CODE_BLOCK_TIMEOUT_MS`, default 5000) and
+  `.memoryLimitMb` (`CODE_BLOCK_MEMORY_LIMIT_MB`, default 32), env-overridable like the AI provider
+  models.
+- **Client**: dedicated inspector form in `AutomationView.tsx` (monospace textarea + a note on
+  sandbox limits) — the generic 7-field form's single-line `code` input doesn't fit multi-line
+  source, same reasoning as email's dedicated form.
+- **Tests**: `automationEngine.unit.test.js` gained real coverage — success with a returned value,
+  a thrown error surfaced as a failed step (not an uncaught exception), no access to
+  `require`/`process`/`fetch` (isolation actually holds), and a CPU-time timeout on `while(true){}`.
+  The old "unsupported node kinds no-op" test used `code_block` as its example; switched to `task`
+  (still genuinely unsupported — no backend model exists).
+- **Verified end-to-end**, not just unit tests: created a real flow via `POST /api/automation` with
+  a `trigger -> code_block` graph, ran it via `POST /api/automation/:id/test`, confirmed via
+  `GET /api/automation/:id/runs` that `context.trigger.body` arrived as live data (not a string
+  token) and that `typeof fetch`/`typeof process` were both `"undefined"` inside the sandbox. Also
+  confirmed in the actual dashboard UI (logged in as the seeded `admin@test.com` user) that the Run
+  History and Execution Logs panels — unmodified Phase 2 components — render the new node kind
+  correctly with no special-casing needed, and that the new dedicated inspector textarea shows the
+  right node's code.
+- **Known limitation, same shape as other Phase 2 nodes**: runs synchronously inline in
+  `advanceRun`'s traversal loop, so a slow/runaway script blocks the whole run until the timeout
+  fires (not queued) — matches every other Phase 2 node kind's design.
+- **Native dependency risk worth flagging for the next session**: `isolated-vm` is a native addon
+  (compiles via node-gyp). Verified it installs and runs cleanly on this dev machine (Windows,
+  Node 24) with a prebuilt/compiled binary via plain `npm install`. **Not yet verified on the
+  production VPS** (Hostinger KVM1, git-clone + PM2 deploy, no Docker) — the deploy cron's
+  `npm install` step needs build tooling (python3, a C++ toolchain) available on that box, or the
+  next deploy will fail at `npm install` for this package specifically. Check `deploy-cron.log`
+  after the first deploy that includes this change.
 
 ## Automation Phase 2 — DONE, deployed (2026-08-02, same day as Phase 1)
 
@@ -94,10 +150,7 @@ UI, then commit+push only after the user explicitly said so. In commit order:
    test (gives the child a non-matching `keyword_match` trigger).
 
 **Not done, by design — see plan's "Phase 2+" section for what's deferred and why:**
-- `code_block` — explicitly flagged as needing a real sandboxing decision before it's safe to ship.
-  Don't start this without talking through the sandboxing approach first (VM2 is deprecated/known-
-  vulnerable; `node:vm` alone isn't a real security boundary; likely needs an actual separate
-  process/container or a hosted sandboxing service).
+- ~~`code_block`~~ — done, see the section above this one.
 - `task`/`calendar` — no backend model exists for either yet; would need new Mongoose models before
   any executor work makes sense.
 - Execution-history UI doesn't yet show `parentRunId` nesting (sub_workflow's child runs are

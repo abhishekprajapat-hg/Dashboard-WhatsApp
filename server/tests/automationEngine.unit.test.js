@@ -134,10 +134,60 @@ test("if_else executor mirrors condition's branch semantics", async () => {
 });
 
 test("unsupported node kinds no-op and continue, they don't error the flow", async () => {
-  const executor = executorFor("code_block");
-  const result = await executor({ node: { type: "code_block", config: {} } });
+  // task/calendar remain genuinely unsupported (no backend model exists yet, per HANDOFF.md) -
+  // code_block used to be the example here too, until it got a real executor below.
+  const executor = executorFor("task");
+  const result = await executor({ node: { type: "task", config: {} } });
   assert.equal(result.status, "skipped");
   assert.equal(result.action, undefined);
+});
+
+test("code_block executor skips (not fails) on empty code", async () => {
+  const executor = executorFor("code_block");
+  const result = await executor({ node: { type: "code_block", config: {} }, run: { context: {} } });
+  assert.equal(result.status, "skipped");
+  assert.equal(result.action, undefined);
+});
+
+test("code_block executor runs sandboxed JS and exposes run context as data, not string tokens", async () => {
+  const executor = executorFor("code_block");
+  const run = { context: { trigger: { name: "Somil" }, steps: {}, variables: { greeting: "Hi" } } };
+  const result = await executor({
+    node: { type: "code_block", config: { code: "return context.variables.greeting + ', ' + context.trigger.name + '!';" } },
+    run,
+  });
+  assert.equal(result.status, "ok");
+  assert.equal(result.action.result, "Hi, Somil!");
+});
+
+test("code_block executor reports a failed step (not a thrown exception) on a runtime error", async () => {
+  const executor = executorFor("code_block");
+  const result = await executor({
+    node: { type: "code_block", config: { code: "throw new Error('boom');" } },
+    run: { context: {} },
+  });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /boom/);
+});
+
+test("code_block executor has no access to require/process/fs - sandbox actually isolates", async () => {
+  const executor = executorFor("code_block");
+  const result = await executor({
+    node: { type: "code_block", config: { code: "return typeof require + ',' + typeof process + ',' + typeof fetch;" } },
+    run: { context: {} },
+  });
+  assert.equal(result.status, "ok");
+  assert.equal(result.action.result, "undefined,undefined,undefined");
+});
+
+test("code_block executor enforces a CPU-time limit on runaway code", async () => {
+  const executor = executorFor("code_block");
+  const result = await executor({
+    node: { type: "code_block", config: { code: "while (true) {}" } },
+    run: { context: {} },
+  });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /timed out/i);
 });
 
 test("delay executor skips synchronously in test mode instead of returning waitMs", async () => {
