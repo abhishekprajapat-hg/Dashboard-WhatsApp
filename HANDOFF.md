@@ -3,9 +3,52 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `43be879` (full SHA: check `git log -1`) — `code_block` is committed,
-pushed, and confirmed deployed to production. `task`/`calendar` (below) is implemented and verified
-locally; not yet committed - confirm with the user before committing/pushing.
+**HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
+to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
+
+## Session paused here 2026-08-03 — quick-start for whoever picks this up next
+
+Both items below (`code_block` and `task`/`calendar`) are **committed, pushed to `origin/main`, and
+confirmed deployed to production** — verified via the VPS's `.last-deploy-sha` matching `HEAD`, a
+clean `deploy complete` line in `deploy.log`, `pm2 status` showing `dashboard-api` online, and
+`https://dashboard.nemnidhi.com/health` returning `200 OK`. Nothing is mid-flight; this is a clean
+stopping point, not an interrupted one.
+
+**What's actually left (nothing more, nothing less):**
+1. **Execution-history UI nesting** — `sub_workflow` child runs are linked via `parentRunId` in the
+   data (Phase 2, done) but the Run History panel doesn't visually nest them yet. Quick follow-up,
+   not started. See "Not done, by design" below.
+2. **Task/Calendar viewing UI** — `Task`/`CalendarEvent` records are created for real by the
+   automation engine, but there's no page to browse them (deliberately out of scope this session,
+   by explicit user choice - see the `task`/`calendar` section below for why). Natural next step if
+   these should be visible beyond the automation flow's own run history/logs.
+3. **`docs/SCREEN_RECORDING_SCRIPT.md`** — untracked in git, predates this session, unrelated to the
+   automation work (a Meta App Review recording script). Never got a decision on whether to commit
+   it; still sitting there.
+4. **`.claude/launch.json`** — untracked, added this session so the client dev server could be
+   started via the browser preview tool during verification. Harmless to commit (just a local dev
+   server config) or to leave untracked/gitignore it - user's call, never asked.
+
+**Everything else this project has ever tracked as deferred is done.** Phase 1 and all 7 Phase 2
+features were complete before this session; this session closed out the two remaining deferred
+items (`code_block`, `task`/`calendar`) end to end - implemented, tested, manually verified, and
+confirmed live in production.
+
+## Meta App Review — approved 2026-08-13
+
+Submission reviewed and **approved** by Meta (submitted/decided same day, per the developer
+dashboard's App Review > Previous submissions). Two permissions now live on the app, not just
+sandbox-mode:
+
+- `whatsapp_business_messaging` — **Approved**
+- `whatsapp_business_management` — **Approved**
+
+This unblocks the Meta-provider path in `whatsappProvider.js`/`whatsapp.js` for real (non-test)
+WhatsApp Business accounts beyond the developer's own sandbox numbers - previously any
+non-admin/non-tester phone number would have been rejected by Meta regardless of app config. No
+code change needed on this repo's side; this is a Meta-side app-config unlock, not a deploy.
+Nothing in this codebase currently branches on review status, so no follow-up here beyond knowing
+real customer WhatsApp numbers can now be onboarded.
 
 ## `task`/`calendar` nodes — implemented 2026-08-03, models + executors only (no viewing UI yet)
 
