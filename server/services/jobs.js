@@ -3,6 +3,7 @@ import { Queue, Worker, QueueEvents } from "bullmq";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
 import { callOutboundWebhook } from "./integrations.js";
+import { logger } from "./logger.js";
 import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
 import {
@@ -27,7 +28,7 @@ function connectionOptions() {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
     });
-    bullConnection.on("error", (error) => console.warn("BullMQ Redis connection error:", error.message));
+    bullConnection.on("error", (error) => logger.warn({ err: error }, "BullMQ Redis connection error"));
   }
   return { connection: bullConnection };
 }
@@ -78,7 +79,7 @@ export function startWorkers() {
   ));
 
   for (const [name, worker] of workers) {
-    worker.on("failed", (job, error) => console.warn(`Job failed in ${name}:`, job?.id, error.message));
+    worker.on("failed", (job, error) => logger.warn({ queue: name, jobId: job?.id, err: error }, "Job failed"));
   }
 
   return { enabled: true, workers: workers.size };

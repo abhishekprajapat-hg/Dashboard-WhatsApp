@@ -39,6 +39,7 @@ export const config = {
     serviceName: process.env.OTEL_SERVICE_NAME || "whatscrm-api",
     enabled: process.env.OTEL_ENABLED === "true",
   },
+  logLevel: process.env.LOG_LEVEL || "info",
   // Model names are env-overridable, not hardcoded into automationExecutors.js/aiProviders.js -
   // provider model ids get deprecated/renamed on their own schedule, independent of this app's
   // release cycle.

@@ -16,6 +16,7 @@ import {
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
+import { logger } from "../services/logger.js";
 import { trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
@@ -665,7 +666,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           message,
           lead: crmResult.lead,
           onError: (sheetError) => {
-            console.warn(`Google Sheet lead sync failed: ${sheetError.message}`);
+            logger.warn({ err: sheetError }, "Google Sheet lead sync failed");
           },
         });
       }

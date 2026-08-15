@@ -3,44 +3,105 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `d6e1394` (`d6e1394990aa785ae0296d95c8e0222dc11c61bc` — check `git log -1`
+**HEAD as of this handoff:** `d7611d8` (`d7611d8de2f81d4aaa158b5947fdbac6958296d4` — check `git log -1`
 to confirm nothing's moved since). This exact commit is confirmed deployed and running on
-production - verified three ways in the same session it shipped: VPS `.last-deploy-sha` read back
-exactly `d6e1394990aa785ae0296d95c8e0222dc11c61bc`, `sudo -u dashboard pm2 status` showed
-`dashboard-api` `online` (restart count 7), and `https://dashboard.nemnidhi.com/health` returned
-`200 OK`. **Working tree is NOT clean right now** - the OpenAPI schema generation work (see the
-dedicated section below) is implemented and verified but deliberately not yet committed, pending
-the user's go-ahead. Run `git status --short` before touching anything else in this repo.
+production - VPS `.last-deploy-sha` read back exactly `d7611d8de2f81d4aaa158b5947fdbac6958296d4`
+and `https://dashboard.nemnidhi.com/health` returned `200 OK`, both checked directly against the
+VPS in the same session it shipped (see the dated sections below for the two earlier commits'
+deploy confirmations too - `d6e1394` and before are all live). **Working tree is NOT clean right
+now** - the structured-logging work (see the dedicated section below) is implemented and verified
+but deliberately not yet committed, pending the user's go-ahead. Run `git status --short` before
+touching anything else in this repo.
 
-## Session paused here 2026-08-15 (continued again) — OpenAPI schema generation implemented, not yet committed
+## Session paused here 2026-08-15 (continued a third time) — structured logger w/ redaction implemented, not yet committed
 
-A third pass this same day picked up the next `FUTURE_ROADMAP.md` Phase 1 item after a quick
-scoping pass across everything left on the roadmap (OpenAPI generation, structured logging w/
-redaction, Socket.io Redis adapter, Playwright E2E, tenant quotas/billing, backup drills - see the
-dedicated OpenAPI section below for what was actually built; the other five remain unscoped/
-unstarted). OpenAPI generation was picked as the lowest-risk, most mechanical item.
+A fourth pass this same day picked up "Add structured logger with redaction," the next
+`FUTURE_ROADMAP.md` Phase 1 item, chosen by the user from the same scoping pass mentioned in the
+OpenAPI section below (Socket.io Redis adapter, Playwright E2E, tenant quotas/billing, backup
+drills all remain unscoped/unstarted).
 
-**Implemented, unit tested, and manually verified (including a real Swagger UI render) this
-session — but, unlike the feature-flag work above, `git status` still shows it uncommitted.**
-Nothing has been committed, pushed, or deployed for this piece yet; deliberate pause for the user's
-explicit go-ahead, not an oversight. See the dedicated section below for the full writeup.
+**Implemented, unit tested, and manually verified against a real running server (including live
+redaction of a real bearer token and a real triggered error) this session — but `git status` still
+shows it uncommitted.** Deliberate pause for the user's explicit go-ahead, not an oversight. See the
+dedicated section below for the full writeup.
 
-**What's actually left:** nothing implementation-wise for OpenAPI generation. Only remaining step is
-the user deciding whether/when to commit + push. Separately, two confirmed-but-unrelated findings
-surfaced while scoping/building this were flagged as their own follow-up tasks rather than bundled
-in: (1) ~15 routes across `team.js`/`templates.js`/`whatsapp.js`/`campaigns.js`/`conversations.js`
-still have zero real request validation despite this file's earlier claim that item was "closed
-entirely" (documentation-only OpenAPI schemas were authored for them, but nothing wires them into
-`validateBody`/`validateQuery` - that's real behavior-changing work, deliberately not done here);
-(2) a new high-severity `socket.io-parser` vulnerability (`npm audit`), unrelated dependency drift
-surfaced by an unrelated `npm install`, not caused by this session's changes.
+**What's actually left:** nothing implementation-wise. Only remaining step is the user deciding
+whether/when to commit + push. The two follow-up tasks flagged during the OpenAPI pass (validation
+gap on ~15 routes, `socket.io-parser` advisory) are both still open, untouched by this pass.
 
 ## `.last-deploy-sha`/deploy history note
 
 Everything from `## Feature-flag admin UI` through the rest of this file (down to `## History`)
-predates the OpenAPI work above and was true as of `HEAD 30cda73` before the feature-flag commit
-landed. It's kept as-is below for the detailed implementation record of each piece; only the top
-banner and the two "Session paused" headers above have been kept current.
+predates the OpenAPI and structured-logging work above and was true as of `HEAD 30cda73` before the
+feature-flag commit landed. It's kept as-is below for the detailed implementation record of each
+piece; only the top banner and the "Session paused" headers above have been kept current.
+
+## Structured logger with redaction — implemented 2026-08-15, uncommitted
+
+Closes `FUTURE_ROADMAP.md`'s Phase 1 "Add structured logger with redaction" item.
+
+- **Real scoping correction before writing any code**: a precise inventory found 44 `console.*`
+  call sites across 17 files, but **22 of those are in one-shot CLI scripts**
+  (`server/scripts/*.js`) - human-facing terminal tools a developer/ops person runs and reads
+  directly, where structured JSON would be a strictly worse UX. `seed.js`'s
+  `console.log(\`Password: ${seedUser.password}\`)` is **intentionally** printing the freshly-seeded
+  dev password for the human running it, not a leak - explicitly left alone. **Only the 22 call
+  sites in the actual server runtime** (`index.js`, `db.js`, `routes/`, `services/`, `realtime/`)
+  were migrated.
+- **Tooling**: `pino@^10` + `pino-http@^11` (new runtime deps), `pino-pretty@^13` (devDependency
+  only). Chosen over Winston/hand-rolled - pino's `redact` option (backed by `fast-redact`) does
+  exactly what's needed declaratively, and `pino-http` is the official Express integration from the
+  same maintainers rather than hand-rolling response-finish timing.
+- **`server/services/logger.js`** (new) - the single pino instance (`config.logLevel`, new
+  `LOG_LEVEL` env var, default `"info"`), a shared `redactPaths` export (one definition, reused by
+  both the base logger and `httpLogger` below), and `httpLogger` (`pino-http` with `genReqId` -
+  **this codebase had zero request-id/correlation-id anywhere before this**, confirmed via
+  repo-wide grep - and `customProps` reading `req.user?.workspaceId`/`req.user?.sub` when present).
+  Pretty-printed only when `NODE_ENV=development` specifically (not `"test"`) - pino-pretty runs its
+  own worker thread, and this environment's server-spawning tests are already documented as fragile
+  (see "Environment gotchas" below), so spawned test servers stay on the same plain-JSON path as
+  production. Production writes plain JSON to stdout, same destination every `console.*` call
+  already wrote to - **PM2's existing log capture on the VPS needs zero changes**, log lines are
+  just structured now instead of freeform text.
+- **`server/index.js`** - `app.use(httpLogger)` mounted before `rateLimiter()` (so rate-limited
+  requests still get logged); the global error handler's `console.error(error)` replaced with
+  `logger.error({err: error, requestId: req.id}, "Unhandled route error")` - pino's standard `err`
+  serializer preserves the full stack trace in structured form, a real improvement over the old raw
+  dump, not just a like-for-like swap. Confirmed the client-facing error response is byte-identical
+  to before (`{"error":"SERVER_ERROR","message":"Something went wrong."}`) - only the log line
+  changed, not the response contract.
+- **Remaining 16 call sites** (`db.js`, `analytics.js`, `whatsapp.js`, `conversations.js`,
+  `messageBus.js`, `jobs.js`, `campaignSender.js`, `cache.js`, `automationEngine.js`,
+  `realtime/events.js`) - mechanical swap to `logger.info/warn/error`, passing the real `Error`
+  object as `{err: error}` instead of just `.message` (strictly more information, now safely
+  redactable) and discrete variables as structured fields instead of string-interpolating them
+  (e.g. `jobs.js`'s job-failed warning now carries `queue`/`jobId`/`err` as real fields).
+- **Real, unplanned finding caught during manual verification, not by inspection** - triggering a
+  genuine malformed-JSON request to test the error handler surfaced that Express's `body-parser`
+  attaches the raw invalid input as `.body` directly on the `SyntaxError` it throws, and pino's
+  `err` serializer surfaces every enumerable property of a logged error - so **the original redact
+  list would have missed this specific real leak path** (a mistyped secret in a malformed JSON body
+  would've appeared in `err.body` in production logs). Caught live during step 4 of verification
+  (not anticipated during design), fixed by adding `body`/`*.body` to `redactPaths` before calling
+  this done, confirmed with a real re-triggered request containing a fake secret in a broken JSON
+  body - the raw value no longer appears anywhere in the log output.
+- **Tests**: `server/tests/logger.unit.test.js` (new, 6 tests) - builds a fresh pino instance from
+  the exact same exported `redactPaths`, writes to an in-memory stream, asserts real secret values
+  never appear in the parsed JSON output for: a top-level secret field, `req.headers.authorization`
+  in the real pino-http shape, a one-level-nested secret via the wildcard path, the `.body`-on-error
+  case above, and that unrelated fields and the error stack trace both pass through untouched. Full
+  suite unaffected (141/142 - the one failure is the same pre-existing, already-documented
+  `automationEngine.e2e` sub_workflow flakiness, confirmed by two separate full-suite runs producing
+  the identical failure, untouched by this change).
+- **Verified against a real running server, not just the unit tests**: booted with
+  `NODE_ENV=development` and confirmed pino-pretty's colorized human-readable output; booted with
+  `NODE_ENV=test` (matches what spawned e2e tests actually use) and confirmed plain JSON lines with
+  `req`/`res`/`responseTime`/`requestId`; logged in as the seeded local admin, hit an authenticated
+  route with the real bearer token, and grepped the **entire raw log file** for the actual token
+  value - zero matches, confirmed `"authorization":"[Redacted]"` in its place and
+  `workspaceId`/`userId` correctly populated from `customProps`; triggered a real unhandled error
+  (malformed JSON body) and confirmed both the stack trace appears in the structured log **and** the
+  client response is unchanged (see `.body` finding above for what this step actually caught).
 
 ## OpenAPI schema generation — implemented 2026-08-15, uncommitted
 

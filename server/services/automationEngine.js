@@ -2,6 +2,7 @@ import { AutomationFlow, AutomationRun, Contact, Conversation, Message, WhatsApp
 import { executorFor } from "./automationExecutors.js";
 import { getWorkspaceIntegrations } from "./integrations.js";
 import { enqueueJob } from "./jobs.js";
+import { logger } from "./logger.js";
 
 const AUTOMATION_QUEUE = "automations";
 const RESUME_JOB = "automation.resume-run";
@@ -98,7 +99,7 @@ function interpolateString(value, context) {
   return value.replace(TOKEN_PATTERN, (_match, path) => {
     const resolved = resolvePath(context, path);
     if (resolved === undefined) {
-      console.warn(`automationEngine: unresolved interpolation path "${path}"`);
+      logger.warn({ path }, "automationEngine: unresolved interpolation path");
       return "";
     }
     return typeof resolved === "string" ? resolved : JSON.stringify(resolved);

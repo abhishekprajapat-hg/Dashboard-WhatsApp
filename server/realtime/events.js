@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { config } from "../config.js";
 import { Conversation, Message } from "../models/index.js";
 import { hasPermission } from "../middleware/auth.js";
+import { logger } from "../services/logger.js";
 import { serializeConversation } from "../utils/serializers.js";
 import { publishSocketWorkspaceUserEvent } from "./socket.js";
 
@@ -16,7 +17,7 @@ function sendSse(res, event, data) {
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   } catch (error) {
-    console.warn("SSE publish failed.", error.message);
+    logger.warn({ err: error }, "SSE publish failed");
   }
 }
 
@@ -86,7 +87,7 @@ export async function publishConversationChanged(conversationId) {
         unreadCount,
       });
     } catch (error) {
-      console.warn("Conversation SSE serialization failed.", error.message);
+      logger.warn({ err: error }, "Conversation SSE serialization failed");
     }
   }
 
@@ -102,7 +103,7 @@ export async function publishConversationChanged(conversationId) {
       };
     });
   } catch (error) {
-    console.warn("Socket conversation publish failed.", error.message);
+    logger.warn({ err: error }, "Socket conversation publish failed");
   }
 }
 

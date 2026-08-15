@@ -5,6 +5,7 @@ import { config } from "../config.js";
 // calls getFlagSync back. Safe because both sides only call the imported function from inside a
 // function body, never at module-eval time.
 import { getFlagSync } from "./featureFlags.js";
+import { logger } from "./logger.js";
 
 let connection;
 let channel;
@@ -23,7 +24,7 @@ export async function connectRabbitMQ() {
     });
     return { enabled: true, status: "ready" };
   } catch (error) {
-    console.warn("RabbitMQ connection failed:", error.message);
+    logger.warn({ err: error }, "RabbitMQ connection failed");
     return { enabled: true, status: "unavailable", error: error.message };
   }
 }
@@ -36,7 +37,7 @@ export async function disconnectRabbitMQ() {
   try {
     await connection.close();
   } catch (error) {
-    console.warn("RabbitMQ disconnect failed:", error.message);
+    logger.warn({ err: error }, "RabbitMQ disconnect failed");
   }
   channel = null;
   connection = null;

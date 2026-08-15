@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import { config } from "../config.js";
+import { logger } from "./logger.js";
 
 let redisClient;
 
@@ -12,7 +13,7 @@ export function getRedisClient() {
       lazyConnect: true,
     });
     redisClient.on("error", (error) => {
-      console.warn("Redis connection error:", error.message);
+      logger.warn({ err: error }, "Redis connection error");
     });
   }
   return redisClient;

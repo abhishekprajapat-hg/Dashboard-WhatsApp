@@ -33,6 +33,7 @@ import { loadFeatureFlagsFromDb } from "./services/featureFlags.js";
 import { healthSnapshot } from "./services/health.js";
 import { buildOpenApiDocument } from "./openapi/generate.js";
 import { startWorkers } from "./services/jobs.js";
+import { httpLogger, logger } from "./services/logger.js";
 import { uploadRoot } from "./services/mediaStorage.js";
 import { connectRabbitMQ } from "./services/messageBus.js";
 import { metricsContentType, metricsMiddleware, metricsText } from "./services/monitoring.js";
@@ -68,6 +69,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use(httpLogger);
 app.use(rateLimiter());
 app.use(metricsMiddleware);
 app.use(auditMiddleware);
@@ -125,8 +127,8 @@ app.use((req, res) => {
   res.status(404).json({ error: "NOT_FOUND", message: `No route for ${req.method} ${req.path}` });
 });
 
-app.use((error, _req, res, _next) => {
-  console.error(error);
+app.use((error, req, res, _next) => {
+  logger.error({ err: error, requestId: req.id }, "Unhandled route error");
   res.status(500).json({ error: "SERVER_ERROR", message: "Something went wrong." });
 });
 
@@ -138,22 +140,22 @@ connectDatabase()
     startWorkers();
     httpServer.on("error", (error) => {
       if (error.code === "EADDRINUSE") {
-        console.error(`Port ${config.port} is already in use. Stop the existing server or run with PORT=<free-port>.`);
+        logger.error(`Port ${config.port} is already in use. Stop the existing server or run with PORT=<free-port>.`);
         process.exit(1);
       }
       throw error;
     });
     httpServer.listen(config.port, () => {
-      console.log(`WhatsCRM API listening on http://localhost:${config.port}`);
+      logger.info(`WhatsCRM API listening on http://localhost:${config.port}`);
     });
   })
   .catch((error) => {
-    console.error("Failed to start API server.", error);
+    logger.error({ err: error }, "Failed to start API server.");
     process.exit(1);
   });
 
 async function shutdown(signal) {
-  console.log(`${signal} received. Draining server...`);
+  logger.info(`${signal} received. Draining server...`);
   httpServer.close(async () => {
     await shutdownTelemetry().catch(() => undefined);
     process.exit(0);

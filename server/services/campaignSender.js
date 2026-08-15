@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Campaign, Contact, Conversation, Message, Template, WhatsAppAccount } from "../models/index.js";
 import { publishConversationChanged, publishWorkspaceEvent } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
+import { logger } from "./logger.js";
 import { sendWhatsAppTemplate } from "./whatsappProvider.js";
 
 const CAMPAIGN_QUEUE = "campaigns";
@@ -65,7 +66,7 @@ export async function enqueueCampaignRecipients(campaign, contacts, { userId }) 
     try {
       await processCampaignRecipient(job.data);
     } catch (error) {
-      console.warn(`Inline campaign send failed for contact ${job.data.contactId}:`, error.message);
+      logger.warn({ contactId: job.data.contactId, err: error }, "Inline campaign send failed");
       await recordRecipientFailure(job.data, error.message || "Send failed.");
     }
   }

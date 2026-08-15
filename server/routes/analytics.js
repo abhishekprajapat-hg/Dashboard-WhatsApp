@@ -14,6 +14,7 @@ import {
 } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateQuery } from "../middleware/validate.js";
+import { logger } from "../services/logger.js";
 import { jsonCsv } from "../utils/csv.js";
 import { optionalDateString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
@@ -475,7 +476,7 @@ analyticsRouter.get("/summary", requirePermission("reports:read"), validateQuery
   try {
     res.json(await buildAnalytics(req));
   } catch (error) {
-    console.error("Analytics summary failed", error);
+    logger.error({ err: error }, "Analytics summary failed");
     res.json(emptyPayload());
   }
 });
@@ -486,7 +487,7 @@ analyticsRouter.get("/export/excel", requirePermission("reports:read"), validate
   try {
     analytics = await buildAnalytics(req);
   } catch (error) {
-    console.error("Analytics export failed", error);
+    logger.error({ err: error }, "Analytics export failed");
     analytics = emptyPayload();
   }
   const rows = [
@@ -506,7 +507,7 @@ analyticsRouter.get("/export/pdf", requirePermission("reports:read"), validateQu
   try {
     analytics = await buildAnalytics(req);
   } catch (error) {
-    console.error("Analytics PDF export failed", error);
+    logger.error({ err: error }, "Analytics PDF export failed");
     analytics = emptyPayload();
   }
   const lines = [

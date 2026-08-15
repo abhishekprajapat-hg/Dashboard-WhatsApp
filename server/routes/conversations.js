@@ -9,6 +9,7 @@ import { validateBody } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
+import { logger } from "../services/logger.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 import { optionalObjectIdString } from "../utils/zodHelpers.js";
@@ -473,7 +474,7 @@ conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"),
     conversation: hydrated,
     message: latestInboundMessage || conversation.lastMessageId,
     lead: crmResult.lead,
-    onError: (error) => console.warn(`Manual lead sheet sync failed: ${error.message}`),
+    onError: (error) => logger.warn({ err: error }, "Manual lead sheet sync failed"),
   });
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
