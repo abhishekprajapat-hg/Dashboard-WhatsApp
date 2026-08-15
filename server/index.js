@@ -29,6 +29,7 @@ import { workspaceRouter } from "./routes/workspace.js";
 import { eventsRouter } from "./realtime/events.js";
 import { createRealtimeServer } from "./realtime/socket.js";
 import { connectRedis } from "./services/cache.js";
+import { loadFeatureFlagsFromDb } from "./services/featureFlags.js";
 import { healthSnapshot } from "./services/health.js";
 import { startWorkers } from "./services/jobs.js";
 import { uploadRoot } from "./services/mediaStorage.js";
@@ -123,6 +124,7 @@ app.use((error, _req, res, _next) => {
 
 connectDatabase()
   .then(async () => {
+    await loadFeatureFlagsFromDb();
     await connectRedis();
     await connectRabbitMQ();
     startWorkers();

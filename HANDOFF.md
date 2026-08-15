@@ -4,9 +4,30 @@
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
 **HEAD as of this handoff:** `30cda73` (`30cda73c4c07fecfc3d62da19ec7061ee458de80` — check `git log -1`
-to confirm nothing's moved since). Working tree is clean, local `main` matches `origin/main`, and
-this exact commit is confirmed deployed and running on production (VPS `.last-deploy-sha`/PM2
-restart count checked directly, see the deploy log throughout this file's dated sections).
+to confirm nothing's moved since). This exact commit is confirmed deployed and running on
+production (VPS `.last-deploy-sha`/PM2 restart count checked directly, see the deploy log
+throughout this file's dated sections). **Working tree is NOT clean right now** - the feature-flag
+admin UI work (see the "uncommitted" section right below) is implemented and verified but
+deliberately not yet committed, pending the user's go-ahead. Run `git status --short` before
+touching anything else in this repo.
+
+## Session paused here 2026-08-15 (continued) — feature-flag admin UI implemented, not yet committed
+
+A second pass this same day picked up the "admin-level feature flag management UI" item this file
+had left mid-scoping (see the "What's actually paused" bullets originally below, now resolved and
+folded into the dedicated section right below this one). The user was asked and chose the bigger of
+the two options: a real DB-backed live-toggle system, not a read-only viewer.
+
+**Implemented, unit + e2e tested, and manually verified end to end in the actual dashboard UI this
+session — but, unlike everything else in this file, `git status` still shows it uncommitted.**
+Nothing has been committed, pushed, or deployed for this piece yet; that's a deliberate pause for
+the user's explicit go-ahead, not an oversight. See the dedicated section below for the full
+implementation writeup and exactly what was verified.
+
+**What's actually left:** nothing implementation-wise. Only remaining step is the user deciding
+whether/when to commit + push (`main` has no PR workflow, deploys are automatic via VPS cron on
+push — see "Deployment" below) — do that only when asked, same discipline as every other change in
+this file.
 
 ## Session paused here 2026-08-15 — quick-start for whoever (or whatever fresh window) picks this up
 
@@ -34,32 +55,102 @@ confirmed on the VPS one at a time as they went out (not batched at the end):
    this session. If you touch a Mongoose filter with a `$operator` value anywhere in this codebase,
    wrap it in `mongoose.trusted(...)` on reflex, don't wait to get bitten a fifth time.
 
-**What's actually paused, mid-scoping, not started:** the next `FUTURE_ROADMAP.md` Phase 2 item,
-"admin-level feature flag management UI." Research (not implementation) already happened — read it
-before starting, don't redo it:
+~~**What's actually paused, mid-scoping, not started:** the next `FUTURE_ROADMAP.md` Phase 2 item,
+"admin-level feature flag management UI."~~ Resolved the same day — see the dedicated section below
+for the implementation. The user chose the DB-backed live-toggle option over the read-only viewer.
 
-- `config.featureFlags` (`server/config.js`) is a **load-time singleton** — five flags
-  (`infrastructurePanel`, `queueProcessing`, `s3MediaStorage`, `rabbitmqEvents`, `zeroDowntimeMode`),
-  each read from a `process.env.FEATURE_*` var exactly once at process startup. No DB storage
-  anywhere, no re-read mechanism.
-- `server/services/featureFlags.js`'s "per-workspace caching" is misleading — it Redis-caches the
-  *same static values* for every workspace (just echoes `workspaceId` in the cache key), with zero
-  DB read involved. Only one real caller anywhere (`infrastructure.js`'s `GET /status`), purely
-  informational.
-- **Only 2 of the 5 flags actually gate any real behavior**: `queueProcessing` (`jobs.js`,
-  `automationExecutors.js` — BullMQ vs. inline fallback) and `rabbitmqEvents` (`messageBus.js` —
-  whether `connectRabbitMQ()` runs at all). `s3MediaStorage`, `infrastructurePanel`, and
-  `zeroDowntimeMode` are **entirely decorative** — read nowhere except their own definition in
-  `config.js`. (`s3MediaStorage` looks load-bearing but isn't — the real S3 switch used everywhere
-  is a separate value, `config.s3.enabled`.)
-- **The open question, asked of the user, not yet answered:** should this be (a) a read-only viewer
-  (shows current values + which 2 actually do anything + the env var name to change + "restart
-  required," matching how flags actually work today, low risk) or (b) a real DB-backed live-toggle
-  system (requires moving flags into Mongo and refactoring the `queueProcessing`/`rabbitmqEvents`
-  call sites to read dynamically instead of the frozen `config` object — a genuine architecture
-  change to core queue/messaging control flow, not just a UI, and meaningfully bigger/riskier than
-  the roadmap line implies). **Do not start building either without confirming which one first** —
-  this was deliberately left open, not decided.
+## Admin-level feature flag management UI — implemented 2026-08-15, uncommitted
+
+Closes `FUTURE_ROADMAP.md`'s Phase 2 "admin-level feature flag management UI" item. Picked up
+exactly where this file's research (further up, now struck through) left off: `config.featureFlags`
+was a load-time env singleton, only `queueProcessing`/`rabbitmqEvents` gated any real behavior, and
+the user was explicitly asked which of two scopes to build. **They chose the real DB-backed
+live-toggle system**, not the read-only viewer — a genuine architecture change to
+`queueProcessing`'s/`rabbitmqEvents`'s call sites, not just a UI.
+
+- **`server/models/FeatureFlag.js`** (new) — one doc per overridden flag key
+  (`{key, enabled, updatedByUserId, updatedByEmail, timestamps}`), absence of a doc means "use the
+  env default." Deliberately global, not workspace-scoped, matching `config.featureFlags`'s existing
+  process-wide semantics rather than silently turning a deployment-wide switch into a per-tenant one.
+- **`server/services/featureFlags.js`** rewritten in place (not a parallel module — this file was
+  already the sole consumer-facing API, and the old `isFeatureEnabled` export was dead code, never
+  called anywhere). Now: `FEATURE_FLAG_DEFINITIONS` (label/description/envVar/`gatesRealBehavior`
+  per flag, `gatesRealBehavior: true` only for `queueProcessing`/`rabbitmqEvents` — this is what lets
+  the admin UI honestly badge the other 3 as having no current effect instead of pretending they do
+  something), a module-level in-memory `cachedFlags` cache (seeded synchronously from
+  `config.featureFlags` at import time so `getFlagSync()` always has a value even before the DB load
+  below resolves), `loadFeatureFlagsFromDb()`, `getFlagSync(key)` (sync, no DB round trip — what the
+  hot paths call), `setFeatureFlagOverride`/`clearFeatureFlagOverride` (upsert/delete +
+  cache update + a runtime side-effect hook), `listFeatureFlagsWithMeta()` (the admin-UI read model).
+  **The old per-workspace Redis TTL cache is gone** — it never actually varied by workspace (same
+  static values under N different keys), so the new in-memory cache with real invalidation replaces
+  it outright rather than living alongside it. `getFeatureFlags(workspaceId)` keeps its old signature
+  for `infrastructure.js`'s `GET /status` (unchanged caller), just backed by the new cache.
+- **`queueProcessing` is live by construction** — `jobs.js`'s `connectionOptions()` and
+  `automationExecutors.js`'s `queueProcessingAvailable()` already re-checked the flag on every call
+  (per-job-enqueue, per-delay-node-execution); swapping `config.featureFlags.queueProcessing` for
+  `getFlagSync("queueProcessing")` in both was the entire change needed for a toggle to take effect
+  immediately, no restart.
+- **`rabbitmqEvents` needed real work to become live** — `messageBus.js`'s `connectRabbitMQ()` was
+  previously called exactly once, at boot; there was no code path to connect or disconnect later.
+  Added `disconnectRabbitMQ()` (closes the channel/connection, safe no-op if already disconnected)
+  and a `setFeatureFlagOverride`/`clearFeatureFlagOverride` side-effect hook
+  (`applyRuntimeSideEffects`) that calls `connectRabbitMQ()`/`disconnectRabbitMQ()` live whenever
+  this specific flag flips. Verified manually: toggling it on with no broker configured in the local
+  dev env exercises `connectRabbitMQ()`'s existing graceful-failure path
+  (`status: "unavailable"` on connect error) without crashing anything — didn't need a real broker to
+  prove the wiring works.
+- **New circular import, same accepted shape as the two that already exist** (`jobs.js` ↔
+  `automationEngine.js`, `automationExecutors.js` ↔ `automationEngine.js`): `featureFlags.js` ↔
+  `messageBus.js`. Safe for the same reason as the other two — every cross-call happens inside a
+  function body, never at module-eval time (`messageBus.js`'s functions are hoisted `function`
+  declarations, so importing them mid-evaluation from `featureFlags.js` works even before
+  `messageBus.js` finishes its own top-level execution).
+- **`server/index.js`** — `await loadFeatureFlagsFromDb()` inserted right after `connectDatabase()`
+  resolves, before `connectRedis()`/`connectRabbitMQ()`/`startWorkers()`, so any stored override is
+  already in the cache before those three boot-time calls read a flag.
+- **`server/routes/admin.js`** — `GET /feature-flags` (`admin:read`), `PUT /feature-flags/:key`
+  (`admin:write`, `{enabled: boolean}` body, 404 on an unknown key), `DELETE /feature-flags/:key`
+  (`admin:write`, same 404 guard, reverts to env default). Reuses the existing `admin:read`/
+  `admin:write` permissions rather than inventing a new pair — same choice `infrastructure.js`
+  already made for its own process-wide ops routes, no RBAC migration needed.
+- **Client** — `getFeatureFlagsAdmin`/`updateFeatureFlag`/`resetFeatureFlag` in `lib/api.ts`; a new
+  "Feature Flags" tab in `AdminView.tsx` (own independent fetch/state, not folded into the big
+  `/admin/overview` payload — matches the Logs tab's separate-fetch precedent). Each flag renders as
+  a row with a "Live"/"No current effect" badge (from `gatesRealBehavior`, so the UI never implies
+  the 3 decorative flags do something they don't), an On/Off badge, a Default/Override source badge
+  with last-changed-by/when when overridden, a toggle button, and a Reset button shown only when
+  overridden.
+- **Not built, deliberately** — no new gating behavior for the 3 decorative flags
+  (`s3MediaStorage`/`infrastructurePanel`/`zeroDowntimeMode`), no per-workspace flag scoping, no
+  multi-instance cache invalidation (Redis pub/sub or similar) — this VPS runs a single PM2 process
+  for `dashboard-api`, so an in-memory cache reloaded at boot plus updated on every toggle is
+  sufficient; revisit only if this app ever runs more than one API instance.
+- **Tests**: `server/tests/featureFlags.unit.test.js` (new, no DB connection — env-default fallback,
+  DB-down no-op, unknown-key rejection). `server/tests/adminFeatureFlags.e2e.test.js` (new, real
+  Mongo — fresh-DB defaults, PUT→override→GET reflects it→DELETE reverts with correct
+  `source`/`effective`/`updatedByEmail`, `rabbitmqEvents` toggle doesn't crash without a broker,
+  unknown key 404s on both PUT and DELETE, a seeded viewer-role user gets 403 on both read and
+  write). All 5 pass cleanly run in isolation; hit this environment's now-familiar
+  server-spawn flakiness (see "Environment gotchas") when run as part of the full `npm test` -
+  confirmed environmental, not a code issue, by re-running the file alone twice, clean both times,
+  and by every other pre-existing server-spawning e2e file (`criticalPath.e2e.test.js`,
+  `automationEngine.e2e.test.js`'s sub_workflow test) failing the same way in that same full-suite
+  run despite being untouched by this change. Full non-spawning unit suite (102 tests across every
+  `*.unit.test.js`/`.test.js` file that doesn't spawn a server, including the 4 new
+  `featureFlags.unit.test.js` tests) green.
+- **Verified manually beyond the automated tests, against a real running local server + browser**:
+  logged in as `admin@test.com`, opened Admin → Feature Flags, confirmed all 5 flags render with
+  correct env defaults and honest live/decorative badges; toggled `queueProcessing` off/on and
+  `rabbitmqEvents` on/off via direct authenticated HTTP calls (`PUT`/`DELETE`), confirming
+  persistence and the `rabbitmqEvents` connect/disconnect side-effect fires without crashing;
+  restarted the real server process against the same test DB with an override already stored and
+  confirmed it survived and applied before `connectRabbitMQ()`'s boot-time call - proving DB
+  persistence, not just in-memory state; confirmed `GET /api/infrastructure/status` still returns
+  the same flag shape unchanged; then, in the actual browser UI, clicked "Turn on" on a flag,
+  watched it flip to On/Override/Reset with the correct "last changed by" line with no page reload,
+  clicked Reset, watched it cleanly revert to Off/Default - no console errors either time.
+  `npx tsc --noEmit` clean on the client.
 
 ## AuditLog export + retention — implemented 2026-08-15
 

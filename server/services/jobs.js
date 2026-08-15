@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 import { Queue, Worker, QueueEvents } from "bullmq";
 import { config } from "../config.js";
+import { getFlagSync } from "./featureFlags.js";
 import { callOutboundWebhook } from "./integrations.js";
 import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
@@ -20,7 +21,7 @@ const events = new Map();
 let bullConnection;
 
 function connectionOptions() {
-  if (!config.redisUrl || !config.featureFlags.queueProcessing) return null;
+  if (!config.redisUrl || !getFlagSync("queueProcessing")) return null;
   if (!bullConnection) {
     bullConnection = new Redis(config.redisUrl, {
       maxRetriesPerRequest: null,

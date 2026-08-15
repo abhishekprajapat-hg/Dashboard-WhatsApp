@@ -1,11 +1,16 @@
 import amqplib from "amqplib";
 import { config } from "../config.js";
+// Circular import, same accepted shape as jobs.js <-> automationEngine.js: featureFlags.js calls
+// connectRabbitMQ/disconnectRabbitMQ (below) to make rabbitmqEvents live-toggleable, and this file
+// calls getFlagSync back. Safe because both sides only call the imported function from inside a
+// function body, never at module-eval time.
+import { getFlagSync } from "./featureFlags.js";
 
 let connection;
 let channel;
 
 export async function connectRabbitMQ() {
-  if (!config.rabbitmqUrl || !config.featureFlags.rabbitmqEvents) return { enabled: false, status: "disabled" };
+  if (!config.rabbitmqUrl || !getFlagSync("rabbitmqEvents")) return { enabled: false, status: "disabled" };
   if (channel) return { enabled: true, status: "ready" };
 
   try {
@@ -23,6 +28,21 @@ export async function connectRabbitMQ() {
   }
 }
 
+export async function disconnectRabbitMQ() {
+  if (!connection) {
+    channel = null;
+    return { enabled: false, status: "disabled" };
+  }
+  try {
+    await connection.close();
+  } catch (error) {
+    console.warn("RabbitMQ disconnect failed:", error.message);
+  }
+  channel = null;
+  connection = null;
+  return { enabled: false, status: "disabled" };
+}
+
 export async function publishEvent(routingKey, payload = {}) {
   if (!channel) return { published: false, reason: "rabbitmq_not_connected" };
   const body = Buffer.from(JSON.stringify({ routingKey, publishedAt: new Date().toISOString(), payload }));
@@ -32,7 +52,7 @@ export async function publishEvent(routingKey, payload = {}) {
 
 export function rabbitStatus() {
   return {
-    enabled: Boolean(config.rabbitmqUrl && config.featureFlags.rabbitmqEvents),
+    enabled: Boolean(config.rabbitmqUrl && getFlagSync("rabbitmqEvents")),
     status: channel ? "ready" : "disabled",
   };
 }

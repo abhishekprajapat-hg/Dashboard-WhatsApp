@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
+import { getFlagSync } from "./featureFlags.js";
 import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, Tag, Task, Template } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
@@ -41,7 +42,7 @@ export function canonicalNodeType(type = "") {
 }
 
 function queueProcessingAvailable() {
-  return Boolean(config.redisUrl && config.featureFlags.queueProcessing);
+  return Boolean(config.redisUrl && getFlagSync("queueProcessing"));
 }
 
 async function execSendMessage({ node, config: cfg, env, run, flow, testMode }) {

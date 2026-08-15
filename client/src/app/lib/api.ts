@@ -145,6 +145,23 @@ export function pruneAuditLog<T>() {
   });
 }
 
+export function getFeatureFlagsAdmin<T>() {
+  return request<T>("/admin/feature-flags");
+}
+
+export function updateFeatureFlag<T>(key: string, enabled: boolean) {
+  return request<T>(`/admin/feature-flags/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function resetFeatureFlag<T>(key: string) {
+  return request<T>(`/admin/feature-flags/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
 export function getAssistantOverview<T>() {
   return request<T>("/assistant/overview");
 }

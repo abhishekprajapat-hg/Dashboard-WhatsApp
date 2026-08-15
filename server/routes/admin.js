@@ -16,6 +16,12 @@ import {
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { pruneAuditLogs } from "../services/auditLogRetention.js";
+import {
+  clearFeatureFlagOverride,
+  isKnownFlagKey,
+  listFeatureFlagsWithMeta,
+  setFeatureFlagOverride,
+} from "../services/featureFlags.js";
 import { jsonCsv } from "../utils/csv.js";
 import { allPermissions } from "../utils/rbac.js";
 import { optionalDateString } from "../utils/zodHelpers.js";
@@ -23,6 +29,10 @@ import { optionalDateString } from "../utils/zodHelpers.js";
 const auditLogExportQuerySchema = z.object({
   from: optionalDateString(),
   to: optionalDateString(),
+});
+
+const featureFlagUpdateSchema = z.object({
+  enabled: z.boolean(),
 });
 
 const auditLogCsvHeaders = ["id", "createdAt", "actor", "action", "entityType", "entityId", "ipAddress", "userAgent", "before", "after"];
@@ -408,4 +418,38 @@ adminRouter.post("/audit-log/prune", requirePermission("admin:write"), async (re
 
   const [result] = await pruneAuditLogs({ workspaceId: req.user.workspaceId });
   res.json({ data: result });
+});
+
+adminRouter.get("/feature-flags", requirePermission("admin:read"), async (req, res) => {
+  res.json({ data: await listFeatureFlagsWithMeta() });
+});
+
+adminRouter.put(
+  "/feature-flags/:key",
+  requirePermission("admin:write"),
+  validateBody(featureFlagUpdateSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    if (!isKnownFlagKey(req.params.key)) {
+      return res.status(404).json({ error: "NOT_FOUND", message: `Unknown feature flag: ${req.params.key}` });
+    }
+    const data = await setFeatureFlagOverride(req.params.key, req.body.enabled, {
+      id: req.user.sub,
+      email: req.user.email,
+    });
+    res.json({ ok: true, data });
+  }
+);
+
+adminRouter.delete("/feature-flags/:key", requirePermission("admin:write"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+  if (!isKnownFlagKey(req.params.key)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: `Unknown feature flag: ${req.params.key}` });
+  }
+  const data = await clearFeatureFlagOverride(req.params.key);
+  res.json({ ok: true, data });
 });

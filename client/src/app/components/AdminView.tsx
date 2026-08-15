@@ -7,6 +7,7 @@ import {
   Clock3,
   Database,
   Download,
+  Flag,
   Globe2,
   KeyRound,
   Link2,
@@ -15,9 +16,12 @@ import {
   Palette,
   ReceiptText,
   RefreshCcw,
+  RotateCcw,
   Save,
   ServerCog,
   ShieldCheck,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   Users2,
   Webhook,
@@ -27,7 +31,15 @@ import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { getAdminOverview, getAuditLogExportUrl, pruneAuditLog, updateAdminSettings } from "../lib/api";
+import {
+  getAdminOverview,
+  getAuditLogExportUrl,
+  getFeatureFlagsAdmin,
+  pruneAuditLog,
+  resetFeatureFlag,
+  updateAdminSettings,
+  updateFeatureFlag,
+} from "../lib/api";
 import { downloadFromUrl } from "../lib/download";
 
 type AdminRow = Record<string, string | number | boolean | string[] | undefined>;
@@ -106,9 +118,23 @@ const tabs = [
   "Security",
   "Logs",
   "Branding",
+  "Feature Flags",
 ] as const;
 
 type AdminTab = (typeof tabs)[number];
+
+interface FeatureFlagRow {
+  key: string;
+  label: string;
+  description: string;
+  envVar: string;
+  gatesRealBehavior: boolean;
+  envDefault: boolean;
+  effective: boolean;
+  source: "override" | "env-default";
+  updatedByEmail: string | null;
+  updatedAt: string | null;
+}
 
 function text(value: unknown, fallback = "-") {
   if (Array.isArray(value)) return value.join(", ") || fallback;
@@ -265,6 +291,10 @@ export function AdminView() {
   const [security, setSecurity] = useState(emptyOverview.security);
   const [pruning, setPruning] = useState(false);
   const [pruneResult, setPruneResult] = useState("");
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlagRow[]>([]);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+  const [flagsError, setFlagsError] = useState("");
+  const [togglingFlagKey, setTogglingFlagKey] = useState("");
 
   async function loadOverview() {
     setLoading(true);
@@ -281,9 +311,47 @@ export function AdminView() {
     }
   }
 
+  async function loadFeatureFlags() {
+    setFlagsLoading(true);
+    setFlagsError("");
+    try {
+      const response = await getFeatureFlagsAdmin<{ data: FeatureFlagRow[] }>();
+      setFeatureFlags(response.data);
+    } catch (nextError) {
+      setFlagsError(nextError instanceof Error ? nextError.message : "Feature flags could not be loaded.");
+    } finally {
+      setFlagsLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadOverview();
+    loadFeatureFlags();
   }, []);
+
+  async function handleToggleFlag(key: string, nextEnabled: boolean) {
+    setTogglingFlagKey(key);
+    try {
+      const response = await updateFeatureFlag<{ data: FeatureFlagRow[] }>(key, nextEnabled);
+      setFeatureFlags(response.data);
+    } catch (nextError) {
+      setFlagsError(nextError instanceof Error ? nextError.message : "Flag could not be updated.");
+    } finally {
+      setTogglingFlagKey("");
+    }
+  }
+
+  async function handleResetFlag(key: string) {
+    setTogglingFlagKey(key);
+    try {
+      const response = await resetFeatureFlag<{ data: FeatureFlagRow[] }>(key);
+      setFeatureFlags(response.data);
+    } catch (nextError) {
+      setFlagsError(nextError instanceof Error ? nextError.message : "Flag could not be reset.");
+    } finally {
+      setTogglingFlagKey("");
+    }
+  }
 
   async function handlePruneAuditLog() {
     setPruning(true);
@@ -593,6 +661,74 @@ export function AdminView() {
                       </div>
                     </CardContent>
                   </Card>
+                </>
+              )}
+
+              {activeTab === "Feature Flags" && (
+                <>
+                  <SectionHeader
+                    icon={<Flag size={17} />}
+                    title="Feature Flags"
+                    detail="Live, database-backed toggles for this deployment. Changes apply immediately, no restart required."
+                  />
+                  {flagsError && <Badge variant="destructive">{flagsError}</Badge>}
+                  <div className="grid gap-3">
+                    {flagsLoading && featureFlags.length === 0 && (
+                      <Card className="rounded-lg border-border/70">
+                        <CardContent className="p-4 text-sm text-muted-foreground">Loading feature flags...</CardContent>
+                      </Card>
+                    )}
+                    {featureFlags.map((flag) => (
+                      <Card key={flag.key} className="rounded-lg border-border/70 bg-card/90">
+                        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">{flag.label}</span>
+                              <Badge variant="outline" className={flag.gatesRealBehavior ? "border-primary/25 bg-primary/10 text-primary" : "border-border/80 bg-surface-elevated/45 text-muted-foreground"}>
+                                {flag.gatesRealBehavior ? "Live" : "No current effect"}
+                              </Badge>
+                              <Badge variant="outline" className={statusClass(flag.effective)}>
+                                <span className="size-1.5 rounded-full bg-current" />
+                                {flag.effective ? "On" : "Off"}
+                              </Badge>
+                              <Badge variant="outline" className="text-[10px]">
+                                {flag.source === "override" ? "Override" : `Default (${flag.envVar})`}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{flag.description}</p>
+                            {flag.source === "override" && (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Last changed{flag.updatedByEmail ? ` by ${flag.updatedByEmail}` : ""}
+                                {flag.updatedAt ? ` on ${new Date(flag.updatedAt).toLocaleString()}` : ""}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={togglingFlagKey === flag.key}
+                              onClick={() => handleToggleFlag(flag.key, !flag.effective)}
+                            >
+                              {flag.effective ? <ToggleRight size={15} /> : <ToggleLeft size={15} />}
+                              {flag.effective ? "Turn off" : "Turn on"}
+                            </Button>
+                            {flag.source === "override" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={togglingFlagKey === flag.key}
+                                onClick={() => handleResetFlag(flag.key)}
+                              >
+                                <RotateCcw size={14} />
+                                Reset
+                              </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </>
               )}
             </motion.div>
