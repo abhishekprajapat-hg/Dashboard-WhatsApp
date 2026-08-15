@@ -6,6 +6,46 @@
 **HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
 to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
 
+## AuditLog export + retention — implemented 2026-08-15
+
+Closed `FUTURE_ROADMAP.md`'s Phase 2 "data retention jobs and audit export" item. `AuditLog` already
+recorded real data (`server/models/AuditLog.js`), but the only consumer was a `find().limit(80)`
+list in `admin.js`'s `GET /overview` that drops most fields, and
+`Workspace.settings.security.dataRetentionDays` — already settable via the Admin UI, already
+validated by `adminSettingsSchema` — was purely decorative: nothing anywhere read it to actually
+delete anything.
+
+- **`server/utils/csv.js`** (new) — `jsonCsv()` extracted out of `analytics.js`, generalized with an
+  optional explicit `headers` param (needed for a zero-row export, where columns can't be inferred
+  from `rows[0]`). Backward compatible by construction: omit `headers` and behavior is identical to
+  before, including the old hardcoded empty-state fallback - both existing `analytics.js` export
+  routes were re-verified working unchanged after the extraction.
+- **`server/services/auditLogRetention.js`** (new) — `pruneAuditLogs({workspaceId})`, one workspace
+  or every workspace, reads `dataRetentionDays` (default 365) per workspace, deletes `AuditLog` docs
+  older than that cutoff. Shared by both entry points below so the deletion logic exists exactly once.
+- **`server/routes/admin.js`** — `GET /audit-log/export` (`admin:read`, optional `from`/`to` range) —
+  a real CSV, deliberately richer than `GET /overview`'s 5-field list (actor name/email via populate,
+  IP, user-agent, full `before`/`after` JSON) — and `POST /audit-log/prune` (`admin:write`), the
+  on-demand trigger.
+- **`server/scripts/pruneAuditLogs.js`** (new) — same shape as `seed.js`/`connect-whatsapp.js`,
+  sweeps every workspace. `npm run prune:audit-logs`. **Not done: no crontab entry added anywhere**
+  to actually run this periodically - a production cron change, deliberately left for the user to
+  add via the hPanel terminal, same as `deploy-vps.sh`'s own schedule.
+- **`client/src/app/lib/download.ts`** (new) — `downloadFromUrl(url, filename)` extracted out of
+  `AnalyticsView.tsx`'s local copy (a real authenticated `fetch()` + blob download, not a plain
+  `<a href>`, since these routes sit behind `requireAuth`), now shared with the new Admin "Logs" tab
+  Export/Prune buttons.
+- **Two real bugs found and fixed in my own test, not the code, during verification:**
+  `seedTestWorkspace()` disconnects Mongoose's global connection internally, so a raw `insertMany`
+  right after it failed until reconnected explicitly. Then an assertion itself was wrong, not the
+  code under test - asserting exactly one `AuditLog` document would remain after pruning missed that
+  the audit *middleware* logs the test's own `PUT /settings` and `POST /prune` calls too; fixed to
+  check specific document IDs instead of a total count.
+- **Verified live, not just via tests**: real CSV export with correctly-escaped embedded JSON, a
+  malformed date query correctly rejected with 400, a real prune run, and both new buttons clicked
+  through the actual browser UI with the Audit Trail list refreshing automatically afterward.
+  `server/tests/auditLogRetention.e2e.test.js` (new) passes; full suite (100 tests) green.
+
 ## `Message.body` text index — implemented 2026-08-15
 
 Closed the deliberately-held-back item from the validation pass below: added

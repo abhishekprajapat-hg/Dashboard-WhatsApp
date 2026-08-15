@@ -14,6 +14,7 @@ import {
 } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateQuery } from "../middleware/validate.js";
+import { jsonCsv } from "../utils/csv.js";
 import { optionalDateString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const analyticsRouter = Router();
@@ -81,13 +82,6 @@ function formatDuration(minutes) {
 // query rather than an aggregate() pipeline (which bypasses sanitizeFilter regardless).
 function trustedFilter(filter) {
   return mongoose.trusted(filter);
-}
-
-function jsonCsv(rows = []) {
-  if (!rows.length) return "metric,value\nNo data,0\n";
-  const keys = Object.keys(rows[0]);
-  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-  return [keys.join(","), ...rows.map((row) => keys.map((key) => escape(row[key])).join(","))].join("\n");
 }
 
 function makeSimplePdf(title, lines = []) {

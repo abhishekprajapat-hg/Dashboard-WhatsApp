@@ -14,8 +14,18 @@ import {
   Workspace,
 } from "../models/index.js";
 import { requirePermission } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
+import { pruneAuditLogs } from "../services/auditLogRetention.js";
+import { jsonCsv } from "../utils/csv.js";
 import { allPermissions } from "../utils/rbac.js";
+import { optionalDateString } from "../utils/zodHelpers.js";
+
+const auditLogExportQuerySchema = z.object({
+  from: optionalDateString(),
+  to: optionalDateString(),
+});
+
+const auditLogCsvHeaders = ["id", "createdAt", "actor", "action", "entityType", "entityId", "ipAddress", "userAgent", "before", "after"];
 
 const apiKeySchema = z.object({
   id: z.string().optional(),
@@ -348,4 +358,54 @@ adminRouter.put("/settings", requirePermission("admin:write"), validateBody(admi
 
   await workspace.save();
   res.json({ ok: true, settings: workspace.settings, billing: { plan: organization.plan, status: organization.billingStatus } });
+});
+
+// Deliberately richer than GET /overview's 5-field auditTrail (that endpoint is untouched) - this
+// is a separate view meant for actually exporting the record, not the dashboard summary list.
+adminRouter.get("/audit-log/export", requirePermission("admin:read"), validateQuery(auditLogExportQuerySchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const filter = { workspaceId: req.user.workspaceId };
+  if (req.query.from || req.query.to) {
+    const range = {};
+    if (req.query.from) range.$gte = new Date(req.query.from);
+    if (req.query.to) range.$lte = new Date(req.query.to);
+    filter.createdAt = mongoose.trusted(range);
+  }
+
+  const logs = await AuditLog.find(filter)
+    .populate("actorUserId", "name email")
+    .sort({ createdAt: -1 })
+    .limit(5000);
+
+  const rows = logs.map((log) => ({
+    id: log._id.toString(),
+    createdAt: log.createdAt.toISOString(),
+    actor: log.actorUserId?.name || log.actorUserId?.email || "",
+    action: log.action,
+    entityType: log.entityType,
+    entityId: log.entityId || "",
+    ipAddress: log.ipAddress || "",
+    userAgent: log.userAgent || "",
+    before: log.before ? JSON.stringify(log.before) : "",
+    after: log.after ? JSON.stringify(log.after) : "",
+  }));
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="audit-log-${Date.now()}.csv"`);
+  res.send(jsonCsv(rows, auditLogCsvHeaders));
+});
+
+// On-demand trigger for the same pruning logic scripts/pruneAuditLogs.js runs periodically -
+// lets an admin purge this workspace's expired audit log entries right now, without waiting for
+// the next scheduled sweep.
+adminRouter.post("/audit-log/prune", requirePermission("admin:write"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const [result] = await pruneAuditLogs({ workspaceId: req.user.workspaceId });
+  res.json({ data: result });
 });

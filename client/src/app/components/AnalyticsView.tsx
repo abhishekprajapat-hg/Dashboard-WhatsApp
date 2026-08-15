@@ -35,7 +35,8 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { getAnalyticsExportUrl, getAnalyticsSummary, getStoredToken } from "../lib/api";
+import { getAnalyticsExportUrl, getAnalyticsSummary } from "../lib/api";
+import { downloadFromUrl } from "../lib/download";
 
 interface EnterpriseAnalytics {
   kpis: { label: string; value: string; delta: string; up: boolean }[];
@@ -159,20 +160,6 @@ function isoDate(offsetDays = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
   return date.toISOString().slice(0, 10);
-}
-
-function downloadFromUrl(url: string) {
-  const token = getStoredToken();
-  fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-    .then((response) => response.blob())
-    .then((blob) => {
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = url.includes("/pdf") ? "enterprise-analytics.pdf" : "enterprise-analytics.csv";
-      link.click();
-      URL.revokeObjectURL(link.href);
-    })
-    .catch(() => undefined);
 }
 
 function KpiCard({ item, icon }: { item: { label: string; value: string; delta: string; up: boolean }; icon: ReactNode }) {
@@ -314,11 +301,11 @@ export function AnalyticsView() {
               <option value="all">All team</option>
               {analytics.filters.teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
             </select>
-            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query))}>
+            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query), "enterprise-analytics.pdf")}>
               <Download size={15} />
               PDF
             </Button>
-            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query))}>
+            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query), "enterprise-analytics.csv")}>
               <FileSpreadsheet size={15} />
               Excel
             </Button>

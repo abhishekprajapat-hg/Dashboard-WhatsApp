@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   Database,
+  Download,
   Globe2,
   KeyRound,
   Link2,
@@ -17,6 +18,7 @@ import {
   Save,
   ServerCog,
   ShieldCheck,
+  Trash2,
   Users2,
   Webhook,
   Zap,
@@ -25,7 +27,8 @@ import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { getAdminOverview, updateAdminSettings } from "../lib/api";
+import { getAdminOverview, getAuditLogExportUrl, pruneAuditLog, updateAdminSettings } from "../lib/api";
+import { downloadFromUrl } from "../lib/download";
 
 type AdminRow = Record<string, string | number | boolean | string[] | undefined>;
 
@@ -260,6 +263,8 @@ export function AdminView() {
   const [error, setError] = useState("");
   const [branding, setBranding] = useState(emptyOverview.whiteLabelBranding);
   const [security, setSecurity] = useState(emptyOverview.security);
+  const [pruning, setPruning] = useState(false);
+  const [pruneResult, setPruneResult] = useState("");
 
   async function loadOverview() {
     setLoading(true);
@@ -279,6 +284,20 @@ export function AdminView() {
   useEffect(() => {
     loadOverview();
   }, []);
+
+  async function handlePruneAuditLog() {
+    setPruning(true);
+    setPruneResult("");
+    try {
+      const response = await pruneAuditLog<{ data: { deletedCount: number; retentionDays: number } }>();
+      setPruneResult(`Deleted ${response.data.deletedCount} entries older than ${response.data.retentionDays} days.`);
+      await loadOverview();
+    } catch (nextError) {
+      setPruneResult(nextError instanceof Error ? nextError.message : "Prune failed.");
+    } finally {
+      setPruning(false);
+    }
+  }
 
   const currentCompany = overview.companies[0];
   const metrics = useMemo(
@@ -519,6 +538,21 @@ export function AdminView() {
                   <SectionHeader icon={<ServerCog size={17} />} title="Logs and Audit Trail" detail="Webhook events, operational failures, admin actions, and entity changes." />
                   <div className="grid gap-4">
                     <DataTable title="Webhook Logs" rows={overview.logs} columns={[{ key: "eventType", label: "Event" }, { key: "provider", label: "Provider" }, { key: "status", label: "Status" }, { key: "error", label: "Error" }, { key: "createdAt", label: "Created" }]} />
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadFromUrl(getAuditLogExportUrl(), "audit-log.csv")}
+                      >
+                        <Download size={14} />
+                        Export audit trail
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={pruning} onClick={handlePruneAuditLog}>
+                        <Trash2 size={14} />
+                        {pruning ? "Pruning..." : "Prune now"}
+                      </Button>
+                    </div>
+                    {pruneResult && <p className="text-right text-xs text-muted-foreground">{pruneResult}</p>}
                     <DataTable title="Audit Trail" rows={overview.auditTrail} columns={[{ key: "action", label: "Action" }, { key: "entityType", label: "Entity" }, { key: "entityId", label: "Entity ID" }, { key: "createdAt", label: "Created" }]} />
                   </div>
                 </>

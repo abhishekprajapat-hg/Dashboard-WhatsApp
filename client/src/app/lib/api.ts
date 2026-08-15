@@ -131,6 +131,20 @@ export function updateAdminSettings<T>(settings: Record<string, unknown>) {
   });
 }
 
+export function getAuditLogExportUrl(params: { from?: string; to?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  const suffix = query.toString() ? `?${query}` : "";
+  return `${API_URL}/admin/audit-log/export${suffix}`;
+}
+
+export function pruneAuditLog<T>() {
+  return request<T>("/admin/audit-log/prune", {
+    method: "POST",
+  });
+}
+
 export function getAssistantOverview<T>() {
   return request<T>("/assistant/overview");
 }
