@@ -6,6 +6,34 @@
 **HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
 to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
 
+## `Message.body` text index — implemented 2026-08-15
+
+Closed the deliberately-held-back item from the validation pass below: added
+`messageSchema.index({ workspaceId: 1, body: "text" })` to `server/models/Message.js`, so
+`assistant.js`'s `GET /search` `$text` query actually returns matches instead of always hitting the
+empty-index-path silently (well, post the `sanitizeFilter` fix, an actual "no text index" Mongo
+error). Leading `workspaceId` isn't just habit - the route's filter always includes it alongside
+`$text`, and MongoDB supports one text field in a compound index alongside regular equality fields,
+so this lets the same index serve both the workspace scoping and the text search together.
+
+- **No migration script needed, and none was run.** Mongoose's default `autoIndex: true` (no
+  override anywhere in `server/db.js`/`config.js`) builds indexes automatically at connection time -
+  confirmed locally by listing `messages` collection indexes right after a fresh `node index.js`
+  start and seeing `workspaceId_1_body_text` already present, with zero explicit index-build step.
+  **This means the next production deploy's PM2 restart will build this index against the live
+  `Message` collection automatically**, the same way every other index in this file already works.
+  Modern MongoDB (WiredTiger, this stack's target) builds indexes without holding a
+  collection-wide lock, so the app keeps serving traffic during the build, but the build itself
+  consumes real I/O proportional to production's actual message volume - worth a glance at
+  `dashboard-api` CPU/logs right after the next deploy, not a get-in-and-out five-minute check like
+  the others in this file, if the `Message` collection turns out to have serious volume.
+- **Verified with real data end to end, not just "index exists":** created a real WhatsApp account,
+  sent a real inbound webhook with the body "I need help with pricing for the enterprise plan",
+  confirmed `GET /search?q=pricing` returns that exact message and `GET /search?q=nonexistentxyz`
+  returns an empty array - proves the text index isn't just present but actually being matched
+  against. Cleaned up the test account/contact/conversation/message afterward.
+- Full non-spawning suite (98 tests) still green.
+
 ## Zod validation on the remaining route files — implemented 2026-08-15
 
 Picked up `docs/FUTURE_ROADMAP.md`'s Phase 1 "Add Zod/Joi validation to all routes" item (a separate,
@@ -41,13 +69,9 @@ client input at all.
   `sanitizeFilter.js`/`trusted.js` source that `mongoose.trusted(...)` bypasses the check (the
   trusted-symbol check runs before the forbidden-key check per top-level key), fixed the same way as
   every other instance.
-- **Found but NOT fixed, flagged for a deliberate follow-up:** fixing the above uncovered a deeper,
-  also pre-existing bug - **there is no MongoDB text index on `Message.body`**
-  (`server/models/Message.js` has zero `{ ..., "text" }` index), so `$text` search has never actually
-  worked in this codebase, in any environment, ever. The empty-query path (list recent messages, no
-  `$text` involved) works fine and is what's normally hit. Not fixed here on purpose - adding a text
-  index means an index build against the real production `Message` collection, a deliberate
-  operational decision, not something to bundle silently into a validation-hardening pass.
+- ~~**Found but NOT fixed, flagged for a deliberate follow-up**~~ — fixed later the same day, see
+  the dedicated section near the top of this file. `Message.body` had no MongoDB text index, so
+  `$text` search had never actually worked in this codebase, in any environment, ever.
 - **Tests**: new `server/tests/routeValidation.unit.test.js` (fast, no DB/server, matches
   `rbac.test.js`'s style) - each new schema exported from its route file, one `safeParse` assertion
   per schema that a minimal valid payload succeeds with the right defaults, one that a clearly

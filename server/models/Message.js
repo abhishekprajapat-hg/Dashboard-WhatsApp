@@ -45,5 +45,8 @@ messageSchema.index(
     partialFilterExpression: { clientMessageId: { $type: "string" } },
   }
 );
+// Backs assistant.js's `GET /search` $text query - leading workspaceId lets Mongo use this same
+// index for the route's workspace-scoped equality filter, not just the text search itself.
+messageSchema.index({ workspaceId: 1, body: "text" });
 
 export const Message = mongoose.model("Message", messageSchema);
