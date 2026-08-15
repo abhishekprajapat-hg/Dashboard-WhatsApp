@@ -10,6 +10,7 @@ import {
   Flag,
   Globe2,
   KeyRound,
+  Layers,
   Link2,
   LockKeyhole,
   MessageSquareText,
@@ -34,11 +35,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import {
   getAdminOverview,
   getAuditLogExportUrl,
+  getEntitlementsAdmin,
   getFeatureFlagsAdmin,
   pruneAuditLog,
   resetFeatureFlag,
   updateAdminSettings,
   updateFeatureFlag,
+  updatePackTier,
 } from "../lib/api";
 import { downloadFromUrl } from "../lib/download";
 
@@ -118,6 +121,7 @@ const tabs = [
   "Security",
   "Logs",
   "Branding",
+  "Plan",
   "Feature Flags",
 ] as const;
 
@@ -134,6 +138,30 @@ interface FeatureFlagRow {
   source: "override" | "env-default";
   updatedByEmail: string | null;
   updatedAt: string | null;
+}
+
+// Mirrors server/services/entitlements.js - PACK_TIERS there is the single source of truth,
+// this is just the client's copy of the same shape, same as FeatureFlagRow above.
+const PACK_TIERS = ["basic", "medium", "pro", "custom"] as const;
+const PACK_TIER_LABELS: Record<string, string> = {
+  basic: "Basic",
+  medium: "Medium",
+  pro: "Pro",
+  custom: "Custom",
+};
+
+interface EntitlementCapability {
+  key: string;
+  label: string;
+  description: string;
+  minTier: string;
+  enabled: boolean;
+}
+
+interface EntitlementsData {
+  plan: string;
+  normalized: boolean;
+  capabilities: EntitlementCapability[];
 }
 
 function text(value: unknown, fallback = "-") {
@@ -295,6 +323,10 @@ export function AdminView() {
   const [flagsLoading, setFlagsLoading] = useState(true);
   const [flagsError, setFlagsError] = useState("");
   const [togglingFlagKey, setTogglingFlagKey] = useState("");
+  const [entitlements, setEntitlements] = useState<EntitlementsData | null>(null);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(true);
+  const [entitlementsError, setEntitlementsError] = useState("");
+  const [updatingPlan, setUpdatingPlan] = useState(false);
 
   async function loadOverview() {
     setLoading(true);
@@ -324,10 +356,38 @@ export function AdminView() {
     }
   }
 
+  async function loadEntitlements() {
+    setEntitlementsLoading(true);
+    setEntitlementsError("");
+    try {
+      const response = await getEntitlementsAdmin<{ data: EntitlementsData }>();
+      setEntitlements(response.data);
+    } catch (nextError) {
+      setEntitlementsError(nextError instanceof Error ? nextError.message : "Plan could not be loaded.");
+    } finally {
+      setEntitlementsLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadOverview();
     loadFeatureFlags();
+    loadEntitlements();
   }, []);
+
+  async function handleChangePlan(plan: string) {
+    if (entitlements?.plan === plan) return;
+    setUpdatingPlan(true);
+    setEntitlementsError("");
+    try {
+      const response = await updatePackTier<{ data: EntitlementsData }>(plan);
+      setEntitlements(response.data);
+    } catch (nextError) {
+      setEntitlementsError(nextError instanceof Error ? nextError.message : "Plan could not be updated.");
+    } finally {
+      setUpdatingPlan(false);
+    }
+  }
 
   async function handleToggleFlag(key: string, nextEnabled: boolean) {
     setTogglingFlagKey(key);
@@ -661,6 +721,70 @@ export function AdminView() {
                       </div>
                     </CardContent>
                   </Card>
+                </>
+              )}
+
+              {activeTab === "Plan" && (
+                <>
+                  <SectionHeader
+                    icon={<Layers size={17} />}
+                    title="Plan"
+                    detail="Which pack tier this organization is on, and exactly what it unlocks. Changing the tier applies immediately."
+                  />
+                  {entitlementsError && <Badge variant="destructive">{entitlementsError}</Badge>}
+                  {entitlementsLoading && !entitlements && (
+                    <Card className="rounded-lg border-border/70">
+                      <CardContent className="p-4 text-sm text-muted-foreground">Loading plan...</CardContent>
+                    </Card>
+                  )}
+                  {entitlements && (
+                    <>
+                      <Card className="rounded-lg border-border/70 bg-card/90">
+                        <CardContent className="flex flex-col gap-3 p-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {PACK_TIERS.map((tier) => (
+                              <Button
+                                key={tier}
+                                variant={entitlements.plan === tier ? "default" : "outline"}
+                                size="sm"
+                                disabled={updatingPlan}
+                                onClick={() => handleChangePlan(tier)}
+                              >
+                                {PACK_TIER_LABELS[tier]}
+                              </Button>
+                            ))}
+                          </div>
+                          {entitlements.normalized && (
+                            <p className="text-[11px] text-muted-foreground">
+                              The stored plan value wasn't a recognized tier - showing it as{" "}
+                              {PACK_TIER_LABELS[entitlements.plan]} until a tier is explicitly chosen above.
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <div className="grid gap-3">
+                        {entitlements.capabilities.map((capability) => (
+                          <Card key={capability.key} className="rounded-lg border-border/70 bg-card/90">
+                            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-medium">{capability.label}</span>
+                                  <Badge variant="outline" className={statusClass(capability.enabled)}>
+                                    <span className="size-1.5 rounded-full bg-current" />
+                                    {capability.enabled ? "Enabled" : "Locked"}
+                                  </Badge>
+                                  <Badge variant="outline" className="text-[10px]">
+                                    Requires {PACK_TIER_LABELS[capability.minTier]}+
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">{capability.description}</p>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 

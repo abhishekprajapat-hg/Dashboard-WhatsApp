@@ -162,6 +162,17 @@ export function resetFeatureFlag<T>(key: string) {
   });
 }
 
+export function getEntitlementsAdmin<T>() {
+  return request<T>("/admin/entitlements");
+}
+
+export function updatePackTier<T>(plan: string) {
+  return request<T>("/admin/entitlements/plan", {
+    method: "PUT",
+    body: JSON.stringify({ plan }),
+  });
+}
+
 export function getAssistantOverview<T>() {
   return request<T>("/assistant/overview");
 }
