@@ -1,5 +1,6 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import {
   AuditLog,
   AutomationFlow,
@@ -13,7 +14,49 @@ import {
   Workspace,
 } from "../models/index.js";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
 import { allPermissions } from "../utils/rbac.js";
+
+const apiKeySchema = z.object({
+  id: z.string().optional(),
+  name: z.string().trim().optional().default(""),
+  token: z.string().optional().default(""),
+  scopes: z.array(z.string()).optional().default([]),
+  status: z.string().optional().default("active"),
+  createdAt: z.string().optional(),
+});
+
+const apiTokenSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().trim().optional().default(""),
+  token: z.string().optional().default(""),
+  expiresAt: z.string().optional(),
+  status: z.string().optional().default("active"),
+});
+
+// webhooks/departments/teams/billing stay loosely typed (z.record/z.unknown) - their real shape
+// isn't fixed by any model or consumer elsewhere in this route, same reasoning automation node
+// `config` uses: not worth inventing a strict shape nothing else enforces.
+export const adminSettingsSchema = z.object({
+  security: z.object({
+    mfaRequired: z.boolean().optional(),
+    ipAllowlist: z.array(z.string()).optional(),
+    sessionTimeoutMinutes: z.number().optional(),
+    dataRetentionDays: z.number().optional(),
+  }).partial().optional(),
+  whiteLabelBranding: z.object({
+    brandName: z.string().optional(),
+    logoUrl: z.string().optional(),
+    primaryColor: z.string().optional(),
+    customDomain: z.string().optional(),
+  }).partial().optional(),
+  apiKeys: z.array(apiKeySchema).optional(),
+  apiTokens: z.array(apiTokenSchema).optional(),
+  webhooks: z.record(z.unknown()).optional(),
+  departments: z.array(z.record(z.unknown())).optional(),
+  teams: z.array(z.record(z.unknown())).optional(),
+  billing: z.record(z.unknown()).optional(),
+});
 
 export const adminRouter = Router();
 
@@ -267,7 +310,7 @@ adminRouter.get("/overview", requirePermission("admin:read"), async (req, res) =
   });
 });
 
-adminRouter.put("/settings", requirePermission("admin:write"), async (req, res) => {
+adminRouter.put("/settings", requirePermission("admin:write"), validateBody(adminSettingsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }

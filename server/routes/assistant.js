@@ -1,11 +1,55 @@
 import { Router } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { AutomationFlow, Conversation, Lead, Message } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
+import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const assistantRouter = Router();
+
+export const analyzeSchema = z.object({
+  conversationId: optionalObjectIdString,
+  provider: z.string().trim().optional().default("local"),
+  task: z.string().trim().optional().default("full_analysis"),
+  prompt: z.string().optional().default(""),
+});
+
+export const streamSchema = analyzeSchema.extend({
+  task: z.string().trim().optional().default("draft_reply"),
+});
+
+export const searchQuerySchema = z.object({
+  q: z.string().trim().optional().default(""),
+  limit: z.coerce.number().int().optional(),
+});
+
+export const knowledgeSchema = z.object({
+  name: z.string().trim().optional().default("Knowledge note"),
+  content: trimmedString("Document content is required."),
+  mimeType: z.string().trim().optional().default("text/plain"),
+  source: z.string().trim().optional().default("upload"),
+});
+
+export const transcribeSchema = z.object({
+  fileName: z.string().optional().default(""),
+  transcript: z.string().optional().default(""),
+});
+
+export const voiceReplySchema = z.object({
+  text: z.string().optional().default(""),
+});
+
+// `name` stays optional/permissive - an empty tool name already falls through both known-tool
+// branches today and returns a generic "registered" response, not a 400, so requiring it here
+// would reject requests that currently succeed.
+export const toolCallSchema = z.object({
+  name: z.string().trim().optional().default(""),
+  arguments: z.record(z.unknown()).optional().default({}),
+  conversationId: optionalObjectIdString,
+});
 
 function dbUnavailable(res) {
   return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required for the AI assistant." });
@@ -76,21 +120,18 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
   });
 });
 
-assistantRouter.post("/analyze", requirePermission("assistant:write"), async (req, res) => {
+assistantRouter.post("/analyze", requirePermission("assistant:write"), validateBody(analyzeSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
-  const { conversationId, provider = "local", task = "full_analysis", prompt = "" } = req.body || {};
-  if (conversationId && !mongoose.Types.ObjectId.isValid(conversationId)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid conversation is required." });
-  }
+  const { conversationId, provider, task, prompt } = req.body;
 
   const result = await runAssistantTask({ workspaceId: req.user.workspaceId, conversationId, provider, task, prompt });
   if (conversationId) await publishConversationChanged(conversationId);
   res.json({ data: result });
 });
 
-assistantRouter.post("/stream", requirePermission("assistant:write"), async (req, res) => {
+assistantRouter.post("/stream", requirePermission("assistant:write"), validateBody(streamSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
-  const { conversationId, provider = "local", task = "draft_reply", prompt = "" } = req.body || {};
+  const { conversationId, provider, task, prompt } = req.body;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -106,12 +147,12 @@ assistantRouter.post("/stream", requirePermission("assistant:write"), async (req
   res.end();
 });
 
-assistantRouter.get("/search", requirePermission("assistant:read"), async (req, res) => {
+assistantRouter.get("/search", requirePermission("assistant:read"), validateQuery(searchQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
-  const query = String(req.query.q || "").trim();
-  const limit = Math.min(30, Math.max(1, Number(req.query.limit || 12)));
+  const query = req.query.q;
+  const limit = Math.min(30, Math.max(1, req.query.limit || 12));
   const messageFilter = { workspaceId: req.user.workspaceId, deletedAt: mongoose.trusted({ $exists: false }) };
-  if (query) messageFilter.$text = { $search: query };
+  if (query) messageFilter.$text = mongoose.trusted({ $search: query });
 
   const messages = await Message.find(messageFilter)
     .populate("contactId", "name phone waName")
@@ -135,12 +176,9 @@ assistantRouter.get("/search", requirePermission("assistant:read"), async (req, 
   });
 });
 
-assistantRouter.post("/knowledge", requirePermission("assistant:write"), async (req, res) => {
+assistantRouter.post("/knowledge", requirePermission("assistant:write"), validateBody(knowledgeSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
-  const { name = "Knowledge note", content = "", mimeType = "text/plain", source = "upload" } = req.body || {};
-  if (!String(content).trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Document content is required." });
-  }
+  const { name, content, mimeType, source } = req.body;
 
   const document = await createKnowledgeDocument({
     req,
@@ -152,13 +190,13 @@ assistantRouter.post("/knowledge", requirePermission("assistant:write"), async (
   res.status(201).json({ data: { id: document._id.toString(), name: document.name, chunks: document.chunks.length, status: document.status } });
 });
 
-assistantRouter.post("/voice/transcribe", requirePermission("assistant:write"), async (req, res) => {
-  const { fileName = "", transcript = "" } = req.body || {};
+assistantRouter.post("/voice/transcribe", requirePermission("assistant:write"), validateBody(transcribeSchema), async (req, res) => {
+  const { fileName, transcript } = req.body;
   res.json({ data: transcriptionFallback({ fileName, transcript }) });
 });
 
-assistantRouter.post("/voice/reply", requirePermission("assistant:write"), async (req, res) => {
-  const { text = "" } = req.body || {};
+assistantRouter.post("/voice/reply", requirePermission("assistant:write"), validateBody(voiceReplySchema), async (req, res) => {
+  const { text } = req.body;
   res.json({
     data: {
       text,
@@ -169,9 +207,9 @@ assistantRouter.post("/voice/reply", requirePermission("assistant:write"), async
   });
 });
 
-assistantRouter.post("/tool-call", requirePermission("assistant:write"), async (req, res) => {
+assistantRouter.post("/tool-call", requirePermission("assistant:write"), validateBody(toolCallSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
-  const { name = "", arguments: args = {}, conversationId = "" } = req.body || {};
+  const { name, arguments: args, conversationId } = req.body;
   const conversation = conversationId && mongoose.Types.ObjectId.isValid(conversationId)
     ? await Conversation.findOne({ _id: conversationId, workspaceId: req.user.workspaceId })
     : null;

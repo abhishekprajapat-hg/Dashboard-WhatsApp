@@ -6,6 +6,52 @@
 **HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
 to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
 
+## Zod validation on the remaining route files — implemented 2026-08-15
+
+Picked up `docs/FUTURE_ROADMAP.md`'s Phase 1 "Add Zod/Joi validation to all routes" item (a separate,
+much broader wishlist than the automation-engine plan above — see that file for the other 4 phases,
+all still untouched). Coverage was ~63% before this session (12 of 19 route files already used
+`validateBody`/`validateQuery` from `server/middleware/validate.js`); the 7 gap files were
+`admin.js`, `assistant.js`, `dashboard.js`, `infrastructure.js`, `legal.js`, `media.js`,
+`workspace.js`. Investigation found the real scope smaller than "7 files": several of them read no
+client input at all.
+
+- **Added schemas to `admin.js`** (`PUT /settings` only — `GET /overview` reads no input),
+  `assistant.js` (`/analyze`, `/stream`, `/search` query, `/knowledge`, `/voice/transcribe`,
+  `/voice/reply`, `/tool-call` — `GET /overview` reads no input), `media.js` (`POST /upload`), and
+  `workspace.js` (`POST /`, `PUT /current` — `GET /current` reads no input). Genuinely dynamic
+  shapes (`admin.js`'s `webhooks`/`departments`/`teams`/`billing`, `assistant.js`'s `tool-call`
+  `arguments`) use `z.record(z.unknown())` rather than an invented strict shape nothing else
+  enforces — same reasoning this codebase already uses for automation node `config`.
+- **No changes to `dashboard.js`, `legal.js`, `infrastructure.js`** — confirmed none of them read
+  `req.body`/`req.query` anywhere, so a schema would be a no-op. **Separate, unrelated gap flagged
+  but not fixed:** `infrastructure.js`'s three routes have no `requirePermission` call at all - an
+  RBAC gap, not a validation gap, out of scope for this pass.
+- **Real bug found and fixed here, not test-only — but pre-existing, not introduced by this
+  session:** `assistant.js`'s `GET /search` had an unwrapped `$text` operator
+  (`messageFilter.$text = { $search: query }`) hitting the same `mongoose.sanitizeFilter`
+  restriction documented further down this file - the *fourth* time this exact pattern has bitten a
+  change in this codebase this week. Confirmed by reading Mongoose's actual
+  `sanitizeFilter.js`/`trusted.js` source that `mongoose.trusted(...)` bypasses the check (the
+  trusted-symbol check runs before the forbidden-key check per top-level key), fixed the same way as
+  every other instance.
+- **Found but NOT fixed, flagged for a deliberate follow-up:** fixing the above uncovered a deeper,
+  also pre-existing bug - **there is no MongoDB text index on `Message.body`**
+  (`server/models/Message.js` has zero `{ ..., "text" }` index), so `$text` search has never actually
+  worked in this codebase, in any environment, ever. The empty-query path (list recent messages, no
+  `$text` involved) works fine and is what's normally hit. Not fixed here on purpose - adding a text
+  index means an index build against the real production `Message` collection, a deliberate
+  operational decision, not something to bundle silently into a validation-hardening pass.
+- **Tests**: new `server/tests/routeValidation.unit.test.js` (fast, no DB/server, matches
+  `rbac.test.js`'s style) - each new schema exported from its route file, one `safeParse` assertion
+  per schema that a minimal valid payload succeeds with the right defaults, one that a clearly
+  invalid payload fails. Full non-spawning suite (98 tests) green.
+- **Verified manually against a real running server, not just unit-tested schemas in isolation**:
+  admin settings save via an actual UI click, assistant analyze (UI click) plus search/knowledge/
+  tool-call (direct authenticated fetch), media upload, workspace update - each confirmed valid
+  requests succeed unchanged and malformed ones get a clear 400, both before and after the `$text`
+  fix.
+
 ## Execution-history UI nesting — implemented 2026-08-15
 
 Closed the last remaining item from the automation-engine plan: `sub_workflow` child runs were

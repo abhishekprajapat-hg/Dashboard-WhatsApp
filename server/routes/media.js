@@ -1,8 +1,20 @@
 import { Router } from "express";
+import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { validateBody } from "../middleware/validate.js";
+import { trimmedString } from "../utils/zodHelpers.js";
 import { absoluteBaseUrl, saveMediaBuffer } from "../services/mediaStorage.js";
 
 export const mediaRouter = Router();
+
+// mimeType allow-list, byte-length cap, and base64 decoding stay as manual business-logic checks
+// below (they need the decoded buffer, not just the raw shape) - this schema only replaces the
+// informal destructuring-with-defaults that was here before.
+export const uploadMediaSchema = z.object({
+  name: z.string().trim().optional().default("attachment"),
+  mimeType: z.string().trim().optional().default("application/octet-stream"),
+  data: trimmedString("File data is required."),
+});
 
 const maxUploadBytes = 10 * 1024 * 1024;
 
@@ -23,11 +35,8 @@ const allowedMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
-mediaRouter.post("/upload", requirePermission("media:write"), async (req, res) => {
-  const { name = "attachment", mimeType = "application/octet-stream", data = "" } = req.body || {};
-  if (!data || typeof data !== "string") {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "File data is required." });
-  }
+mediaRouter.post("/upload", requirePermission("media:write"), validateBody(uploadMediaSchema), async (req, res) => {
+  const { name, mimeType, data } = req.body;
 
   if (!allowedMimeTypes.has(mimeType)) {
     return res.status(400).json({ error: "UNSUPPORTED_MEDIA", message: "This file type is not supported yet." });
