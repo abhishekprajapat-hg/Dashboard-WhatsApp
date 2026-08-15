@@ -17,14 +17,14 @@ export const conversationsRouter = Router();
 
 conversationsRouter.use(requirePermission("inbox:read"));
 
-const updateStatusSchema = z.object({
+export const updateStatusSchema = z.object({
   status: z.preprocess(
     (value) => String(value || "").toLowerCase(),
     z.enum(["open", "waiting", "pending", "resolved", "archived"], { message: "A valid status is required." })
   ),
 });
 
-const updateSettingsSchema = z
+export const updateSettingsSchema = z
   .object({
     pinned: z.boolean().optional(),
     muted: z.boolean().optional(),
@@ -33,18 +33,18 @@ const updateSettingsSchema = z
     message: "No supported setting was provided.",
   });
 
-const updateAssignmentSchema = z.object({
+export const updateAssignmentSchema = z.object({
   userId: optionalObjectIdString.default(""),
 });
 
-const updateReceiptSchema = z.object({
+export const updateReceiptSchema = z.object({
   status: z.preprocess(
     (value) => String(value || "").toLowerCase(),
     z.enum(["delivered", "read"], { message: "Receipt status must be delivered or read." })
   ),
 });
 
-const updateMessageActionsSchema = z
+export const updateMessageActionsSchema = z
   .object({
     pinned: z.boolean().optional(),
     starred: z.boolean().optional(),

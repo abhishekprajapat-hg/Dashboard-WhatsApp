@@ -12,7 +12,7 @@ export const templatesRouter = Router();
 // cleanPayload() below already coerces/defaults enum-ish fields (type, status, category) back to
 // safe values when they're missing or unrecognized, so this only needs to catch genuinely
 // malformed shapes (wrong types) rather than re-implement that coercion.
-const updateTemplateSchema = z.object({
+export const updateTemplateSchema = z.object({
   name: z.string().trim().optional(),
   type: z.string().optional(),
   category: z.string().optional(),

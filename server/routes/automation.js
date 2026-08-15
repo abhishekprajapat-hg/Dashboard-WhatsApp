@@ -30,7 +30,7 @@ const automationEdgeSchema = z.object({
   targetHandle: z.string().nullable().optional(),
 });
 
-const createFlowSchema = z
+export const createFlowSchema = z
   .object({
     name: trimmedString("Flow name is required."),
     description: z.string().optional().default("Automation flow"),
@@ -61,14 +61,14 @@ const createFlowSchema = z
     path: ["webhookUrl"],
   });
 
-const testFlowSchema = z.object({
+export const testFlowSchema = z.object({
   message: z.string().optional().default(""),
 });
 
 // Partial-update schema for PATCH /:id - every field is optional since the handler only
 // touches fields that were actually sent (sparse update), including the simpleEdit shorthand
 // path that reconstructs nodes/edges from the individual trigger/action fields below.
-const updateFlowSchema = z.object({
+export const updateFlowSchema = z.object({
   name: z.string().trim().optional(),
   nodes: z.array(automationNodeSchema).optional(),
   edges: z.array(automationEdgeSchema).optional(),

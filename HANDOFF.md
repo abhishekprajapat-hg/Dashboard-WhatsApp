@@ -3,31 +3,116 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `30cda73` (`30cda73c4c07fecfc3d62da19ec7061ee458de80` — check `git log -1`
+**HEAD as of this handoff:** `d6e1394` (`d6e1394990aa785ae0296d95c8e0222dc11c61bc` — check `git log -1`
 to confirm nothing's moved since). This exact commit is confirmed deployed and running on
-production (VPS `.last-deploy-sha`/PM2 restart count checked directly, see the deploy log
-throughout this file's dated sections). **Working tree is NOT clean right now** - the feature-flag
-admin UI work (see the "uncommitted" section right below) is implemented and verified but
-deliberately not yet committed, pending the user's go-ahead. Run `git status --short` before
-touching anything else in this repo.
+production - verified three ways in the same session it shipped: VPS `.last-deploy-sha` read back
+exactly `d6e1394990aa785ae0296d95c8e0222dc11c61bc`, `sudo -u dashboard pm2 status` showed
+`dashboard-api` `online` (restart count 7), and `https://dashboard.nemnidhi.com/health` returned
+`200 OK`. **Working tree is NOT clean right now** - the OpenAPI schema generation work (see the
+dedicated section below) is implemented and verified but deliberately not yet committed, pending
+the user's go-ahead. Run `git status --short` before touching anything else in this repo.
 
-## Session paused here 2026-08-15 (continued) — feature-flag admin UI implemented, not yet committed
+## Session paused here 2026-08-15 (continued again) — OpenAPI schema generation implemented, not yet committed
 
-A second pass this same day picked up the "admin-level feature flag management UI" item this file
-had left mid-scoping (see the "What's actually paused" bullets originally below, now resolved and
-folded into the dedicated section right below this one). The user was asked and chose the bigger of
-the two options: a real DB-backed live-toggle system, not a read-only viewer.
+A third pass this same day picked up the next `FUTURE_ROADMAP.md` Phase 1 item after a quick
+scoping pass across everything left on the roadmap (OpenAPI generation, structured logging w/
+redaction, Socket.io Redis adapter, Playwright E2E, tenant quotas/billing, backup drills - see the
+dedicated OpenAPI section below for what was actually built; the other five remain unscoped/
+unstarted). OpenAPI generation was picked as the lowest-risk, most mechanical item.
 
-**Implemented, unit + e2e tested, and manually verified end to end in the actual dashboard UI this
-session — but, unlike everything else in this file, `git status` still shows it uncommitted.**
-Nothing has been committed, pushed, or deployed for this piece yet; that's a deliberate pause for
-the user's explicit go-ahead, not an oversight. See the dedicated section below for the full
-implementation writeup and exactly what was verified.
+**Implemented, unit tested, and manually verified (including a real Swagger UI render) this
+session — but, unlike the feature-flag work above, `git status` still shows it uncommitted.**
+Nothing has been committed, pushed, or deployed for this piece yet; deliberate pause for the user's
+explicit go-ahead, not an oversight. See the dedicated section below for the full writeup.
 
-**What's actually left:** nothing implementation-wise. Only remaining step is the user deciding
-whether/when to commit + push (`main` has no PR workflow, deploys are automatic via VPS cron on
-push — see "Deployment" below) — do that only when asked, same discipline as every other change in
-this file.
+**What's actually left:** nothing implementation-wise for OpenAPI generation. Only remaining step is
+the user deciding whether/when to commit + push. Separately, two confirmed-but-unrelated findings
+surfaced while scoping/building this were flagged as their own follow-up tasks rather than bundled
+in: (1) ~15 routes across `team.js`/`templates.js`/`whatsapp.js`/`campaigns.js`/`conversations.js`
+still have zero real request validation despite this file's earlier claim that item was "closed
+entirely" (documentation-only OpenAPI schemas were authored for them, but nothing wires them into
+`validateBody`/`validateQuery` - that's real behavior-changing work, deliberately not done here);
+(2) a new high-severity `socket.io-parser` vulnerability (`npm audit`), unrelated dependency drift
+surfaced by an unrelated `npm install`, not caused by this session's changes.
+
+## `.last-deploy-sha`/deploy history note
+
+Everything from `## Feature-flag admin UI` through the rest of this file (down to `## History`)
+predates the OpenAPI work above and was true as of `HEAD 30cda73` before the feature-flag commit
+landed. It's kept as-is below for the detailed implementation record of each piece; only the top
+banner and the two "Session paused" headers above have been kept current.
+
+## OpenAPI schema generation — implemented 2026-08-15, uncommitted
+
+Closes `FUTURE_ROADMAP.md`'s Phase 1 "Add OpenAPI schema generation" item. Scoped as the
+lowest-risk, most mechanical of everything left on the roadmap - no architecture change, generates
+purely from what already exists.
+
+- **Tooling decision**: `@asteasolutions/zod-to-openapi@^9` (new dependency), not Zod v4's native
+  `z.toJSONSchema()` hand-rolled. Confirmed via `npm view` that v9.1.0 targets Zod v4
+  (`peerDependencies: {zod: "^4.0.0"}`) before committing to it. Its README confirmed raw Zod
+  schemas can be passed straight into `registry.registerPath(...)` without calling
+  `.openapi()`/`.meta()` on them first (named-ref extraction is opt-in) - so **no existing schema
+  definition anywhere in the codebase needed to change shape**, only gain an `export` keyword.
+- **`server/openapi/registry.js`** (new) - the single `OpenAPIRegistry`, a `bearerAuth` security
+  scheme (matches the real `Authorization: Bearer <token>` + `requireAuth` pattern used everywhere
+  except `legal.js`, `POST /api/auth/login`, and the WhatsApp webhook routes), shared path-param
+  schemas built on the existing-but-previously-unused-for-this `objectIdString` helper
+  (`zodHelpers.js`), and shared **generic** response schemas (`DataResponse`/`ListResponse`/
+  `OkResponse`/precise `ErrorResponse`) - deliberately not fabricated per-endpoint response bodies,
+  since none exist anywhere in the codebase to draw from.
+- **`server/openapi/paths/*.js`** (new, 19 files mirroring `server/routes/`) - one
+  `registry.registerPath(...)` call per endpoint (105 operations across 83 unique path templates),
+  tagged by domain. Real finding while inventorying: **~15 routes across `team.js`, `templates.js`,
+  `whatsapp.js`, `campaigns.js`, and `conversations.js` read `req.body`/`req.query` with zero
+  `validateBody`/`validateQuery` schema today** - directly contradicting this file's earlier claim
+  that the "Zod validation on all routes" item was closed entirely (see that dated section further
+  below - it was accurate for the 7 files it covered, just not a complete picture of the whole
+  codebase). For these gap routes, **documentation-only** Zod schemas were authored directly in the
+  relevant `paths/*.js` file (never imported into the route file, never wired into `validateBody`) -
+  describes the observed shape for the spec without changing any live route's runtime behavior.
+  Flagged as its own separate follow-up task, not bundled into this change (adding real validation
+  now would be behavior-changing work needing its own verification pass, not just documentation).
+- **Route-file changes**: mechanical only - added `export` to ~38 previously-module-private schema
+  `const`s across `admin.js`, `analytics.js`, `auth.js`, `automation.js`, `calendarEvents.js`,
+  `campaigns.js`, `contacts.js`, `conversations.js`, `settings.js`, `tasks.js`, `team.js`,
+  `templates.js`, `whatsapp.js`. Zero other changes to any of these files - confirmed via the full
+  test suite (135/136 green, the one failure is the pre-existing unrelated `automationEngine.e2e`
+  sub_workflow delay/queue flakiness documented in "Environment gotchas" below).
+- **`server/openapi/generate.js`** (new) - `buildOpenApiDocument()`, the single source of truth
+  both the CLI script and the live route call, so they can't drift from each other.
+- **`server/scripts/generateOpenApi.js`** (new, `npm run generate:openapi`) - writes
+  `docs/openapi.json` (committed, versioned, same precedent as the existing hand-written
+  `docs/API_DOCUMENTATION.md`, which now points to it at the top).
+- **`server/index.js`** - `GET /api/openapi.json`, computed once at module load and served from
+  memory (same "compute once, reuse" pattern `admin.js` already uses for `defaultPermissions`),
+  unauthenticated like `/health`/`/metrics` since the spec only describes shapes, not real data.
+- **Explicitly not built**: no Swagger UI/Redoc page shipped in the app (the raw JSON works with any
+  external tool), no real validation added to the 15 gap routes (separate follow-up, see above), no
+  CI drift-check step comparing a fresh generation against the committed `docs/openapi.json` (easy
+  later addition, not core scope).
+- **Real, unrelated finding surfaced along the way, not fixed here**: adding the new dependency and
+  running `npm install` on this Windows machine reproduced the documented "npm install strips the
+  Linux-only `optionalDependencies` pointer" gotcha (see "Environment gotchas" below) - caught via
+  `git diff package-lock.json`, manually restored the three stripped lines
+  (`@rollup/rollup-linux-x64-gnu`, `@tailwindcss/oxide-linux-x64-gnu`, `lightningcss-linux-x64-gnu`)
+  before anything was committed. Separately, `npm audit` now reports one new high-severity
+  vulnerability (`socket.io-parser`, from the existing `socket.io` dependency, unrelated to
+  anything added this session) - flagged as its own follow-up task, not fixed here.
+- **Tests**: `server/tests/openapi.unit.test.js` (new, 5 tests) - generates the document in-process,
+  asserts `openapi`/`info`/`paths`/`components.securitySchemes.bearerAuth` all present,
+  `JSON.stringify` succeeds end to end, and spot-checks specific paths/methods/tags/security match
+  the real routes exactly (e.g. `/api/tasks/` has `get`+`post` tagged `Tasks` with `bearerAuth`
+  security; `/api/auth/login` and the public webhook routes correctly have no security).
+- **Verified beyond the unit tests, against a real running server**: `npm run generate:openapi`
+  produced valid JSON (105 operations, 83 paths); booted the real server and confirmed
+  `GET /api/openapi.json` is **byte-identical** to the committed `docs/openapi.json`
+  (`JSON.stringify` equality, not just "looks similar") - proves the live route and the CLI script
+  can't drift, by construction; loaded the live spec into a real Swagger UI (via CDN bundle, served
+  from a throwaway page temporarily placed under `client/public/` so it ran through Vite rather than
+  hitting this environment's restriction on scripts in files opened outside the project folder,
+  removed immediately after) in the actual Browser pane and visually confirmed every domain/tag/
+  endpoint/summary renders correctly with no console errors, before deleting the throwaway file.
 
 ## Session paused here 2026-08-15 — quick-start for whoever (or whatever fresh window) picks this up
 

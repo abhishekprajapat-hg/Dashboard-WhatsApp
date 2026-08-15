@@ -26,12 +26,12 @@ import { jsonCsv } from "../utils/csv.js";
 import { allPermissions } from "../utils/rbac.js";
 import { optionalDateString } from "../utils/zodHelpers.js";
 
-const auditLogExportQuerySchema = z.object({
+export const auditLogExportQuerySchema = z.object({
   from: optionalDateString(),
   to: optionalDateString(),
 });
 
-const featureFlagUpdateSchema = z.object({
+export const featureFlagUpdateSchema = z.object({
   enabled: z.boolean(),
 });
 

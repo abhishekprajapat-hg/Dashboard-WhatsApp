@@ -8,12 +8,12 @@ import { optionalDateString, optionalObjectIdString, trimmedString } from "../ut
 
 export const tasksRouter = Router();
 
-const listTasksQuerySchema = z.object({
+export const listTasksQuerySchema = z.object({
   status: z.enum(["open", "completed", ""]).optional().default(""),
   assignedToUserId: optionalObjectIdString,
 });
 
-const taskBodySchema = z.object({
+export const taskBodySchema = z.object({
   title: trimmedString("Title is required."),
   description: z.string().optional().default(""),
   dueAt: optionalDateString(),
@@ -22,7 +22,7 @@ const taskBodySchema = z.object({
   conversationId: optionalObjectIdString,
 });
 
-const patchTaskSchema = taskBodySchema.partial().extend({
+export const patchTaskSchema = taskBodySchema.partial().extend({
   status: z.enum(["open", "completed"]).optional(),
 });
 

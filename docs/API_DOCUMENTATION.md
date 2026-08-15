@@ -1,5 +1,10 @@
 # API Documentation
 
+> A generated, more complete machine-readable spec (all ~105 operations, request/response shapes)
+> lives at [`docs/openapi.json`](./openapi.json) - regenerate with `npm run generate:openapi`
+> (server workspace), or fetch it live from a running server at `GET /api/openapi.json`. This file
+> stays as a hand-written quick-reference; the generated spec is the authoritative source for shapes.
+
 ## Authentication
 
 All protected endpoints require:

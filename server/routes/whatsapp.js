@@ -262,7 +262,7 @@ whatsappRouter.get("/console", requirePermission("settings:read"), async (req, r
   });
 });
 
-const connectAccountSchema = z.object({
+export const connectAccountSchema = z.object({
   provider: z.preprocess(
     (value) => String(value || "meta").toLowerCase(),
     z.enum(["meta", "twilio", "wati"], { message: "Provider must be Meta, Twilio, or Wati." })

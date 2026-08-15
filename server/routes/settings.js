@@ -41,7 +41,7 @@ const smsConfigSchema = z.object({
   fromNumber: z.string().optional().default(""),
 });
 
-const integrationsSchema = z.object({
+export const integrationsSchema = z.object({
   outboundWebhook: webhookConfigSchema.optional().default({}),
   googleSheets: z.object({
     enabled: z.boolean().optional().default(false),
@@ -57,7 +57,7 @@ const integrationsSchema = z.object({
   sms: smsConfigSchema.optional().default({}),
 });
 
-const testWebhookSchema = z.object({
+export const testWebhookSchema = z.object({
   url: httpUrlString(),
   secret: z.string().optional().default(""),
 });

@@ -31,6 +31,7 @@ import { createRealtimeServer } from "./realtime/socket.js";
 import { connectRedis } from "./services/cache.js";
 import { loadFeatureFlagsFromDb } from "./services/featureFlags.js";
 import { healthSnapshot } from "./services/health.js";
+import { buildOpenApiDocument } from "./openapi/generate.js";
 import { startWorkers } from "./services/jobs.js";
 import { uploadRoot } from "./services/mediaStorage.js";
 import { connectRabbitMQ } from "./services/messageBus.js";
@@ -81,6 +82,13 @@ app.get("/ready", async (_req, res) => {
 app.get("/metrics", async (_req, res) => {
   res.setHeader("Content-Type", metricsContentType());
   res.send(await metricsText());
+});
+// Computed once at module load, same "build once, serve from memory" pattern admin.js uses for
+// defaultPermissions - the spec only describes request/response shapes, not real data, so it's
+// unauthenticated like /health and /metrics.
+const openApiDocument = buildOpenApiDocument();
+app.get("/api/openapi.json", (_req, res) => {
+  res.json(openApiDocument);
 });
 app.use("/legal", legalRouter);
 

@@ -23,7 +23,7 @@ export const analyticsRouter = Router();
 // instead of rejected, and out-of-range from/to/days values were quietly clamped by
 // parseDateRange rather than reported. Matches the same tightening already applied to other
 // routes this session - reject clearly instead of silently substituting a default.
-const analyticsQuerySchema = z.object({
+export const analyticsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
   from: optionalDateString("from must be a valid date."),
   to: optionalDateString("to must be a valid date."),

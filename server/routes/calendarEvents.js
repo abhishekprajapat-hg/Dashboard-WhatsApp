@@ -8,13 +8,13 @@ import { optionalDateString, optionalObjectIdString, requiredDateString, trimmed
 
 export const calendarEventsRouter = Router();
 
-const listEventsQuerySchema = z.object({
+export const listEventsQuerySchema = z.object({
   from: optionalDateString(),
   to: optionalDateString(),
   assignedToUserId: optionalObjectIdString,
 });
 
-const eventBodySchema = z.object({
+export const eventBodySchema = z.object({
   title: trimmedString("Title is required."),
   description: z.string().optional().default(""),
   startAt: requiredDateString("A valid start date/time is required."),
@@ -24,7 +24,7 @@ const eventBodySchema = z.object({
   conversationId: optionalObjectIdString,
 });
 
-const patchEventSchema = eventBodySchema.partial();
+export const patchEventSchema = eventBodySchema.partial();
 
 function serializeEvent(event) {
   return {

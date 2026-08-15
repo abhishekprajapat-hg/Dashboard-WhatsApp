@@ -22,7 +22,7 @@ const audienceFiltersSchema = z
   .optional()
   .default({});
 
-const createCampaignSchema = z.object({
+export const createCampaignSchema = z.object({
   name: trimmedString("Campaign name is required."),
   type: z.enum(["template", "bulk", "scheduled", "recurring", "ab_test"]).optional().default("template"),
   campaignKind: z.string().optional().default("broadcast"),
@@ -52,14 +52,14 @@ const createCampaignSchema = z.object({
   createdTo: z.string().optional(),
 });
 
-const sendCampaignSchema = z.object({
+export const sendCampaignSchema = z.object({
   limit: z.coerce.number().positive().optional(),
   sendNow: z.boolean().optional().default(false),
 });
 
 // Partial-update schema for PATCH /:id - sparse update, every field optional since the
 // handler only touches fields that were actually sent.
-const updateCampaignSchema = z.object({
+export const updateCampaignSchema = z.object({
   name: z.string().trim().optional(),
   status: z.string().optional(),
   templateId: optionalObjectIdString,
@@ -96,7 +96,7 @@ const updateCampaignSchema = z.object({
   createdTo: z.string().optional(),
 });
 
-const campaignActionSchema = z.object({
+export const campaignActionSchema = z.object({
   action: z.preprocess(
     (value) => String(value || "").toLowerCase(),
     z.enum(["submit_approval", "approve", "reject", "pause", "resume", "cancel", "retry"], {

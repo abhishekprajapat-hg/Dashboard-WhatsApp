@@ -10,19 +10,19 @@ import { trimmedString } from "../utils/zodHelpers.js";
 
 export const contactsRouter = Router();
 
-const listContactsQuerySchema = z.object({
+export const listContactsQuerySchema = z.object({
   search: z.string().trim().optional().default(""),
   lifecycle: z.string().trim().toLowerCase().optional().default(""),
 });
 
-const createContactSchema = z.object({
+export const createContactSchema = z.object({
   name: trimmedString("Name is required."),
   phone: trimmedString("Phone is required."),
   email: z.string().trim().optional().default(""),
   tags: z.array(z.string()).optional().default([]),
 });
 
-const updateContactSchema = createContactSchema.extend({
+export const updateContactSchema = createContactSchema.extend({
   status: z.string().optional().default("active"),
 });
 

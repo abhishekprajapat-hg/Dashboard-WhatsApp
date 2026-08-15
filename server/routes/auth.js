@@ -11,7 +11,7 @@ import { serializeUser, serializeWorkspace, signSession } from "../utils/session
 
 export const authRouter = Router();
 
-const loginSchema = z.object({
+export const loginSchema = z.object({
   email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
   password: z.string().min(1, "Password is required."),
 });

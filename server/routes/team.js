@@ -11,7 +11,7 @@ import { isEmail, passwordPolicy, requiredString } from "../utils/validation.js"
 
 export const teamRouter = Router();
 
-const updateMemberSchema = z.object({
+export const updateMemberSchema = z.object({
   role: z.string().trim().optional(),
 });
 
