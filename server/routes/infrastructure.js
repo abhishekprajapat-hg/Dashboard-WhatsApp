@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { requirePermission } from "../middleware/auth.js";
 import { getFeatureFlags } from "../services/featureFlags.js";
 import { healthSnapshot } from "../services/health.js";
 import { enqueueJob, queueHealth } from "../services/jobs.js";
@@ -6,7 +7,10 @@ import { publishEvent } from "../services/messageBus.js";
 
 export const infrastructureRouter = Router();
 
-infrastructureRouter.get("/status", async (req, res) => {
+// No client UI calls this router at all - it's a backend-only ops/diagnostics surface (health,
+// feature flags, queue status, test job/event triggers). Reuses admin:read/admin:write rather than
+// inventing a dedicated infrastructure:* permission pair nothing else would reference.
+infrastructureRouter.get("/status", requirePermission("admin:read"), async (req, res) => {
   const [health, flags, queues] = await Promise.all([
     healthSnapshot(),
     getFeatureFlags(req.user.workspaceId),
@@ -36,7 +40,7 @@ infrastructureRouter.get("/status", async (req, res) => {
   });
 });
 
-infrastructureRouter.post("/jobs/test", async (req, res) => {
+infrastructureRouter.post("/jobs/test", requirePermission("admin:write"), async (req, res) => {
   const result = await enqueueJob("maintenance", "infrastructure.test", {
     workspaceId: req.user.workspaceId,
     requestedBy: req.user.sub,
@@ -45,7 +49,7 @@ infrastructureRouter.post("/jobs/test", async (req, res) => {
   res.json({ data: result });
 });
 
-infrastructureRouter.post("/events/test", async (req, res) => {
+infrastructureRouter.post("/events/test", requirePermission("admin:write"), async (req, res) => {
   const result = await publishEvent("infrastructure.test", {
     workspaceId: req.user.workspaceId,
     requestedBy: req.user.sub,

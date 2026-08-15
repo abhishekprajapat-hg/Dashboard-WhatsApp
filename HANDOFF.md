@@ -24,9 +24,15 @@ client input at all.
   `arguments`) use `z.record(z.unknown())` rather than an invented strict shape nothing else
   enforces — same reasoning this codebase already uses for automation node `config`.
 - **No changes to `dashboard.js`, `legal.js`, `infrastructure.js`** — confirmed none of them read
-  `req.body`/`req.query` anywhere, so a schema would be a no-op. **Separate, unrelated gap flagged
-  but not fixed:** `infrastructure.js`'s three routes have no `requirePermission` call at all - an
-  RBAC gap, not a validation gap, out of scope for this pass.
+  `req.body`/`req.query` anywhere, so a schema would be a no-op.
+- ~~**Separate, unrelated `infrastructure.js` permission gap**~~ — fixed later the same day: all
+  three routes (`GET /status`, `POST /jobs/test`, `POST /events/test`) had no `requirePermission`
+  call at all, so any authenticated user of any role could read internal health/queue/feature-flag
+  details and trigger a real test job/event. Gated with the existing `admin:read`/`admin:write`
+  rather than inventing a dedicated `infrastructure:*` pair, since no client UI calls this router at
+  all - it's a backend-only ops/diagnostics surface. **Verified with a real access-control check, not
+  just code review:** created a temporary viewer-role user via the live API, confirmed all three
+  routes now return `403` for it while the admin token still gets `200`, then deleted the test user.
 - **Real bug found and fixed here, not test-only — but pre-existing, not introduced by this
   session:** `assistant.js`'s `GET /search` had an unwrapped `$text` operator
   (`messageFilter.$text = { $search: query }`) hitting the same `mongoose.sanitizeFilter`
