@@ -27,6 +27,7 @@ import {
   transcribeAssistantVoice,
   uploadKnowledgeDocument,
 } from "../lib/api";
+import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
 
 interface AssistantOverview {
   providers: Record<string, boolean>;
@@ -113,6 +114,12 @@ export function AssistantView() {
   const [voiceText, setVoiceText] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [actionLocked, setActionLocked] = useState("");
+
+  function reportActionError(error: unknown, fallback: string) {
+    if (isPlanLimitError(error)) setActionLocked(error.message);
+    else setStatus(error instanceof Error ? error.message : fallback);
+  }
 
   async function loadOverview() {
     const response = await getAssistantOverview<AssistantOverview>();
@@ -128,13 +135,14 @@ export function AssistantView() {
   async function runAnalysis(nextTask = task) {
     setBusy(true);
     setStatus("");
+    setActionLocked("");
     try {
       const response = await analyzeAssistantConversation<{ data: AssistantResult }>({ conversationId: conversationId || undefined, provider, task: nextTask, prompt });
       setResult(response.data);
       setStatus("Assistant analysis completed.");
       await loadOverview();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Assistant failed.");
+      reportActionError(error, "Assistant failed.");
     } finally {
       setBusy(false);
     }
@@ -146,12 +154,13 @@ export function AssistantView() {
       return;
     }
     setBusy(true);
+    setActionLocked("");
     try {
       const response = await uploadKnowledgeDocument<{ data: { chunks: number } }>({ name: docName, content: docContent, source: "rag_upload" });
       setStatus(`Knowledge indexed with ${response.data.chunks} chunks.`);
       setDocContent("");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Upload failed.");
+      reportActionError(error, "Upload failed.");
     } finally {
       setBusy(false);
     }
@@ -159,27 +168,38 @@ export function AssistantView() {
 
   async function runSearch() {
     setBusy(true);
+    setActionLocked("");
     try {
       const response = await searchAssistant<{ data: { messages: any[]; knowledge: any[] } }>(searchQuery);
       setSearchResults(response.data);
       setStatus("Search completed.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Search failed.");
+      reportActionError(error, "Search failed.");
     } finally {
       setBusy(false);
     }
   }
 
   async function transcribeVoice() {
-    const response = await transcribeAssistantVoice<{ data: { transcript: string } }>({ fileName: "whatsapp-voice-note.ogg", transcript: voiceText });
-    setVoiceText(response.data.transcript);
-    setStatus("Voice transcription ready.");
+    setActionLocked("");
+    try {
+      const response = await transcribeAssistantVoice<{ data: { transcript: string } }>({ fileName: "whatsapp-voice-note.ogg", transcript: voiceText });
+      setVoiceText(response.data.transcript);
+      setStatus("Voice transcription ready.");
+    } catch (error) {
+      reportActionError(error, "Voice transcription failed.");
+    }
   }
 
   async function executeTool(call?: { name: string; arguments?: Record<string, unknown> }) {
     if (!call) return;
-    const response = await runAssistantTool<{ data: { status: string } }>({ ...call, conversationId: result?.conversationId || conversationId });
-    setStatus(`Tool ${call.name} ${response.data.status}.`);
+    setActionLocked("");
+    try {
+      const response = await runAssistantTool<{ data: { status: string } }>({ ...call, conversationId: result?.conversationId || conversationId });
+      setStatus(`Tool ${call.name} ${response.data.status}.`);
+    } catch (error) {
+      reportActionError(error, "Tool call failed.");
+    }
   }
 
   return (
@@ -376,6 +396,7 @@ export function AssistantView() {
             </div>
 
             {status && <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">{status}</div>}
+            {actionLocked && <PlanLockedState title="This AI action is locked on your current plan" message={actionLocked} />}
           </section>
         </div>
       </div>

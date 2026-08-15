@@ -64,6 +64,7 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
 import {
   createAutomationFlow,
   deleteAutomationFlow,
@@ -1291,6 +1292,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
   const [loadingFlows, setLoadingFlows] = useState(true);
   const [testingFlowId, setTestingFlowId] = useState("");
   const [quickTestResults, setQuickTestResults] = useState<Record<string, TestResult | { error: string }>>({});
+  const [lockedMessage, setLockedMessage] = useState("");
 
   async function loadFlows() {
     setLoadingFlows(true);
@@ -1303,6 +1305,10 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
       setFlowList(response.data);
       setSummary(response.summary);
       setSelectedFlowId((current) => current || response.data[0]?.id || "");
+      setLockedMessage("");
+    } catch (error) {
+      if (isPlanLimitError(error)) setLockedMessage(error.message);
+      else throw error;
     } finally {
       setLoadingFlows(false);
     }
@@ -1425,6 +1431,14 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     } finally {
       setTestingFlowId("");
     }
+  }
+
+  if (lockedMessage) {
+    return (
+      <div className="flex min-h-full w-full items-center justify-center p-6">
+        <PlanLockedState title="Automation builder is locked" message={lockedMessage} />
+      </div>
+    );
   }
 
   return (
