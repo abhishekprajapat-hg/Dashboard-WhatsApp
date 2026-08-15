@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { config } from "../config.js";
-import { Membership, Role, User } from "../models/index.js";
+import { Membership, Organization, Role, User } from "../models/index.js";
+import { hasEntitlement } from "../services/entitlements.js";
 import { normalizeRoleKey } from "../utils/rbac.js";
 
 export function hasPermission(user, permission) {
@@ -23,6 +24,27 @@ export function requirePermission(permission) {
   return (req, res, next) => {
     if (!hasPermission(req.user, permission)) {
       return res.status(403).json({ error: "FORBIDDEN", message: "You do not have permission to perform this action." });
+    }
+    next();
+  };
+}
+
+// Separate from requirePermission on purpose: permission is "can this role do this", entitlement
+// is "did this organization's plan even buy this". A dev-role user on a Basic-tier org should
+// still be blocked from the automation builder, independent of their role.
+export function requireEntitlement(capability) {
+  return async (req, res, next) => {
+    if (mongoose.connection.readyState !== 1) return next();
+
+    const organization = await Organization.findById(req.user?.organizationId).select("plan");
+    if (!organization) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "No active organization found." });
+    }
+    if (!hasEntitlement(organization.plan, capability)) {
+      return res.status(403).json({
+        error: "PLAN_LIMIT",
+        message: `This workspace's plan does not include ${capability}.`,
+      });
     }
     next();
   };

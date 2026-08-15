@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requirePermission } from "../middleware/auth.js";
+import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { AutomationFlow, AutomationRun, Contact, Conversation, Message, Tag, WhatsAppAccount } from "../models/index.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
@@ -267,7 +267,7 @@ function nestDescendants(rootId, descendants) {
   return attach(rootId);
 }
 
-automationRouter.get("/:id/runs", requirePermission("automation:read"), async (req, res) => {
+automationRouter.get("/:id/runs", requirePermission("automation:read"), requireEntitlement("automationBuilder"), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.json({ data: [] });
   }
@@ -310,7 +310,7 @@ automationRouter.get("/:id/runs", requirePermission("automation:read"), async (r
   res.json({ data });
 });
 
-automationRouter.get("/", requirePermission("automation:read"), async (req, res) => {
+automationRouter.get("/", requirePermission("automation:read"), requireEntitlement("automationBuilder"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0, summary: { runsToday: 0, automatedMessages: 0, handoffs: 0 } });
   }
@@ -329,7 +329,7 @@ automationRouter.get("/", requirePermission("automation:read"), async (req, res)
   });
 });
 
-automationRouter.post("/", requirePermission("automation:write"), validateBody(createFlowSchema), async (req, res) => {
+automationRouter.post("/", requirePermission("automation:write"), requireEntitlement("automationBuilder"), validateBody(createFlowSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -426,7 +426,7 @@ automationRouter.post("/", requirePermission("automation:write"), validateBody(c
   res.status(201).json({ data: serializeFlow(flow) });
 });
 
-automationRouter.patch("/:id", requirePermission("automation:write"), validateBody(updateFlowSchema), async (req, res) => {
+automationRouter.patch("/:id", requirePermission("automation:write"), requireEntitlement("automationBuilder"), validateBody(updateFlowSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
@@ -522,7 +522,7 @@ automationRouter.patch("/:id", requirePermission("automation:write"), validateBo
   res.json({ data: serializeFlow(flow) });
 });
 
-automationRouter.post("/:id/test", requirePermission("automation:write"), validateBody(testFlowSchema), async (req, res) => {
+automationRouter.post("/:id/test", requirePermission("automation:write"), requireEntitlement("automationBuilder"), validateBody(testFlowSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }
@@ -625,7 +625,7 @@ automationRouter.post("/:id/test", requirePermission("automation:write"), valida
   }
 });
 
-automationRouter.delete("/:id", requirePermission("automation:write"), async (req, res) => {
+automationRouter.delete("/:id", requirePermission("automation:write"), requireEntitlement("automationBuilder"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
   }

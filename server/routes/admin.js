@@ -16,6 +16,7 @@ import {
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { pruneAuditLogs } from "../services/auditLogRetention.js";
+import { getEntitlements, PACK_TIERS } from "../services/entitlements.js";
 import {
   clearFeatureFlagOverride,
   isKnownFlagKey,
@@ -33,6 +34,10 @@ export const auditLogExportQuerySchema = z.object({
 
 export const featureFlagUpdateSchema = z.object({
   enabled: z.boolean(),
+});
+
+export const packTierUpdateSchema = z.object({
+  plan: z.enum(PACK_TIERS),
 });
 
 const auditLogCsvHeaders = ["id", "createdAt", "actor", "action", "entityType", "entityId", "ipAddress", "userAgent", "before", "after"];
@@ -453,3 +458,26 @@ adminRouter.delete("/feature-flags/:key", requirePermission("admin:write"), asyn
   const data = await clearFeatureFlagOverride(req.params.key);
   res.json({ ok: true, data });
 });
+
+adminRouter.get("/entitlements", requirePermission("admin:read"), async (req, res) => {
+  const organization = await Organization.findById(req.user.organizationId).select("plan");
+  res.json({ data: getEntitlements(organization?.plan) });
+});
+
+adminRouter.put(
+  "/entitlements/plan",
+  requirePermission("admin:write"),
+  validateBody(packTierUpdateSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    const organization = await Organization.findById(req.user.organizationId);
+    if (!organization) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Organization not found." });
+    }
+    organization.plan = req.body.plan;
+    await organization.save();
+    res.json({ ok: true, data: getEntitlements(organization.plan) });
+  }
+);

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requirePermission } from "../middleware/auth.js";
+import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { AutomationFlow, Conversation, Lead, Message } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
@@ -120,7 +120,7 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
   });
 });
 
-assistantRouter.post("/analyze", requirePermission("assistant:write"), validateBody(analyzeSchema), async (req, res) => {
+assistantRouter.post("/analyze", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(analyzeSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { conversationId, provider, task, prompt } = req.body;
 
@@ -129,7 +129,7 @@ assistantRouter.post("/analyze", requirePermission("assistant:write"), validateB
   res.json({ data: result });
 });
 
-assistantRouter.post("/stream", requirePermission("assistant:write"), validateBody(streamSchema), async (req, res) => {
+assistantRouter.post("/stream", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(streamSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { conversationId, provider, task, prompt } = req.body;
 
@@ -147,7 +147,7 @@ assistantRouter.post("/stream", requirePermission("assistant:write"), validateBo
   res.end();
 });
 
-assistantRouter.get("/search", requirePermission("assistant:read"), validateQuery(searchQuerySchema), async (req, res) => {
+assistantRouter.get("/search", requirePermission("assistant:read"), requireEntitlement("aiAssistant"), validateQuery(searchQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const query = req.query.q;
   const limit = Math.min(30, Math.max(1, req.query.limit || 12));
@@ -176,7 +176,7 @@ assistantRouter.get("/search", requirePermission("assistant:read"), validateQuer
   });
 });
 
-assistantRouter.post("/knowledge", requirePermission("assistant:write"), validateBody(knowledgeSchema), async (req, res) => {
+assistantRouter.post("/knowledge", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(knowledgeSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { name, content, mimeType, source } = req.body;
 
@@ -190,12 +190,12 @@ assistantRouter.post("/knowledge", requirePermission("assistant:write"), validat
   res.status(201).json({ data: { id: document._id.toString(), name: document.name, chunks: document.chunks.length, status: document.status } });
 });
 
-assistantRouter.post("/voice/transcribe", requirePermission("assistant:write"), validateBody(transcribeSchema), async (req, res) => {
+assistantRouter.post("/voice/transcribe", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(transcribeSchema), async (req, res) => {
   const { fileName, transcript } = req.body;
   res.json({ data: transcriptionFallback({ fileName, transcript }) });
 });
 
-assistantRouter.post("/voice/reply", requirePermission("assistant:write"), validateBody(voiceReplySchema), async (req, res) => {
+assistantRouter.post("/voice/reply", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(voiceReplySchema), async (req, res) => {
   const { text } = req.body;
   res.json({
     data: {
@@ -207,7 +207,7 @@ assistantRouter.post("/voice/reply", requirePermission("assistant:write"), valid
   });
 });
 
-assistantRouter.post("/tool-call", requirePermission("assistant:write"), validateBody(toolCallSchema), async (req, res) => {
+assistantRouter.post("/tool-call", requirePermission("assistant:write"), requireEntitlement("aiAssistant"), validateBody(toolCallSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
   const { name, arguments: args, conversationId } = req.body;
   const conversation = conversationId && mongoose.Types.ObjectId.isValid(conversationId)
