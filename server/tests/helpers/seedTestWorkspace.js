@@ -21,7 +21,10 @@ import { roleDefinitionFor } from "../../utils/rbac.js";
 export async function seedTestWorkspace({ mongoUri, contactCount = 5 }) {
   await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 10000 });
 
-  const email = "integration-admin@test.local";
+  // Suffixed so a test file can seed more than one workspace against the same database (e.g. to
+  // prove workspace scoping) without colliding on User.email's or Workspace.slug's unique indexes.
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const email = `integration-admin-${uniqueSuffix}@test.local`;
   const password = "IntegrationTest123!";
 
   const user = await User.create({
@@ -42,7 +45,7 @@ export async function seedTestWorkspace({ mongoUri, contactCount = 5 }) {
   const workspace = await Workspace.create({
     organizationId: organization._id,
     name: "Integration Test Workspace",
-    slug: "integration-test-workspace",
+    slug: `integration-test-workspace-${uniqueSuffix}`,
     timezone: "Asia/Kolkata",
     businessCategory: "Customer Support",
   });

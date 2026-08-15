@@ -9,13 +9,14 @@ import { TemplatesView } from "./components/TemplatesView";
 import { CampaignsView } from "./components/CampaignsView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { TeamView } from "./components/TeamView";
+import { TasksView } from "./components/TasksView";
 import { AssistantView } from "./components/AssistantView";
 import { AdminView } from "./components/AdminView";
 import { SettingsView } from "./components/SettingsView";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission } from "./lib/permissions";
 
-const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "automation", "templates", "campaigns", "analytics", "team", "assistant", "admin", "settings"];
+const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
 const VIEW_LABELS: Record<ViewId, string> = {
   dashboard: "Dashboard",
@@ -26,6 +27,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
   campaigns: "Campaigns",
   analytics: "Analytics",
   team: "Team",
+  tasks: "Tasks",
   assistant: "AI Assistant",
   admin: "Admin",
   settings: "Settings",
@@ -40,6 +42,7 @@ const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
   campaigns: "Broadcasts and audience sends",
   analytics: "Reports and performance",
   team: "Members, roles, and workload",
+  tasks: "Tasks and calendar for your team",
   assistant: "AI tools and conversation insights",
   admin: "Platform controls",
   settings: "Workspace and integrations",
@@ -127,6 +130,7 @@ export default function App() {
   const canWriteTemplates = hasPermission(session, "templates:write");
   const canWriteCampaigns = hasPermission(session, "campaigns:write");
   const canWriteTeam = hasPermission(session, "team:write");
+  const canWriteTasks = hasPermission(session, "tasks:write");
   const canWriteSettings = hasPermission(session, "settings:write");
   const workspaceName = session?.workspace?.name || "Workspace";
   const activeLabel = VIEW_LABELS[activeView];
@@ -258,6 +262,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "campaigns" && <CampaignsView canWrite={canWriteCampaigns} />}
           {canAccessView(session, activeView) && activeView === "analytics" && <AnalyticsView />}
           {canAccessView(session, activeView) && activeView === "team" && <TeamView canManage={canWriteTeam} />}
+          {canAccessView(session, activeView) && activeView === "tasks" && <TasksView canWrite={canWriteTasks} />}
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}
           {canAccessView(session, activeView) && activeView === "admin" && <AdminView />}
           {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} />}

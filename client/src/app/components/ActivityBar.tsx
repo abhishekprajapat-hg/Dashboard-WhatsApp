@@ -7,6 +7,7 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Megaphone,
   MessageCircle,
@@ -27,6 +28,7 @@ export type ViewId =
   | "campaigns"
   | "analytics"
   | "team"
+  | "tasks"
   | "admin"
   | "assistant"
   | "settings";
@@ -48,6 +50,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "campaigns", icon: Megaphone, label: "Campaigns" },
   { id: "analytics", icon: BarChart3, label: "Analytics" },
   { id: "team", icon: Users2, label: "Team" },
+  { id: "tasks", icon: ListChecks, label: "Tasks" },
   { id: "assistant", icon: Bot, label: "AI Assistant" },
   { id: "admin", icon: ShieldCheck, label: "Admin" },
 ];

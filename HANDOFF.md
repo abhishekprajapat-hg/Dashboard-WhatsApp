@@ -6,6 +6,57 @@
 **HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
 to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
 
+## Task/Calendar viewing UI — implemented 2026-08-15
+
+Closed out the last concretely-deferred item from `docs/AUTOMATION_ENGINE_PLAN.md`'s Phase 2+
+sketch: `Task`/`CalendarEvent` records existed and were written for real by the automation engine's
+`task`/`calendar` nodes, but there was no way to browse, create, edit, or complete them. Scoped with
+the user first (single "Tasks" nav item with two tabs, not two separate nav entries; full manual
+create/edit/delete, not read-only; a real month-grid calendar, not a flat agenda list).
+
+- **New permissions** `tasks:read`/`tasks:write` in `server/utils/rbac.js` — same split as
+  `contacts:*` (manager/agent get both, viewer read-only). Added to `permissionCatalog` and the role
+  arrays only; **no production migration was run**, so existing non-admin workspace members won't
+  see the page until a future reseed/migration. Admin/super_admin see it immediately (wildcard `"*"`).
+- **New `server/routes/tasks.js` / `server/routes/calendarEvents.js`** — full CRUD, mirroring
+  `contacts.js`/`team.js`'s structure exactly (Zod schemas, `requirePermission`, workspace-scoped
+  queries, `.populate("assignedToUserId", "name")`). Mounted at `/api/tasks` and
+  `/api/calendar-events` in `server/index.js`. Calendar events support a `from`/`to` range query
+  for the month grid.
+- **New `client/src/app/components/TasksView.tsx`** — one file, following `ContactsView.tsx`'s
+  established visual/structural language (header stat cards, fixed-overlay create/edit forms, mobile
+  card list + desktop table, no delete-confirmation dialog — matches `ContactsView`'s own
+  `deleteContact`, which has none either). Hand-rolled tab state, not the unused `ui/tabs.tsx`
+  primitive — this app has an established habit of hand-rolling tabs/tables/selects instead of the
+  shadcn scaffold (`ui/tabs.tsx`, `ui/table.tsx`, `ui/select.tsx`, `ui/alert-dialog.tsx` are all
+  present but unused anywhere in the app), so this stays consistent rather than diverging. Calendar
+  tab is a real month grid built with `date-fns` (already a project dependency, previously unused —
+  no new package needed).
+- **Real bug found and fixed here, not test-only:** the calendar route's `from`/`to` range filter
+  set `filter.startAt = { $lte: new Date(...) }` — an unwrapped `$lte` operator, exactly the
+  `mongoose.sanitizeFilter` gotcha already documented lower in this file (unwrapped `$operator`
+  values get silently neutered, producing a `CastError` → 500). Missed on first pass, caught by the
+  new e2e test itself, fixed with `mongoose.trusted(...)` like every other query in this codebase
+  that needs one.
+- **Also found and fixed:** `server/tests/helpers/seedTestWorkspace.js` hardcoded the same email and
+  workspace slug on every call, so a test proving workspace-scoping (which needs two seeded
+  workspaces in one database) would hit a duplicate-key error on the second call. Fixed by
+  suffixing both with a unique per-call token — backward compatible, every existing caller reads
+  `seed.email` from the return value rather than hardcoding the old string.
+- **Tests**: `server/tests/rbac.test.js` extended for the new permissions; new
+  `server/tests/tasksCalendar.e2e.test.js` covers create/list/patch/delete for both routes, the
+  calendar range filter, and workspace scoping. Full non-spawning unit suite (90 tests) still green;
+  the server-spawning e2e/integration files hit this environment's already-documented flakiness below
+  (unrelated to this change — confirmed by running the new e2e file alone, which passes clean).
+- **Verified manually in the actual dashboard UI** (logged in as `admin@test.com`): created,
+  completed, and deleted a task; created, edited (pre-fill correct), and deleted a calendar event;
+  confirmed month navigation refetches the right range. Caught and fixed one more issue this way — a
+  React duplicate-key warning in the task table's header row (two columns both used `key={column}`
+  with the same empty-string label).
+- **Not done**: no production permission migration (see above); no viewer-role write-gating smoke
+  test (the `canWrite` gating mirrors `ContactsView`'s already-proven pattern exactly, so this was
+  judged low-risk and skipped rather than seeding a separate viewer test user for it).
+
 ## Session paused here 2026-08-03 — quick-start for whoever picks this up next
 
 Both items below (`code_block` and `task`/`calendar`) are **committed, pushed to `origin/main`, and
@@ -374,6 +425,16 @@ Phase 2 additions above are documented here, not in that file. Shipped as commit
   (`admin@test.com` / `123456`), then `node index.js` in `server/` and `npm run dev` (or root
   `npm run dev:full`) for the client. `Stop-Process` on `mongod` can be unreliable in this sandbox;
   a Mongo-native shutdown (`admin().command({shutdown: 1, force: true})`) works when it is.
+- **Vite binds only to IPv6 loopback (`[::1]`) on this machine, not `127.0.0.1`** — a plain
+  `curl http://127.0.0.1:5173` (or any tool hitting the IPv4 literal) gets connection-refused even
+  though the dev server is genuinely up; use `http://localhost:5173` or `http://[::1]:5173`
+  instead. The API server (`node index.js`) doesn't have this problem — it binds `0.0.0.0`/`[::]`,
+  both families. If `npm run dev` reports "Port 5173 is in use" and falls back to 5174 (e.g. a
+  stray process from an earlier session still holding 5173 - `netstat -ano | grep LISTEN` to find
+  and kill it), **the browser's `Origin` header won't match `config.corsOrigins`'s hardcoded
+  `http://localhost:5173` allowlist entry**, and every API call fails with a CORS preflight error
+  ("Failed to fetch" in the UI, `blocked by CORS policy` in the console) - not a code bug, just
+  needs the stray process cleared so Vite lands back on 5173.
 
 ## Deployment
 

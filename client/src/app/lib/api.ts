@@ -763,6 +763,100 @@ export function deleteTeamMember(id: string) {
   });
 }
 
+export function getTasks<T>(params: { status?: string; assignedToUserId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.assignedToUserId) query.set("assignedToUserId", params.assignedToUserId);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/tasks${suffix}`);
+}
+
+export function createTask<T>(task: {
+  title: string;
+  description?: string;
+  dueAt?: string;
+  assignedToUserId?: string;
+  contactId?: string;
+  conversationId?: string;
+}) {
+  return request<T>("/tasks", {
+    method: "POST",
+    body: JSON.stringify(task),
+  });
+}
+
+export function updateTask<T>(
+  id: string,
+  patch: Partial<{
+    title: string;
+    description: string;
+    dueAt: string;
+    assignedToUserId: string;
+    contactId: string;
+    conversationId: string;
+    status: "open" | "completed";
+  }>
+) {
+  return request<T>(`/tasks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteTask(id: string) {
+  return request<void>(`/tasks/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function getCalendarEvents<T>(params: { from?: string; to?: string; assignedToUserId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  if (params.assignedToUserId) query.set("assignedToUserId", params.assignedToUserId);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/calendar-events${suffix}`);
+}
+
+export function createCalendarEvent<T>(event: {
+  title: string;
+  description?: string;
+  startAt: string;
+  endAt?: string;
+  assignedToUserId?: string;
+  contactId?: string;
+  conversationId?: string;
+}) {
+  return request<T>("/calendar-events", {
+    method: "POST",
+    body: JSON.stringify(event),
+  });
+}
+
+export function updateCalendarEvent<T>(
+  id: string,
+  patch: Partial<{
+    title: string;
+    description: string;
+    startAt: string;
+    endAt: string;
+    assignedToUserId: string;
+    contactId: string;
+    conversationId: string;
+  }>
+) {
+  return request<T>(`/calendar-events/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteCalendarEvent(id: string) {
+  return request<void>(`/calendar-events/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function getCurrentWorkspace<T>() {
   return request<T>("/workspaces/current");
 }

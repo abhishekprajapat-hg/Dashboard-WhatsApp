@@ -30,6 +30,8 @@ export const roleDefinitions = {
       "assistant:write",
       "assignment:write",
       "media:write",
+      "tasks:read",
+      "tasks:write",
     ],
   },
   agent: {
@@ -44,6 +46,8 @@ export const roleDefinitions = {
       "templates:read",
       "assistant:read",
       "media:write",
+      "tasks:read",
+      "tasks:write",
     ],
   },
   viewer: {
@@ -58,6 +62,7 @@ export const roleDefinitions = {
       "templates:read",
       "reports:read",
       "assistant:read",
+      "tasks:read",
     ],
   },
 };
@@ -89,6 +94,8 @@ export const permissionCatalog = [
   "assistant:write",
   "assignment:write",
   "media:write",
+  "tasks:read",
+  "tasks:write",
 ];
 
 export function normalizeRoleKey(role = "agent") {

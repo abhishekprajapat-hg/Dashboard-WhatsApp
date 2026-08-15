@@ -23,3 +23,16 @@ test("viewer role stays read-only", () => {
   assert.equal(viewer.permissions.includes("contacts:read"), true);
   assert.equal(viewer.permissions.includes("contacts:write"), false);
 });
+
+test("tasks permissions follow the contacts read/write split", () => {
+  const manager = roleDefinitionFor("manager");
+  const agent = roleDefinitionFor("agent");
+  const viewer = roleDefinitionFor("viewer");
+
+  assert.equal(manager.permissions.includes("tasks:read"), true);
+  assert.equal(manager.permissions.includes("tasks:write"), true);
+  assert.equal(agent.permissions.includes("tasks:read"), true);
+  assert.equal(agent.permissions.includes("tasks:write"), true);
+  assert.equal(viewer.permissions.includes("tasks:read"), true);
+  assert.equal(viewer.permissions.includes("tasks:write"), false);
+});

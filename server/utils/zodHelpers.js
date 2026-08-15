@@ -39,3 +39,9 @@ export const optionalDateString = (message = "Must be a valid date.") =>
     .trim()
     .refine((value) => value === "" || !Number.isNaN(new Date(value).getTime()), { message })
     .optional();
+
+export const requiredDateString = (message = "Must be a valid date.") =>
+  z
+    .string()
+    .trim()
+    .refine((value) => !Number.isNaN(new Date(value).getTime()), { message });
