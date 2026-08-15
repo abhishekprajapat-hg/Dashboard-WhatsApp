@@ -6,6 +6,55 @@
 **HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
 to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
 
+## Execution-history UI nesting — implemented 2026-08-15
+
+Closed the last remaining item from the automation-engine plan: `sub_workflow` child runs were
+always correctly linked via `parentRunId` (the model comment on `server/models/AutomationRun.js`
+has said "lets the Run History UI eventually show nesting" since Phase 2), but neither the API nor
+the UI ever exposed it. Investigation found the gap was two layers, not one: `serializeAutomationRun`
+didn't include `parentRunId` at all, and `GET /:id/runs` was scoped to a single `flowId` — a
+`sub_workflow` child run's `flowId` is the *called* flow's id, not the caller's, so the parent
+flow's own Run History panel structurally couldn't see the child run in the first place, nested or
+not.
+
+- **`server/routes/automation.js`** — `GET /:id/runs` now uses a `$graphLookup` aggregation
+  (`from: "automationruns", connectFromField: "_id", connectToField: "parentRunId"`) to attach each
+  top-level run's full descendant set (any depth, any flow), `maxDepth: 4` matching
+  `MAX_SUB_WORKFLOW_DEPTH`'s 5-level call-chain cap. A small `nestDescendants()` helper turns
+  `$graphLookup`'s flat per-run array into a real tree server-side, so the client just renders what
+  it's given. `serializeAutomationRun` gained `parentRunId`, `flowName` (via one batched
+  `AutomationFlow.find` across every flowId seen), and recursive `children`. **No filtering change**
+  to the existing top-level list — a run that's itself a child of another flow's run still appears
+  exactly as before; nesting only adds `children` under entries that have any.
+- **`client/src/app/components/AutomationView.tsx`** — extracted the run card into a recursive
+  `RunHistoryEntry` component so `children` renders nested/indented with a
+  `sub_workflow → {flowName}` badge. **Upgraded `expandedRunId` (single string) to
+  `expandedRunIds` (a `Set`)** — with a flat list only one run ever needed to be open at a time, but
+  nesting a child under an already-expanded parent while only one thing in the whole tree can be
+  open defeats the point; verified in the real browser UI that parent and child now expand
+  independently.
+- **Real bug found and fixed here, not test-only:** the new flow-name lookup
+  (`AutomationFlow.find({ _id: { $in: [...] } })`) hit the exact same `mongoose.sanitizeFilter`
+  gotcha documented lower in this file — an unwrapped `$in` on a brand-new flow with zero runs
+  (empty `flowIds` set) produced a `CastError` → 500. **This is the third time this specific pattern
+  has bitten a change in this codebase this week** (Task/Calendar's calendar-range filter was the
+  second) — worth internalizing: *any* `{ field: { $operator: ... } }` value in a Mongoose filter
+  needs `mongoose.trusted(...)`, full stop, no exceptions for "this one's probably fine." Fixed the
+  same way as before.
+- **Tests**: extended the existing `automationEngine.e2e.test.js` sub_workflow test (which already
+  proved `parentRunId`/`chain` correctness at the DB level) with an API-level assertion — calls
+  `GET /:parentFlowId/runs` and confirms the child run comes back nested in `children[]` with the
+  right `flowName`/`status`. This closes the exact gap flagged during scoping: the test only ever
+  proved DB state, never the API contract.
+- **Verification note**: this environment's server-spawning e2e tests need real BullMQ/Redis queue
+  processing for delay-dependent paths (the false-branch delay test, the loop test, and this
+  sub_workflow test's own message-wait all hit that pre-existing limitation, unrelated to this
+  change - see "Environment gotchas" below). Confirmed the change itself is correct via the one test
+  that directly covers it (`GET /api/automation/:id/runs returns the run history for the flow`,
+  passes clean) plus manual verification: created a real parent+child sub_workflow flow through the
+  actual dashboard UI, ran it, confirmed the child nests under the parent with the right flow-name
+  badge, and confirmed both can be expanded at once.
+
 ## Task/Calendar viewing UI — implemented 2026-08-15
 
 Closed out the last concretely-deferred item from `docs/AUTOMATION_ENGINE_PLAN.md`'s Phase 2+
@@ -66,21 +115,11 @@ clean `deploy complete` line in `deploy.log`, `pm2 status` showing `dashboard-ap
 stopping point, not an interrupted one.
 
 **What's actually left (nothing more, nothing less):**
-1. **Execution-history UI nesting** — `sub_workflow` child runs are linked via `parentRunId` in the
-   data (Phase 2, done) but the Run History panel doesn't visually nest them yet. Quick follow-up,
-   not started. See "Not done, by design" below.
-2. **Task/Calendar viewing UI** — `Task`/`CalendarEvent` records are created for real by the
-   automation engine, but there's no page to browse them (deliberately out of scope this session,
-   by explicit user choice - see the `task`/`calendar` section below for why). Natural next step if
-   these should be visible beyond the automation flow's own run history/logs.
-3. **`docs/SCREEN_RECORDING_SCRIPT.md`** — untracked in git, predates this session, unrelated to the
-   automation work (a Meta App Review recording script). Never got a decision on whether to commit
-   it; still sitting there.
-4. **`.claude/launch.json`** — untracked, added this session so the client dev server could be
-   started via the browser preview tool during verification. Harmless to commit (just a local dev
-   server config) or to leave untracked/gitignore it - user's call, never asked.
+1. ~~**Execution-history UI nesting**~~ — done 2026-08-15, see the section near the top of this file.
+2. ~~**Task/Calendar viewing UI**~~ — done 2026-08-15, see the section near the top of this file.
+3. ~~`docs/SCREEN_RECORDING_SCRIPT.md` / `.claude/launch.json`~~ — both committed 2026-08-15.
 
-**Everything else this project has ever tracked as deferred is done.** Phase 1 and all 7 Phase 2
+**Everything this project has ever tracked as deferred is now done.** Phase 1 and all 7 Phase 2
 features were complete before this session; this session closed out the two remaining deferred
 items (`code_block`, `task`/`calendar`) end to end - implemented, tested, manually verified, and
 confirmed live in production.
@@ -303,8 +342,8 @@ UI, then commit+push only after the user explicitly said so. In commit order:
 - ~~`task`/`calendar`~~ — models + executors done, see the section above this one. Still no
   dedicated viewing UI (deliberately out of scope for that pass) - a Tasks/Calendar list view is
   the natural follow-up if this is worth surfacing beyond the automation flow itself.
-- Execution-history UI doesn't yet show `parentRunId` nesting (sub_workflow's child runs are
-  linked in the data but not visually nested in the panel) — quick follow-up if wanted.
+- ~~Execution-history UI doesn't yet show `parentRunId` nesting~~ — done 2026-08-15, see the
+  section near the top of this file.
 
 ## Automation Phase 1 — DONE, deployed (2026-08-02)
 
@@ -435,6 +474,15 @@ Phase 2 additions above are documented here, not in that file. Shipped as commit
   `http://localhost:5173` allowlist entry**, and every API call fails with a CORS preflight error
   ("Failed to fetch" in the UI, `blocked by CORS policy` in the console) - not a code bug, just
   needs the stray process cleared so Vite lands back on 5173.
+- **The browser automation tool's simulated `computer` clicks (and screenshots) silently don't land
+  in this sandbox** - `read_page`/`get_page_text` (DOM-based) work fine, but a `computer.left_click`
+  on a real button can do nothing at all with no error, and `computer.screenshot` reliably times out
+  with "the Browser pane is not displayed." Verified this isn't a page/app bug - a login submit
+  button that a simulated click didn't trigger fired immediately via
+  `document.querySelector('form').requestSubmit()` and via `element.click()` through
+  `javascript_tool`. **If a browser-tool click seems to do nothing, don't assume the UI is broken -
+  drive it with `javascript_tool` (`requestSubmit()`, `.click()` on a matched element, etc.) instead
+  and re-check with `get_page_text`/`read_console_messages`.**
 
 ## Deployment
 

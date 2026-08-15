@@ -425,6 +425,20 @@ test("a sub_workflow node calls another flow synchronously, passes input, and li
   assert.deepEqual(childRun.chain.map((id) => id.toString()), [parentFlowId, childFlowId]);
   assert.equal(childRun.context.variables.input, "hello from parent");
   assert.equal(childRun.status, "completed");
+
+  // The DB linkage above has always been correct - this proves the parent flow's own Run History
+  // API actually surfaces it: the child run (a different flow's run) should come back nested
+  // under the parent run, not just linked in the database.
+  const { data: parentRuns } = await api(`/api/automation/${parentFlowId}/runs`, { expectStatus: 200 });
+  const parentRunSummary = parentRuns.data.find((run) => run.id === parentRun._id.toString());
+  assert.ok(parentRunSummary, "expected the parent run to appear in its own flow's run history");
+  assert.equal(parentRunSummary.parentRunId, null);
+  const nestedChild = parentRunSummary.children.find((run) => run.id === childRun._id.toString());
+  assert.ok(nestedChild, "expected the child run to be nested under the parent run");
+  assert.equal(nestedChild.flowId, childFlowId);
+  assert.equal(nestedChild.flowName, "E2E Sub-workflow Child");
+  assert.equal(nestedChild.status, "completed");
+  assert.equal(nestedChild.parentRunId, parentRun._id.toString());
 });
 
 test("task and calendar nodes create real Task/CalendarEvent documents, linked to the triggering contact/conversation", async () => {

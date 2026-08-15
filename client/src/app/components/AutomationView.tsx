@@ -149,6 +149,8 @@ interface AutomationRunStep {
 interface AutomationRunSummary {
   id: string;
   flowId: string;
+  flowName: string | null;
+  parentRunId: string | null;
   status: "running" | "waiting" | "completed" | "failed" | "cancelled";
   testMode: boolean;
   stepCount: number;
@@ -158,6 +160,8 @@ interface AutomationRunSummary {
   resumeAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // sub_workflow child runs (any flow), nested by server/routes/automation.js's nestDescendants.
+  children: AutomationRunSummary[];
 }
 
 type AutomationNodeData = {
@@ -442,6 +446,88 @@ function defaultEdges(): Edge[] {
   return normalizeCanvasEdges([{ id: "trigger-send_message_1", source: "trigger", target: "send_message_1", animated: true }]);
 }
 
+// Renders one run's card plus its own sub_workflow children recursively underneath it, indented -
+// depth is just a render parameter, not separate state, so an arbitrarily deep chain (bounded by
+// the server's own MAX_SUB_WORKFLOW_DEPTH cap) nests correctly without extra wiring per level.
+function RunHistoryEntry({
+  run,
+  depth,
+  expandedRunIds,
+  onToggle,
+}: {
+  run: AutomationRunSummary;
+  depth: number;
+  expandedRunIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const expanded = expandedRunIds.has(run.id);
+
+  return (
+    <div className={depth > 0 ? "ml-4 border-l border-border/50 pl-2" : ""}>
+      <div className="overflow-hidden rounded-md border border-border/70 bg-card/70">
+        <button
+          type="button"
+          onClick={() => onToggle(run.id)}
+          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-secondary/50"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <Badge variant="outline" className={runStatusStyle[run.status] || runStatusStyle.completed}>
+              {run.status}
+            </Badge>
+            {run.testMode ? (
+              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">test</span>
+            ) : null}
+            {depth > 0 ? (
+              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                sub_workflow → {run.flowName || "unknown flow"}
+              </span>
+            ) : null}
+            <span className="truncate text-muted-foreground">{run.trigger.body || "(no trigger body)"}</span>
+          </span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(run.createdAt)}</span>
+        </button>
+        {expanded ? (
+          <div className="space-y-1 border-t border-border/70 bg-background/60 px-2 py-2">
+            {run.error ? <p className="text-[11px] text-destructive">{run.error}</p> : null}
+            {run.history.length ? (
+              run.history.map((step, index) => {
+                const item = catalogFor(step.type);
+                return (
+                  <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
+                      {iconFor(item.icon, 12)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="font-medium text-foreground">{item.label}</span>
+                        <span className={stepStatusColor[step.status] || "text-muted-foreground"}>{step.status}</span>
+                        {step.branch ? (
+                          <span className="rounded bg-secondary px-1 py-0.5 text-[10px] text-muted-foreground">→ {step.branch}</span>
+                        ) : null}
+                      </span>
+                      {step.error ? <span className="block text-destructive">{step.error}</span> : null}
+                      <span className="block text-[10px] text-muted-foreground">{formatDateTime(step.at)}</span>
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="px-1 py-1 text-[11px] text-muted-foreground">No steps recorded for this run.</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+      {run.children.length ? (
+        <div className="mt-1.5 space-y-1.5">
+          {run.children.map((child) => (
+            <RunHistoryEntry key={child.id} run={child} depth={depth + 1} expandedRunIds={expandedRunIds} onToggle={onToggle} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BuilderCanvas({
   selectedFlow,
   onFlowSaved,
@@ -466,7 +552,16 @@ function BuilderCanvas({
   const [canvasLocked, setCanvasLocked] = useState(false);
   const [runs, setRuns] = useState<AutomationRunSummary[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
-  const [expandedRunId, setExpandedRunId] = useState("");
+  const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(new Set());
+
+  function toggleRunExpanded(runId: string) {
+    setExpandedRunIds((current) => {
+      const next = new Set(current);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
+  }
 
   const loadRuns = useCallback((flowId: string) => {
     setRunsLoading(true);
@@ -482,7 +577,7 @@ function BuilderCanvas({
     setEdges(selectedFlow.edges?.length ? normalizeCanvasEdges(selectedFlow.edges) : defaultEdges());
     setSelectedNodeId(selectedFlow.nodes?.[0]?.id || "trigger");
     setTestResult(null);
-    setExpandedRunId("");
+    setExpandedRunIds(new Set());
     setRuns([]);
     loadRuns(selectedFlow.id);
   }, [selectedFlow?.id, loadRuns]);
@@ -1102,59 +1197,9 @@ function BuilderCanvas({
                   Loading runs...
                 </div>
               ) : runs.length ? (
-                runs.slice(0, 20).map((run) => {
-                  const expanded = expandedRunId === run.id;
-                  return (
-                    <div key={run.id} className="overflow-hidden rounded-md border border-border/70 bg-card/70">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedRunId(expanded ? "" : run.id)}
-                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-secondary/50"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Badge variant="outline" className={runStatusStyle[run.status] || runStatusStyle.completed}>
-                            {run.status}
-                          </Badge>
-                          {run.testMode ? (
-                            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">test</span>
-                          ) : null}
-                          <span className="truncate text-muted-foreground">{run.trigger.body || "(no trigger body)"}</span>
-                        </span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(run.createdAt)}</span>
-                      </button>
-                      {expanded ? (
-                        <div className="space-y-1 border-t border-border/70 bg-background/60 px-2 py-2">
-                          {run.error ? <p className="text-[11px] text-destructive">{run.error}</p> : null}
-                          {run.history.length ? (
-                            run.history.map((step, index) => {
-                              const item = catalogFor(step.type);
-                              return (
-                                <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]">
-                                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
-                                    {iconFor(item.icon, 12)}
-                                  </span>
-                                  <span className="min-w-0 flex-1">
-                                    <span className="flex items-center gap-1.5">
-                                      <span className="font-medium text-foreground">{item.label}</span>
-                                      <span className={stepStatusColor[step.status] || "text-muted-foreground"}>{step.status}</span>
-                                      {step.branch ? (
-                                        <span className="rounded bg-secondary px-1 py-0.5 text-[10px] text-muted-foreground">→ {step.branch}</span>
-                                      ) : null}
-                                    </span>
-                                    {step.error ? <span className="block text-destructive">{step.error}</span> : null}
-                                    <span className="block text-[10px] text-muted-foreground">{formatDateTime(step.at)}</span>
-                                  </span>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <p className="px-1 py-1 text-[11px] text-muted-foreground">No steps recorded for this run.</p>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })
+                runs.slice(0, 20).map((run) => (
+                  <RunHistoryEntry key={run.id} run={run} depth={0} expandedRunIds={expandedRunIds} onToggle={toggleRunExpanded} />
+                ))
               ) : (
                 <div className="rounded border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground">
                   No runs yet. Run a test or wait for an inbound match.

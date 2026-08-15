@@ -213,10 +213,12 @@ function serializeFlow(flow) {
   };
 }
 
-function serializeAutomationRun(run) {
+function serializeAutomationRun(run, { flowNameById = new Map() } = {}) {
   return {
     id: run._id.toString(),
     flowId: run.flowId.toString(),
+    flowName: flowNameById.get(run.flowId.toString()) || null,
+    parentRunId: run.parentRunId ? run.parentRunId.toString() : null,
     status: run.status,
     testMode: Boolean(run.testMode),
     stepCount: Number(run.stepCount || 0),
@@ -242,7 +244,27 @@ function serializeAutomationRun(run) {
     resumeAt: run.resumeAt || null,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
+    // sub_workflow child runs, nested arbitrarily deep (capped to match MAX_SUB_WORKFLOW_DEPTH,
+    // see nestDescendants below) - never filters/reclassifies this run's own place in the list,
+    // only attaches what it spawned underneath it.
+    children: (run.children || []).map((child) => serializeAutomationRun(child, { flowNameById })),
   };
+}
+
+// $graphLookup returns each root run's full descendant set as one flat array (any depth, any
+// flow - a sub_workflow child's flowId is the *called* flow's id, not the caller's), not already
+// nested. Rebuilds the real parent/child tree from that flat set so the client can render it
+// directly without doing its own graph-walking.
+function nestDescendants(rootId, descendants) {
+  const byParent = new Map();
+  for (const run of descendants) {
+    const key = run.parentRunId?.toString();
+    if (!key) continue;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(run);
+  }
+  const attach = (id) => (byParent.get(id.toString()) || []).map((run) => ({ ...run, children: attach(run._id) }));
+  return attach(rootId);
 }
 
 automationRouter.get("/:id/runs", requirePermission("automation:read"), async (req, res) => {
@@ -253,11 +275,39 @@ automationRouter.get("/:id/runs", requirePermission("automation:read"), async (r
   const flow = await AutomationFlow.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }).select("_id");
   if (!flow) return res.status(404).json({ error: "NOT_FOUND", message: "Flow not found." });
 
-  const runs = await AutomationRun.find({ flowId: flow._id, workspaceId: req.user.workspaceId })
-    .sort({ createdAt: -1 })
-    .limit(50);
+  const workspaceId = new mongoose.Types.ObjectId(req.user.workspaceId);
+  const runs = await AutomationRun.aggregate([
+    { $match: { flowId: flow._id, workspaceId } },
+    { $sort: { createdAt: -1 } },
+    { $limit: 50 },
+    {
+      $graphLookup: {
+        from: "automationruns",
+        startWith: "$_id",
+        connectFromField: "_id",
+        connectToField: "parentRunId",
+        as: "descendants",
+        maxDepth: 4, // this run + 4 more = MAX_SUB_WORKFLOW_DEPTH's 5-level call-chain cap
+        restrictSearchWithMatch: { workspaceId },
+      },
+    },
+  ]);
 
-  res.json({ data: runs.map(serializeAutomationRun) });
+  const flowIds = new Set();
+  for (const run of runs) {
+    flowIds.add(run.flowId.toString());
+    for (const descendant of run.descendants) flowIds.add(descendant.flowId.toString());
+  }
+  const flows = flowIds.size
+    ? await AutomationFlow.find({ _id: mongoose.trusted({ $in: [...flowIds] }) }).select("name")
+    : [];
+  const flowNameById = new Map(flows.map((item) => [item._id.toString(), item.name]));
+
+  const data = runs.map((run) =>
+    serializeAutomationRun({ ...run, children: nestDescendants(run._id, run.descendants) }, { flowNameById })
+  );
+
+  res.json({ data });
 });
 
 automationRouter.get("/", requirePermission("automation:read"), async (req, res) => {
