@@ -3,8 +3,63 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `c9ab84f` (`c9ab84fb49bbf9a7192ccc99bb862c9055de1ef2` — check `git log -1`
-to confirm nothing's moved since). Working tree is clean except two untracked items noted below.
+**HEAD as of this handoff:** `30cda73` (`30cda73c4c07fecfc3d62da19ec7061ee458de80` — check `git log -1`
+to confirm nothing's moved since). Working tree is clean, local `main` matches `origin/main`, and
+this exact commit is confirmed deployed and running on production (VPS `.last-deploy-sha`/PM2
+restart count checked directly, see the deploy log throughout this file's dated sections).
+
+## Session paused here 2026-08-15 — quick-start for whoever (or whatever fresh window) picks this up
+
+Everything below in this section was **shipped, tested, deployed, and verified live in production
+this session** — six real pieces of work, each its own commit, all pushed to `origin/main` and
+confirmed on the VPS one at a time as they went out (not batched at the end):
+
+1. **Task/Calendar viewing UI** — full CRUD for both, `tasks:read`/`tasks:write` permissions, a
+   month-grid calendar. See the dedicated section below.
+2. **Execution-history UI nesting** — `sub_workflow` child runs now render nested in the Run
+   History panel via `$graphLookup`, independently expandable. See the dedicated section below.
+3. **Zod validation on the remaining 7 route files** — closes that `FUTURE_ROADMAP.md` Phase 1 item
+   entirely. Along the way, fixed a pre-existing `$text` `sanitizeFilter` bug and the missing
+   `Message.body` text index that made search actually work for the first time ever.
+4. **`infrastructure.js` permission gap** — all three routes were reachable by any authenticated
+   user of any role; now gated behind `admin:read`/`admin:write`.
+5. **AuditLog export + retention** — closes that `FUTURE_ROADMAP.md` Phase 2 item entirely.
+   `GET /admin/audit-log/export`, `POST /admin/audit-log/prune`, a periodic
+   `scripts/pruneAuditLogs.js`. **The VPS crontab was also updated this session** (not just the
+   code) — `dashboard`'s crontab now runs it nightly at 3 AM, confirmed via a real manual run
+   against production data (`sudo -u dashboard npm run prune:audit-logs` — swept "Main Workspace",
+   0 deletions, correct for a fresh-enough dataset).
+6. Multiple recurring `mongoose.sanitizeFilter` bugs found and fixed along the way (see "Design
+   notes" and the dated sections below for each) — this pattern bit a change **four separate times**
+   this session. If you touch a Mongoose filter with a `$operator` value anywhere in this codebase,
+   wrap it in `mongoose.trusted(...)` on reflex, don't wait to get bitten a fifth time.
+
+**What's actually paused, mid-scoping, not started:** the next `FUTURE_ROADMAP.md` Phase 2 item,
+"admin-level feature flag management UI." Research (not implementation) already happened — read it
+before starting, don't redo it:
+
+- `config.featureFlags` (`server/config.js`) is a **load-time singleton** — five flags
+  (`infrastructurePanel`, `queueProcessing`, `s3MediaStorage`, `rabbitmqEvents`, `zeroDowntimeMode`),
+  each read from a `process.env.FEATURE_*` var exactly once at process startup. No DB storage
+  anywhere, no re-read mechanism.
+- `server/services/featureFlags.js`'s "per-workspace caching" is misleading — it Redis-caches the
+  *same static values* for every workspace (just echoes `workspaceId` in the cache key), with zero
+  DB read involved. Only one real caller anywhere (`infrastructure.js`'s `GET /status`), purely
+  informational.
+- **Only 2 of the 5 flags actually gate any real behavior**: `queueProcessing` (`jobs.js`,
+  `automationExecutors.js` — BullMQ vs. inline fallback) and `rabbitmqEvents` (`messageBus.js` —
+  whether `connectRabbitMQ()` runs at all). `s3MediaStorage`, `infrastructurePanel`, and
+  `zeroDowntimeMode` are **entirely decorative** — read nowhere except their own definition in
+  `config.js`. (`s3MediaStorage` looks load-bearing but isn't — the real S3 switch used everywhere
+  is a separate value, `config.s3.enabled`.)
+- **The open question, asked of the user, not yet answered:** should this be (a) a read-only viewer
+  (shows current values + which 2 actually do anything + the env var name to change + "restart
+  required," matching how flags actually work today, low risk) or (b) a real DB-backed live-toggle
+  system (requires moving flags into Mongo and refactoring the `queueProcessing`/`rabbitmqEvents`
+  call sites to read dynamically instead of the frozen `config` object — a genuine architecture
+  change to core queue/messaging control flow, not just a UI, and meaningfully bigger/riskier than
+  the roadmap line implies). **Do not start building either without confirming which one first** —
+  this was deliberately left open, not decided.
 
 ## AuditLog export + retention — implemented 2026-08-15
 
