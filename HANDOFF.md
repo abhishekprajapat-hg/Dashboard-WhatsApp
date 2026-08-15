@@ -3,40 +3,72 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `d7611d8` (`d7611d8de2f81d4aaa158b5947fdbac6958296d4` — check `git log -1`
+**HEAD as of this handoff:** `d033ee1` (`d033ee139cf9342eb63f8ab0315b6b6409157edb` — check `git log -1`
 to confirm nothing's moved since). This exact commit is confirmed deployed and running on
-production - VPS `.last-deploy-sha` read back exactly `d7611d8de2f81d4aaa158b5947fdbac6958296d4`
-and `https://dashboard.nemnidhi.com/health` returned `200 OK`, both checked directly against the
-VPS in the same session it shipped (see the dated sections below for the two earlier commits'
-deploy confirmations too - `d6e1394` and before are all live). **Working tree is NOT clean right
-now** - the structured-logging work (see the dedicated section below) is implemented and verified
-but deliberately not yet committed, pending the user's go-ahead. Run `git status --short` before
-touching anything else in this repo.
+production - VPS `.last-deploy-sha` read back exactly `d033ee139cf9342eb63f8ab0315b6b6409157edb`
+and `https://dashboard.nemnidhi.com/health` returned `200 OK`, checked directly against the VPS in
+the same session it shipped (every earlier commit back through `d6e1394` is confirmed live too, see
+the dated sections below). **Working tree is NOT clean right now** - the `socket.io-parser`
+vulnerability fix (see the dedicated section below) is implemented and verified but deliberately
+not yet committed, pending the user's go-ahead. Run `git status --short` before touching anything
+else in this repo.
 
-## Session paused here 2026-08-15 (continued a third time) — structured logger w/ redaction implemented, not yet committed
+## Session paused here 2026-08-15 (continued a fourth time) — socket.io-parser fix implemented, not yet committed
 
-A fourth pass this same day picked up "Add structured logger with redaction," the next
-`FUTURE_ROADMAP.md` Phase 1 item, chosen by the user from the same scoping pass mentioned in the
-OpenAPI section below (Socket.io Redis adapter, Playwright E2E, tenant quotas/billing, backup
-drills all remain unscoped/unstarted).
+A fifth pass this same day closed one of the two follow-up tasks flagged during the OpenAPI pass:
+the high-severity `socket.io-parser` advisory (`GHSA-2m8v-j782-fhvr`, zero-attachment memory
+exhaustion). Chosen by the user as the smallest, most contained item still open.
 
-**Implemented, unit tested, and manually verified against a real running server (including live
-redaction of a real bearer token and a real triggered error) this session — but `git status` still
-shows it uncommitted.** Deliberate pause for the user's explicit go-ahead, not an oversight. See the
-dedicated section below for the full writeup.
+**Implemented and verified (including a direct Engine.IO handshake check and a real logged-in
+browser session) this session — but `git status` still shows it uncommitted.** Deliberate pause for
+the user's explicit go-ahead. See the dedicated section below for the full writeup.
 
-**What's actually left:** nothing implementation-wise. Only remaining step is the user deciding
-whether/when to commit + push. The two follow-up tasks flagged during the OpenAPI pass (validation
-gap on ~15 routes, `socket.io-parser` advisory) are both still open, untouched by this pass.
+**What's actually left:** nothing implementation-wise for this fix. Only remaining step is the user
+deciding whether/when to commit + push. The other follow-up task (validation gap on ~15 routes) is
+still open, untouched by this pass. Roadmap-wise, Phase 1 now has only Socket.io Redis adapter (low
+current value, single-VPS deployment) and the Playwright E2E suite (biggest remaining lift, no
+frontend test infra exists yet) left; Phase 2 has tenant quotas/billing and backup drills left, both
+needing decisions outside pure engineering scope before they can be sized further.
 
 ## `.last-deploy-sha`/deploy history note
 
 Everything from `## Feature-flag admin UI` through the rest of this file (down to `## History`)
-predates the OpenAPI and structured-logging work above and was true as of `HEAD 30cda73` before the
-feature-flag commit landed. It's kept as-is below for the detailed implementation record of each
-piece; only the top banner and the "Session paused" headers above have been kept current.
+predates the OpenAPI, structured-logging, and socket.io-parker fix work above and was true as of
+`HEAD 30cda73` before the feature-flag commit landed. It's kept as-is below for the detailed
+implementation record of each piece; only the top banner and the "Session paused" headers above have
+been kept current.
 
-## Structured logger with redaction — implemented 2026-08-15, uncommitted
+## `socket.io-parser` vulnerability fix — implemented 2026-08-15, uncommitted
+
+Closes one of the two follow-up tasks flagged while scoping OpenAPI generation earlier this session:
+`npm audit` reported a high-severity advisory in `socket.io-parser` (`GHSA-2m8v-j782-fhvr`, "Socket.
+IO: Zero-attachment Memory Exhaustion"), a transitive dependency of the existing `socket.io@4.8.3`.
+
+- **Confirmed low-risk before touching anything**: `socket.io@4.8.3`'s own `package.json` declares
+  `"socket.io-parser": "~4.2.4"` (tilde range - patch-level only, `>=4.2.4 <4.3.0`). The fixed
+  version is `4.2.7`, comfortably inside that range - `npm audit fix` (no `--force`, no major-version
+  bump anywhere) was the whole fix.
+- **`npm audit fix --workspace server`** bumped `socket.io-parser` `4.2.6` → `4.2.7` (deduped across
+  both `client` and `server` workspaces, since `socket.io-client` shares the same parser package).
+  `npm audit` now reports 0 vulnerabilities. `package-lock.json` diff is 6 lines - exactly the one
+  package's version/resolved/integrity fields, nothing else touched.
+- **Hit the now-familiar Windows npm gotcha a third time** - `npm audit fix` also stripped the
+  `@rollup/rollup-linux-x64-gnu`/`@tailwindcss/oxide-linux-x64-gnu`/`lightningcss-linux-x64-gnu`
+  Linux-only `optionalDependencies` lines from the lockfile (see "Environment gotchas" below).
+  Caught via `git diff package-lock.json` and manually restored before anything was committed, same
+  fix as the previous two times this session.
+- **Verified beyond `npm audit`**: `npx tsc --noEmit` clean on the client (the dependency bump
+  touches `socket.io-client` too, deduped to the same patched version); full server test suite
+  141/142 (same pre-existing unrelated `automationEngine.e2e` flakiness, not this change); booted the
+  real server + client, logged in as the seeded local admin, navigated to the Inbox (which is what
+  actually calls `realtimeService.connect()`), confirmed zero console errors; **directly verified the
+  patched Engine.IO/Socket.io stack itself** with `curl "http://127.0.0.1:4000/socket.io/?EIO=4&
+  transport=polling"`, which returned a real handshake (`{"sid":"...","upgrades":["websocket"],...}`)
+  - the browser tool's network monitor doesn't capture WebSocket upgrade traffic, so this direct
+    handshake check was the more authoritative proof that the patched parser still accepts and
+    responds to real connections correctly, not just "the app didn't crash."
+
+## Structured logger with redaction — implemented 2026-08-15, deployed (commit `d033ee1`)
 
 Closes `FUTURE_ROADMAP.md`'s Phase 1 "Add structured logger with redaction" item.
 
