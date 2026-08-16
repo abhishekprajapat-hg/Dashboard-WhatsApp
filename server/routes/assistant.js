@@ -3,9 +3,10 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { AutomationFlow, Conversation, Lead, Message } from "../models/index.js";
+import { AutomationFlow, Conversation, Lead, Message, Organization } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
+import { hasEntitlement } from "../services/entitlements.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const assistantRouter = Router();
@@ -58,11 +59,12 @@ function dbUnavailable(res) {
 assistantRouter.get("/overview", requirePermission("assistant:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
 
-  const [conversationCount, aiEnabledCount, flowCount, leadCount] = await Promise.all([
+  const [conversationCount, aiEnabledCount, flowCount, leadCount, organization] = await Promise.all([
     Conversation.countDocuments({ workspaceId: req.user.workspaceId }),
     Conversation.countDocuments({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) }),
     AutomationFlow.countDocuments({ workspaceId: req.user.workspaceId }),
     Lead.countDocuments({ workspaceId: req.user.workspaceId, status: "open" }),
+    Organization.findById(req.user.organizationId).select("plan"),
   ]);
 
   const recent = await Conversation.find({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) })
@@ -71,6 +73,13 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
     .limit(8);
 
   res.json({
+    entitlements: {
+      // Read here (not just enforced by requireEntitlement on the action routes) so the client
+      // can show an upsell state up front instead of waiting for a user to click something and
+      // hit a 403 - the overview route itself stays ungated since these metrics have value on
+      // any plan.
+      aiAssistant: hasEntitlement(organization?.plan, "aiAssistant"),
+    },
     providers: {
       openai: Boolean(process.env.OPENAI_API_KEY),
       gemini: Boolean(process.env.GEMINI_API_KEY),

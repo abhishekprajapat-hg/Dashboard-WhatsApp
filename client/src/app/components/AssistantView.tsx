@@ -30,6 +30,7 @@ import {
 import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
 
 interface AssistantOverview {
+  entitlements: { aiAssistant: boolean };
   providers: Record<string, boolean>;
   capabilities: string[];
   metrics: Record<string, number>;
@@ -62,6 +63,7 @@ interface AssistantResult {
 }
 
 const emptyOverview: AssistantOverview = {
+  entitlements: { aiAssistant: false },
   providers: { openai: false, gemini: false, claude: false, local: true },
   capabilities: [],
   metrics: {},
@@ -115,6 +117,7 @@ export function AssistantView() {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionLocked, setActionLocked] = useState("");
+  const [overviewLoaded, setOverviewLoaded] = useState(false);
 
   function reportActionError(error: unknown, fallback: string) {
     if (isPlanLimitError(error)) setActionLocked(error.message);
@@ -124,6 +127,7 @@ export function AssistantView() {
   async function loadOverview() {
     const response = await getAssistantOverview<AssistantOverview>();
     setOverview(response);
+    setOverviewLoaded(true);
   }
 
   useEffect(() => {
@@ -240,6 +244,12 @@ export function AssistantView() {
           ))}
         </div>
 
+        {overviewLoaded && !overview.entitlements.aiAssistant ? (
+          <PlanLockedState
+            title="AI Assistant is locked on your current plan"
+            message="Analysis, auto-replies, knowledge base, search, voice, and tool calls all need the AI Assistant capability. This workspace's plan does not include it."
+          />
+        ) : (
         <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
           <section className="space-y-4">
             <Card className="rounded-lg border-border/70">
@@ -399,6 +409,7 @@ export function AssistantView() {
             {actionLocked && <PlanLockedState title="This AI action is locked on your current plan" message={actionLocked} />}
           </section>
         </div>
+        )}
       </div>
     </div>
   );
