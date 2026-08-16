@@ -5,14 +5,14 @@ import { conversations } from "../data/demoData.js";
 import { Contact, Conversation, Membership, Message, Template } from "../models/index.js";
 import { WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { logger } from "../services/logger.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
-import { optionalObjectIdString } from "../utils/zodHelpers.js";
+import { objectIdString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const conversationsRouter = Router();
 
@@ -53,6 +53,83 @@ export const updateMessageActionsSchema = z
   .refine((data) => data.pinned !== undefined || data.starred !== undefined, {
     message: "No supported message action was provided.",
   });
+
+// Fully permissive by design - no enum on status/mode/stage anywhere in this file today (invalid
+// values are silently normalized/ignored, never rejected), and limit/cursor bad input is already
+// silently clamped/ignored by paginationLimit()/cursorDate(). This preserves that exactly.
+export const listConversationsQuerySchema = z.object({
+  status: z.string().optional(),
+  search: z.string().optional(),
+  unread: z.string().optional(),
+  limit: z.coerce.number().optional(),
+  cursor: z.string().optional(),
+});
+
+export const listConversationMessagesQuerySchema = z.object({
+  limit: z.coerce.number().optional(),
+  before: z.string().optional(),
+});
+
+// Shared by DELETE .../:messageId and its two POST aliases below - mode has no enum today (the
+// handler string-compares against "me" and treats anything else, including garbage, as the
+// full-delete branch), preserved as a loose optional string.
+export const deleteMessageSchema = z.object({
+  mode: z.string().optional(),
+});
+
+export const deleteMessageByIdSchema = z.object({
+  messageId: objectIdString,
+  mode: z.string().optional(),
+});
+
+export const createConversationSchema = z.object({
+  contactId: objectIdString,
+  content: z.string().optional(),
+});
+
+// stage stays a loose optional string - normalizeLeadStage() already silently falls back to
+// "new_lead" for anything unrecognized rather than rejecting, preserved as-is.
+export const addToCrmSchema = z.object({
+  stage: z.string().optional(),
+});
+
+// parameters is an array (matching the client's own `string[]` contract and the handler's
+// Array.isArray check) - the earlier documentation-only OpenAPI guess had this as a record, wrong.
+export const sendTemplateSchema = z.object({
+  templateId: objectIdString,
+  parameters: z.array(z.unknown()).optional(),
+});
+
+const attachmentSchema = z
+  .object({
+    name: z.string().optional(),
+    url: z.string(),
+    path: z.string().optional(),
+    storage: z.string().optional(),
+    providerMediaId: z.string().optional(),
+    metaMediaId: z.string().optional(),
+    type: z.string().optional(),
+    mimeType: z.string().optional(),
+    size: z.number().optional(),
+  })
+  .passthrough();
+
+// content is required (allowing "" - a media-only message legitimately sends empty content) -
+// the one deliberate behavior change in this file. Today content.trim() has no null-check, so an
+// omitted content is an unhandled 500; requiring the field converts that into a clean 400 without
+// rejecting any real traffic (the one real caller, messageQueue.ts, always sends a string).
+export const sendMessageSchema = z.object({
+  content: z.string(),
+  attachments: z.array(attachmentSchema).optional(),
+  replyToMessageId: z.string().optional(),
+  clientMessageId: z.string().optional(),
+});
+
+// .trim().min(1) matches the handler's actual rejection of whitespace-only notes - a bare
+// z.string() (as the earlier OpenAPI guess used) would incorrectly accept "   ".
+export const addNoteSchema = z.object({
+  content: z.string().trim().min(1, "Note content is required."),
+});
 
 function cleanAttachments(attachments = []) {
   if (!Array.isArray(attachments)) return [];
@@ -105,7 +182,7 @@ function conversationVisibilityFilter(req) {
   return filter;
 }
 
-conversationsRouter.get("/", async (req, res) => {
+conversationsRouter.get("/", validateQuery(listConversationsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const status = String(req.query.status || "").toLowerCase();
     const search = String(req.query.search || "").trim();
@@ -260,12 +337,12 @@ conversationsRouter.get("/by-contact/:contactId", async (req, res) => {
 });
 
 conversationsRouter.get("/:conversationId/messages/:messageId/info", getMessageInfoById);
-conversationsRouter.get("/:conversationId/messages", getConversationMessages);
+conversationsRouter.get("/:conversationId/messages", validateQuery(listConversationMessagesQuerySchema), getConversationMessages);
 conversationsRouter.patch("/:conversationId/messages/:messageId/receipt", requirePermission("inbox:write"), validateBody(updateReceiptSchema), updateMessageReceiptById);
 conversationsRouter.patch("/:conversationId/messages/:messageId/actions", requirePermission("inbox:write"), validateBody(updateMessageActionsSchema), updateMessageActionsById);
-conversationsRouter.delete("/:conversationId/messages/:messageId", requirePermission("inbox:write"), deleteConversationMessageById);
-conversationsRouter.post("/:conversationId/messages/:messageId/delete", requirePermission("inbox:write"), deleteConversationMessageById);
-conversationsRouter.post("/:conversationId/messages/delete", requirePermission("inbox:write"), deleteConversationMessageFromBody);
+conversationsRouter.delete("/:conversationId/messages/:messageId", requirePermission("inbox:write"), validateBody(deleteMessageSchema), deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/:messageId/delete", requirePermission("inbox:write"), validateBody(deleteMessageSchema), deleteConversationMessageById);
+conversationsRouter.post("/:conversationId/messages/delete", requirePermission("inbox:write"), validateBody(deleteMessageByIdSchema), deleteConversationMessageFromBody);
 
 conversationsRouter.get("/:id", async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -373,16 +450,12 @@ conversationsRouter.patch("/:id/settings", requirePermission("inbox:write"), val
   res.json({ data: serializeConversation(conversation, messages.reverse(), { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.post("/", requirePermission("inbox:write"), validateBody(createConversationSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required to create conversations." });
   }
 
-  const { contactId, content = "Conversation started" } = req.body || {};
-
-  if (!mongoose.Types.ObjectId.isValid(contactId)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid contact is required." });
-  }
+  const { contactId, content = "Conversation started" } = req.body;
 
   const contact = await Contact.findOne({ _id: contactId, workspaceId: req.user.workspaceId });
 
@@ -427,7 +500,7 @@ conversationsRouter.post("/", requirePermission("inbox:write"), async (req, res)
   res.status(201).json({ data: serializeConversation(hydrated, [message], { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"), async (req, res) => {
+conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"), validateBody(addToCrmSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -524,16 +597,12 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/template", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.post("/:id/template", requirePermission("inbox:write"), validateBody(sendTemplateSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const { templateId, parameters = [] } = req.body || {};
-
-  if (!mongoose.Types.ObjectId.isValid(templateId)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid template is required." });
-  }
+  const { templateId, parameters = [] } = req.body;
 
   const [conversation, template] = await Promise.all([
     Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }),
@@ -648,7 +717,7 @@ conversationsRouter.post("/:id/template", requirePermission("inbox:write"), asyn
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), validateBody(sendMessageSchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 
@@ -656,7 +725,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), asyn
       return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
     }
 
-    const { content, attachments = [], replyToMessageId = "", clientMessageId = "" } = req.body || {};
+    const { content, attachments = [], replyToMessageId = "", clientMessageId = "" } = req.body;
     const mediaAttachments = cleanAttachments(attachments);
     const messageBody = content.trim();
 
@@ -785,7 +854,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), asyn
   res.status(201).json({ data: message });
 });
 
-conversationsRouter.post("/:id/notes", requirePermission("inbox:write"), async (req, res) => {
+conversationsRouter.post("/:id/notes", requirePermission("inbox:write"), validateBody(addNoteSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -795,10 +864,7 @@ conversationsRouter.post("/:id/notes", requirePermission("inbox:write"), async (
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const { content } = req.body || {};
-  if (!content?.trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Note content is required." });
-  }
+  const { content } = req.body;
 
   const message = await Message.create({
     organizationId: req.user.organizationId,

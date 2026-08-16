@@ -2,7 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
 import { fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
 import { optionalObjectIdString } from "../utils/zodHelpers.js";
@@ -22,6 +22,46 @@ export const updateTemplateSchema = z.object({
   status: z.string().optional(),
   providerTemplateId: z.string().optional(),
   whatsappAccountId: optionalObjectIdString,
+});
+
+// "all" is a real, handled literal for each of these (means "no filter") - not narrowed to an
+// enum of known values, since the handler accepts (and just empty-results on) anything else too.
+export const listTemplatesQuerySchema = z.object({
+  type: z.string().optional(),
+  status: z.string().optional(),
+  category: z.string().optional(),
+  language: z.string().optional(),
+  search: z.string().optional(),
+});
+
+// Shape-level only, same reasoning as updateTemplateSchema above - cleanPayload() below already
+// coerces/defaults type/status/category/language and conditionally requires body (only when
+// type !== "whatsapp"), so this schema doesn't re-derive those business rules, just guards against
+// wrong-typed input.
+export const createTemplateBodySchema = z.object({
+  name: z.string().optional(),
+  type: z.string().optional(),
+  category: z.string().optional(),
+  language: z.string().optional(),
+  body: z.string().optional(),
+  variables: z.array(z.string()).optional(),
+  status: z.string().optional(),
+  providerTemplateId: z.string().optional(),
+  whatsappAccountId: z.string().optional(),
+});
+
+// Read-only, never rejects today (renders {{placeholder}} tokens back verbatim when a variable is
+// missing) - stays maximally permissive rather than narrowing what the handler already tolerates.
+export const previewTemplateBodySchema = z.object({
+  body: z.string().optional(),
+  variables: z.unknown().optional(),
+});
+
+// accountId must stay optional - the only real caller (the "Sync WhatsApp" button) always calls
+// with no arguments at all; omitted/invalid values already fall back to syncing every connected
+// account in the workspace rather than rejecting.
+export const syncWhatsappTemplatesSchema = z.object({
+  accountId: optionalObjectIdString,
 });
 
 const templateTypes = ["whatsapp", "quick_reply", "automation", "campaign", "follow_up", "lead_stage"];
@@ -115,7 +155,7 @@ function renderPreview(body = "", variables = {}) {
   });
 }
 
-templatesRouter.get("/", requirePermission("templates:read"), async (req, res) => {
+templatesRouter.get("/", requirePermission("templates:read"), validateQuery(listTemplatesQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0 });
   }
@@ -138,7 +178,7 @@ templatesRouter.get("/", requirePermission("templates:read"), async (req, res) =
   res.json({ data: templates.map(serializeTemplate), total: templates.length });
 });
 
-templatesRouter.post("/", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.post("/", requirePermission("templates:write"), validateBody(createTemplateBodySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -160,13 +200,13 @@ templatesRouter.post("/", requirePermission("templates:write"), async (req, res)
   res.status(201).json({ data: serializeTemplate(template) });
 });
 
-templatesRouter.post("/preview", requirePermission("templates:read"), async (req, res) => {
+templatesRouter.post("/preview", requirePermission("templates:read"), validateBody(previewTemplateBodySchema), async (req, res) => {
   const body = String(req.body?.body || "");
   const variables = req.body?.variables && typeof req.body.variables === "object" ? req.body.variables : {};
   res.json({ data: { body, variables: extractVariables(body), preview: renderPreview(body, variables) } });
 });
 
-templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), validateBody(syncWhatsappTemplatesSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }

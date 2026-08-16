@@ -11,30 +11,13 @@ import {
 import {
   campaignActionSchema,
   createCampaignSchema,
+  importCampaignContactsSchema,
+  previewCampaignSchema,
   sendCampaignSchema,
   updateCampaignSchema,
 } from "../../routes/campaigns.js";
 
 const TAGS = ["Campaigns"];
-
-// Documentation-only - this route reads req.body directly with no validateBody schema today (a
-// real gap, not something this OpenAPI pass silently backfills). Shape observed from the handler.
-const previewCampaignSchema = z.object({
-  audienceFilters: z.record(z.unknown()).optional(),
-  audienceType: z.string().optional(),
-  leadStage: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  tagIds: z.array(z.string()).optional(),
-  createdFrom: z.string().optional(),
-  createdTo: z.string().optional(),
-  limit: z.number().optional(),
-});
-
-// Documentation-only, same reason as previewCampaignSchema above.
-const importCampaignContactsSchema = z.object({
-  contacts: z.array(z.record(z.unknown())).optional(),
-  csv: z.string().optional(),
-});
 
 registry.registerPath({
   method: "get",

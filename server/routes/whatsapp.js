@@ -14,10 +14,10 @@ import {
   WhatsAppAccount,
 } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
-import { trimmedString } from "../utils/zodHelpers.js";
+import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
@@ -263,6 +263,22 @@ whatsappRouter.get("/console", requirePermission("settings:read"), async (req, r
   });
 });
 
+// accountId stays optional and tolerant of an invalid id - the handler already silently falls
+// back to "all templates in workspace" rather than rejecting, and no real caller sends this today.
+export const listWhatsappTemplatesQuerySchema = z.object({
+  accountId: z.string().optional(),
+});
+
+// Only name is genuinely required - the handler defaults accountId/language/category/body itself
+// (falls back to the most-recently-connected account, "en", "UTILITY", "" respectively).
+export const createWhatsappTemplateSchema = z.object({
+  accountId: optionalObjectIdString,
+  name: trimmedString("Template name is required."),
+  language: z.string().trim().optional().default("en"),
+  category: z.string().trim().optional().default("UTILITY"),
+  body: z.string().optional().default(""),
+});
+
 export const connectAccountSchema = z.object({
   provider: z.preprocess(
     (value) => String(value || "meta").toLowerCase(),
@@ -360,7 +376,7 @@ whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), asyn
   res.sendStatus(204);
 });
 
-whatsappRouter.get("/templates", requirePermission("settings:read"), async (req, res) => {
+whatsappRouter.get("/templates", requirePermission("settings:read"), validateQuery(listWhatsappTemplatesQuerySchema), async (req, res) => {
   const filter = { workspaceId: req.user.workspaceId };
   if (req.query.accountId && mongoose.Types.ObjectId.isValid(req.query.accountId)) {
     filter.whatsappAccountId = req.query.accountId;
@@ -370,12 +386,8 @@ whatsappRouter.get("/templates", requirePermission("settings:read"), async (req,
   res.json({ data: templates.map(serializeTemplate), total: templates.length });
 });
 
-whatsappRouter.post("/templates", requirePermission("settings:write"), async (req, res) => {
-  const { accountId, name = "", language = "en", category = "UTILITY", body = "" } = req.body || {};
-
-  if (!name.trim()) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Template name is required." });
-  }
+whatsappRouter.post("/templates", requirePermission("settings:write"), validateBody(createWhatsappTemplateSchema), async (req, res) => {
+  const { accountId, name, language, category, body } = req.body;
 
   const accountFilter = {
     workspaceId: req.user.workspaceId,

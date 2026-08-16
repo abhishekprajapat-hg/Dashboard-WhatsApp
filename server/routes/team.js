@@ -11,6 +11,19 @@ import { isEmail, passwordPolicy, requiredString } from "../utils/validation.js"
 
 export const teamRouter = Router();
 
+// Reuses the existing, already-tested isEmail/passwordPolicy functions via .refine() rather than
+// re-deriving their acceptance rules by hand - isEmail is a custom regex (not z.string().email(),
+// which accepts different input), and passwordPolicy's message is the real "must contain X, Y, Z"
+// aggregate the handler already returns, not a generic Zod issue.
+// role stays a loose optional string, not an enum - normalizeRoleKey() already silently coerces
+// any unrecognized value to "agent" rather than rejecting it, and this preserves that behavior.
+export const inviteMemberSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().refine(isEmail, "A valid email is required."),
+  role: z.string().optional().default("agent"),
+  password: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+});
+
 export const updateMemberSchema = z.object({
   role: z.string().trim().optional(),
 });
@@ -93,20 +106,13 @@ teamRouter.get("/", requirePermission("team:read"), async (req, res) => {
   res.json({ data, total: memberships.length });
 });
 
-teamRouter.post("/", requirePermission("team:write"), async (req, res) => {
+teamRouter.post("/", requirePermission("team:write"), validateBody(inviteMemberSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
-  const { name, email, role = "agent", password = "" } = req.body || {};
-  const normalizedEmail = String(email || "").toLowerCase().trim();
-  if (!isEmail(normalizedEmail)) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "A valid email is required." });
-  }
-  const passwordCheck = passwordPolicy(password);
-  if (!passwordCheck.valid) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: passwordCheck.message });
-  }
+  const { name, email, role, password } = req.body;
+  const normalizedEmail = email.toLowerCase().trim();
 
   const roleDoc = await ensureRole({
     organizationId: req.user.organizationId,

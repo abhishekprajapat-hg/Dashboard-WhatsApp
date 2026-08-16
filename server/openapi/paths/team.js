@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   bearerSecurity,
   dataResponseSchema,
@@ -8,18 +7,9 @@ import {
   registry,
   standardErrorResponses,
 } from "../registry.js";
-import { updateMemberSchema } from "../../routes/team.js";
+import { inviteMemberSchema, updateMemberSchema } from "../../routes/team.js";
 
 const TAGS = ["Team"];
-
-// Documentation-only - this route validates name/email/password manually (isEmail/passwordPolicy
-// helpers) rather than through a Zod schema today, a real gap this OpenAPI pass doesn't backfill.
-const inviteMemberBodySchema = z.object({
-  name: z.string(),
-  email: z.string(),
-  role: z.string(),
-  password: z.string(),
-});
 
 registry.registerPath({
   method: "get",
@@ -39,7 +29,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Invite a new team member.",
   security: bearerSecurity,
-  request: { body: { content: { "application/json": { schema: inviteMemberBodySchema } } } },
+  request: { body: { content: { "application/json": { schema: inviteMemberSchema } } } },
   responses: {
     201: jsonResponse("Created member.", dataResponseSchema),
     ...standardErrorResponses,

@@ -8,33 +8,15 @@ import {
   registry,
   standardErrorResponses,
 } from "../registry.js";
-import { updateTemplateSchema } from "../../routes/templates.js";
+import {
+  createTemplateBodySchema,
+  listTemplatesQuerySchema,
+  previewTemplateBodySchema,
+  syncWhatsappTemplatesSchema,
+  updateTemplateSchema,
+} from "../../routes/templates.js";
 
 const TAGS = ["Templates"];
-
-// Documentation-only schemas below - these routes read req.query/req.body directly (POST / goes
-// through a cleanPayload() coercion helper instead of zod) with no validateBody/validateQuery
-// today, a real gap this OpenAPI pass doesn't backfill. Shapes observed from each handler.
-const listTemplatesQuerySchema = z.object({
-  type: z.string().optional(),
-  status: z.string().optional(),
-  category: z.string().optional(),
-  language: z.string().optional(),
-  search: z.string().optional(),
-});
-const createTemplateBodySchema = z.object({
-  name: z.string(),
-  type: z.string().optional(),
-  category: z.string().optional(),
-  language: z.string().optional(),
-  body: z.string(),
-  variables: z.array(z.string()).optional(),
-});
-const previewTemplateBodySchema = z.object({
-  body: z.string(),
-  variables: z.record(z.unknown()).optional(),
-});
-const syncWhatsappTemplatesBodySchema = z.object({ accountId: z.string() });
 
 registry.registerPath({
   method: "get",
@@ -81,7 +63,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Pull the latest template list/status from the WhatsApp provider for an account.",
   security: bearerSecurity,
-  request: { body: { content: { "application/json": { schema: syncWhatsappTemplatesBodySchema } } } },
+  request: { body: { content: { "application/json": { schema: syncWhatsappTemplatesSchema } } } },
   responses: {
     200: jsonResponse("Sync result.", z.object({ synced: z.number(), accounts: z.unknown() })),
     ...standardErrorResponses,

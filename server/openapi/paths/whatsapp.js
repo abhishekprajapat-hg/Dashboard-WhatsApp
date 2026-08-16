@@ -8,21 +8,14 @@ import {
   registry,
   standardErrorResponses,
 } from "../registry.js";
-import { connectAccountSchema } from "../../routes/whatsapp.js";
+import {
+  connectAccountSchema,
+  createWhatsappTemplateSchema,
+  listWhatsappTemplatesQuerySchema,
+} from "../../routes/whatsapp.js";
 
 const TAGS = ["WhatsApp"];
 const WEBHOOK_TAGS = ["WhatsApp Webhooks"];
-
-// Documentation-only - these two routes read req.query/req.body directly with no
-// validateBody/validateQuery today, a real gap this OpenAPI pass doesn't backfill.
-const listWhatsappTemplatesQuerySchema = z.object({ accountId: z.string().optional() });
-const createWhatsappTemplateBodySchema = z.object({
-  accountId: z.string(),
-  name: z.string(),
-  language: z.string(),
-  category: z.string(),
-  body: z.string(),
-});
 
 registry.registerPath({
   method: "get",
@@ -93,7 +86,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Submit a new template to the WhatsApp provider for approval.",
   security: bearerSecurity,
-  request: { body: { content: { "application/json": { schema: createWhatsappTemplateBodySchema } } } },
+  request: { body: { content: { "application/json": { schema: createWhatsappTemplateSchema } } } },
   responses: {
     201: jsonResponse("Created template.", dataResponseSchema),
     ...standardErrorResponses,

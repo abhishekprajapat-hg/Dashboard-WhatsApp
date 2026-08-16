@@ -11,6 +11,15 @@ import {
   standardErrorResponses,
 } from "../registry.js";
 import {
+  addNoteSchema,
+  addToCrmSchema,
+  createConversationSchema,
+  deleteMessageByIdSchema,
+  deleteMessageSchema,
+  listConversationMessagesQuerySchema,
+  listConversationsQuerySchema,
+  sendMessageSchema,
+  sendTemplateSchema,
   updateAssignmentSchema,
   updateMessageActionsSchema,
   updateReceiptSchema,
@@ -19,33 +28,6 @@ import {
 } from "../../routes/conversations.js";
 
 const TAGS = ["Conversations"];
-
-// Documentation-only schemas below - these routes read req.query/req.body directly with no
-// validateBody/validateQuery today (a real gap, not backfilled by this OpenAPI pass). Shapes
-// observed from each handler.
-const listConversationsQuerySchema = z.object({
-  status: z.string().optional(),
-  search: z.string().optional(),
-  unread: z.string().optional(),
-  limit: z.coerce.number().optional(),
-  cursor: z.string().optional(),
-});
-const listMessagesQuerySchema = z.object({
-  limit: z.coerce.number().optional(),
-  before: z.string().optional(),
-});
-const deleteMessageBodySchema = z.object({ mode: z.string().optional() });
-const deleteMessageByIdBodySchema = z.object({ messageId: z.string() });
-const createConversationBodySchema = z.object({ contactId: z.string(), content: z.string().optional() });
-const addToCrmBodySchema = z.object({ stage: z.string().optional() });
-const sendTemplateBodySchema = z.object({ templateId: z.string(), parameters: z.record(z.unknown()).optional() });
-const sendMessageBodySchema = z.object({
-  content: z.string().optional(),
-  attachments: z.array(z.unknown()).optional(),
-  replyToMessageId: z.string().optional(),
-  clientMessageId: z.string().optional(),
-});
-const addNoteBodySchema = z.object({ content: z.string() });
 
 registry.registerPath({
   method: "get",
@@ -104,7 +86,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "List messages in a conversation, paginated.",
   security: bearerSecurity,
-  request: { params: conversationIdParamSchema, query: listMessagesQuerySchema },
+  request: { params: conversationIdParamSchema, query: listConversationMessagesQuerySchema },
   responses: {
     200: jsonResponse("Message list.", z.object({ data: z.array(z.unknown()), page: z.unknown() })),
     ...standardErrorResponses,
@@ -151,7 +133,7 @@ registry.registerPath({
   security: bearerSecurity,
   request: {
     params: conversationMessageParamSchema,
-    body: { content: { "application/json": { schema: deleteMessageBodySchema } } },
+    body: { content: { "application/json": { schema: deleteMessageSchema } } },
   },
   responses: {
     204: { description: "Deleted." },
@@ -167,7 +149,7 @@ registry.registerPath({
   security: bearerSecurity,
   request: {
     params: conversationMessageParamSchema,
-    body: { content: { "application/json": { schema: deleteMessageBodySchema } } },
+    body: { content: { "application/json": { schema: deleteMessageSchema } } },
   },
   responses: {
     204: { description: "Deleted." },
@@ -183,7 +165,7 @@ registry.registerPath({
   security: bearerSecurity,
   request: {
     params: conversationIdParamSchema,
-    body: { content: { "application/json": { schema: deleteMessageByIdBodySchema } } },
+    body: { content: { "application/json": { schema: deleteMessageByIdSchema } } },
   },
   responses: {
     204: { description: "Deleted." },
@@ -249,7 +231,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Create a conversation with a contact.",
   security: bearerSecurity,
-  request: { body: { content: { "application/json": { schema: createConversationBodySchema } } } },
+  request: { body: { content: { "application/json": { schema: createConversationSchema } } } },
   responses: {
     201: jsonResponse("Created conversation.", dataResponseSchema),
     ...standardErrorResponses,
@@ -262,7 +244,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Add the conversation's contact to the CRM board at a given stage.",
   security: bearerSecurity,
-  request: { params: idParamSchema, body: { content: { "application/json": { schema: addToCrmBodySchema } } } },
+  request: { params: idParamSchema, body: { content: { "application/json": { schema: addToCrmSchema } } } },
   responses: {
     200: jsonResponse("Updated contact.", dataResponseSchema),
     ...standardErrorResponses,
@@ -288,7 +270,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Send a WhatsApp template message into a conversation.",
   security: bearerSecurity,
-  request: { params: idParamSchema, body: { content: { "application/json": { schema: sendTemplateBodySchema } } } },
+  request: { params: idParamSchema, body: { content: { "application/json": { schema: sendTemplateSchema } } } },
   responses: {
     201: jsonResponse("Sent message.", dataResponseSchema),
     ...standardErrorResponses,
@@ -301,7 +283,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Send a free-form text/attachment message into a conversation.",
   security: bearerSecurity,
-  request: { params: idParamSchema, body: { content: { "application/json": { schema: sendMessageBodySchema } } } },
+  request: { params: idParamSchema, body: { content: { "application/json": { schema: sendMessageSchema } } } },
   responses: {
     201: jsonResponse("Sent message.", dataResponseSchema),
     ...standardErrorResponses,
@@ -314,7 +296,7 @@ registry.registerPath({
   tags: TAGS,
   summary: "Add an internal note to a conversation.",
   security: bearerSecurity,
-  request: { params: idParamSchema, body: { content: { "application/json": { schema: addNoteBodySchema } } } },
+  request: { params: idParamSchema, body: { content: { "application/json": { schema: addNoteSchema } } } },
   responses: {
     201: jsonResponse("Created note.", dataResponseSchema),
     ...standardErrorResponses,

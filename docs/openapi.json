@@ -5821,6 +5821,33 @@
                 "properties": {
                   "audienceFilters": {
                     "type": "object",
+                    "properties": {
+                      "audienceType": {
+                        "type": "string"
+                      },
+                      "leadStage": {
+                        "type": "string"
+                      },
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "tagIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "createdFrom": {
+                        "type": "string"
+                      },
+                      "createdTo": {
+                        "type": "string"
+                      }
+                    },
+                    "default": {},
                     "additionalProperties": {}
                   },
                   "audienceType": {
@@ -5848,7 +5875,8 @@
                     "type": "string"
                   },
                   "limit": {
-                    "type": "number"
+                    "type": "integer",
+                    "exclusiveMinimum": 0
                   }
                 }
               }
@@ -6950,6 +6978,27 @@
                     "type": "array",
                     "items": {
                       "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ]
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "lifecycleStatus": {
+                          "type": "string"
+                        }
+                      },
                       "additionalProperties": {}
                     }
                   },
@@ -9586,6 +9635,9 @@
                 "properties": {
                   "messageId": {
                     "type": "string"
+                  },
+                  "mode": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -10776,8 +10828,8 @@
                     "type": "string"
                   },
                   "parameters": {
-                    "type": "object",
-                    "additionalProperties": {}
+                    "type": "array",
+                    "items": {}
                   }
                 },
                 "required": [
@@ -10956,7 +11008,42 @@
                   },
                   "attachments": {
                     "type": "array",
-                    "items": {}
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "storage": {
+                          "type": "string"
+                        },
+                        "providerMediaId": {
+                          "type": "string"
+                        },
+                        "metaMediaId": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": {}
+                    }
                   },
                   "replyToMessageId": {
                     "type": "string"
@@ -10964,7 +11051,10 @@
                   "clientMessageId": {
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "content"
+                ]
               }
             }
           }
@@ -11134,7 +11224,8 @@
                 "type": "object",
                 "properties": {
                   "content": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   }
                 },
                 "required": [
@@ -13560,16 +13651,15 @@
                     "type": "string"
                   },
                   "role": {
-                    "type": "string"
+                    "type": "string",
+                    "default": "agent"
                   },
                   "password": {
                     "type": "string"
                   }
                 },
                 "required": [
-                  "name",
                   "email",
-                  "role",
                   "password"
                 ]
               }
@@ -14266,12 +14356,17 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "providerTemplateId": {
+                    "type": "string"
+                  },
+                  "whatsappAccountId": {
+                    "type": "string"
                   }
-                },
-                "required": [
-                  "name",
-                  "body"
-                ]
+                }
               }
             }
           }
@@ -14433,14 +14528,8 @@
                   "body": {
                     "type": "string"
                   },
-                  "variables": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  }
-                },
-                "required": [
-                  "body"
-                ]
+                  "variables": {}
+                }
               }
             }
           }
@@ -14602,10 +14691,7 @@
                   "accountId": {
                     "type": "string"
                   }
-                },
-                "required": [
-                  "accountId"
-                ]
+                }
               }
             }
           }
@@ -16439,24 +16525,24 @@
                     "type": "string"
                   },
                   "name": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "language": {
-                    "type": "string"
+                    "type": "string",
+                    "default": "en"
                   },
                   "category": {
-                    "type": "string"
+                    "type": "string",
+                    "default": "UTILITY"
                   },
                   "body": {
-                    "type": "string"
+                    "type": "string",
+                    "default": ""
                   }
                 },
                 "required": [
-                  "accountId",
-                  "name",
-                  "language",
-                  "category",
-                  "body"
+                  "name"
                 ]
               }
             }

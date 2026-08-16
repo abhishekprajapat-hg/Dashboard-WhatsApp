@@ -9,7 +9,7 @@ import { optionalDateString, optionalObjectIdString, trimmedString } from "../ut
 
 export const campaignsRouter = Router();
 
-const audienceFiltersSchema = z
+export const audienceFiltersSchema = z
   .object({
     audienceType: z.string().optional(),
     leadStage: z.string().optional(),
@@ -21,6 +21,38 @@ const audienceFiltersSchema = z
   .passthrough()
   .optional()
   .default({});
+
+// audienceFiltersSchema's .default({}) is safe to reuse here (unlike PATCH /:id, which
+// deliberately avoids it - see updateCampaignSchema's comment below) because this handler has no
+// "only rebuild the audience if audienceFilters was actually provided" gate; it normalizes the
+// audience unconditionally on every call.
+export const previewCampaignSchema = z.object({
+  audienceFilters: audienceFiltersSchema,
+  audienceType: z.string().optional(),
+  leadStage: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  tagIds: z.array(z.string()).optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
+// phone stays optional at the schema level (not required) - the handler already reports a missing
+// phone as a per-row failure inside a 201 response body, not a request-level rejection. Requiring
+// it here would turn "some rows failed" into "the whole import request is rejected."
+const importContactRowSchema = z
+  .object({
+    name: z.string().optional(),
+    phone: z.union([z.string(), z.number()]).optional(),
+    email: z.string().optional(),
+    lifecycleStatus: z.string().optional(),
+  })
+  .passthrough();
+
+export const importCampaignContactsSchema = z.object({
+  contacts: z.array(importContactRowSchema).optional(),
+  csv: z.string().optional(),
+});
 
 export const createCampaignSchema = z.object({
   name: trimmedString("Campaign name is required."),
@@ -375,7 +407,7 @@ campaignsRouter.get("/", requirePermission("campaigns:read"), async (req, res) =
   });
 });
 
-campaignsRouter.post("/preview", requirePermission("campaigns:read"), async (req, res) => {
+campaignsRouter.post("/preview", requirePermission("campaigns:read"), validateBody(previewCampaignSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -747,7 +779,7 @@ campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), valida
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/import", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.post("/import", requirePermission("campaigns:write"), validateBody(importCampaignContactsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
