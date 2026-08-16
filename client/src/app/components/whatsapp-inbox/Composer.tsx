@@ -1,4 +1,4 @@
-import { FileAudio, FileText, Image, MessageSquareText, Mic, Paperclip, Plus, Send, Smile, Video, X } from "lucide-react";
+import { FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, Smile, Sparkles, Video, X } from "lucide-react";
 import type { PendingMedia, WhatsAppMessage } from "./types";
 import { cn, formatBytes } from "./utils";
 
@@ -10,6 +10,8 @@ interface ComposerProps {
   uploading: boolean;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
+  suggestingReply?: boolean;
+  suggestReplyError?: string;
   onValueChange: (value: string) => void;
   onModeChange: (mode: "reply" | "note") => void;
   onSend: () => void;
@@ -18,6 +20,7 @@ interface ComposerProps {
   onClearContext: () => void;
   onToggleRecording: () => void;
   onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
+  onSuggestReply?: () => void;
 }
 
 export function Composer({
@@ -28,6 +31,8 @@ export function Composer({
   uploading,
   recording,
   quickReplies = [],
+  suggestingReply = false,
+  suggestReplyError,
   onValueChange,
   onModeChange,
   onSend,
@@ -36,6 +41,7 @@ export function Composer({
   onClearContext,
   onToggleRecording,
   onQuickReplySelect,
+  onSuggestReply,
 }: ComposerProps) {
   const canSend = value.trim() || pendingMedia.length > 0;
 
@@ -95,10 +101,26 @@ export function Composer({
         ))}
       </div>
 
+      {suggestReplyError ? (
+        <div className="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          {suggestReplyError}
+        </div>
+      ) : null}
+
       <div className="flex min-w-0 items-end gap-1.5 sm:gap-2">
         <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground sm:flex">
           <Smile size={19} />
         </button>
+        {onSuggestReply ? (
+          <button
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-primary disabled:opacity-60"
+            title="Suggest a reply with AI"
+            disabled={suggestingReply}
+            onClick={onSuggestReply}
+          >
+            {suggestingReply ? <Loader2 size={19} className="animate-spin" /> : <Sparkles size={19} />}
+          </button>
+        ) : null}
         {quickReplies.length > 0 && (
           <div className="relative">
             <button className="peer flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-primary">

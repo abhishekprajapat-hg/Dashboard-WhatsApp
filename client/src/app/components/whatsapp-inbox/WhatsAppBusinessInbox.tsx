@@ -20,6 +20,8 @@ interface WhatsAppBusinessInboxProps {
   uploading: boolean;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
+  suggestingReply?: boolean;
+  suggestReplyError?: string;
   crmSaving: boolean;
   assigning: boolean;
   mobileChatOpen: boolean;
@@ -39,6 +41,7 @@ interface WhatsAppBusinessInboxProps {
   onClearContext: () => void;
   onToggleRecording: () => void;
   onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
+  onSuggestReply?: () => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAssign: (userId: string) => void;
   onStatusChange: (status: Conversation["status"]) => void;
@@ -63,6 +66,8 @@ export function WhatsAppBusinessInbox({
   uploading,
   recording,
   quickReplies = [],
+  suggestingReply,
+  suggestReplyError,
   crmSaving,
   assigning,
   mobileChatOpen,
@@ -81,6 +86,7 @@ export function WhatsAppBusinessInbox({
   onClearContext,
   onToggleRecording,
   onQuickReplySelect,
+  onSuggestReply,
   onMessageAction,
   onAssign,
   onStatusChange,
@@ -121,6 +127,8 @@ export function WhatsAppBusinessInbox({
           uploading={uploading}
           recording={recording}
           quickReplies={quickReplies}
+          suggestingReply={suggestingReply}
+          suggestReplyError={suggestReplyError}
           typing={selected ? typingIds.includes(selected.id) : false}
           crmSaving={crmSaving}
           isInCrm={Boolean(selectedMeta.isInCrm)}
@@ -134,6 +142,7 @@ export function WhatsAppBusinessInbox({
           onClearContext={onClearContext}
           onToggleRecording={onToggleRecording}
           onQuickReplySelect={onQuickReplySelect}
+          onSuggestReply={onSuggestReply}
           onMessageAction={onMessageAction}
           onAddToCrm={onAddToCrm}
           onResolve={() => onStatusChange("resolved")}

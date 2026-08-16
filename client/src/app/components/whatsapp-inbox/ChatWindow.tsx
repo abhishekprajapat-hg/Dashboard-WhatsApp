@@ -17,6 +17,8 @@ interface ChatWindowProps {
   uploading: boolean;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
+  suggestingReply?: boolean;
+  suggestReplyError?: string;
   typing: boolean;
   crmSaving: boolean;
   isInCrm: boolean;
@@ -30,6 +32,7 @@ interface ChatWindowProps {
   onClearContext: () => void;
   onToggleRecording: () => void;
   onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
+  onSuggestReply?: () => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAddToCrm: (stage?: string) => void;
   onResolve: () => void;
@@ -68,6 +71,8 @@ export function ChatWindow({
   uploading,
   recording,
   quickReplies = [],
+  suggestingReply,
+  suggestReplyError,
   typing,
   crmSaving,
   isInCrm,
@@ -81,6 +86,7 @@ export function ChatWindow({
   onClearContext,
   onToggleRecording,
   onQuickReplySelect,
+  onSuggestReply,
   onMessageAction,
   onAddToCrm,
   onResolve,
@@ -228,6 +234,8 @@ export function ChatWindow({
         uploading={uploading}
         recording={recording}
         quickReplies={quickReplies}
+        suggestingReply={suggestingReply}
+        suggestReplyError={suggestReplyError}
         onValueChange={onInputChange}
         onModeChange={onComposerModeChange}
         onSend={onSend}
@@ -236,6 +244,7 @@ export function ChatWindow({
         onClearContext={onClearContext}
         onToggleRecording={onToggleRecording}
         onQuickReplySelect={onQuickReplySelect}
+        onSuggestReply={onSuggestReply}
       />
     </section>
   );

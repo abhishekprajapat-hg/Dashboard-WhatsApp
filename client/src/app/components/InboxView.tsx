@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { WhatsAppBusinessInbox } from "./whatsapp-inbox/WhatsAppBusinessInbox";
 import { useWhatsAppEngine } from "./whatsapp-inbox/hooks/useWhatsAppEngine";
-import { getTemplates, markTemplateUsed } from "../lib/api";
+import { analyzeAssistantConversation, getTemplates, markTemplateUsed } from "../lib/api";
+import { isPlanLimitError } from "./PlanLockedState";
 
 interface QuickReplyTemplate {
   id: string;
@@ -22,12 +23,18 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const engine = useWhatsAppEngine({ openContactId, currentUserId, canWrite, onUnreadCountChange });
   const [quickReplies, setQuickReplies] = useState<QuickReplyTemplate[]>([]);
+  const [suggestingReply, setSuggestingReply] = useState(false);
+  const [suggestReplyError, setSuggestReplyError] = useState("");
 
   useEffect(() => {
     getTemplates<{ data: QuickReplyTemplate[] }>({ type: "quick_reply", status: "active" })
       .then((response) => setQuickReplies(response.data))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    setSuggestReplyError("");
+  }, [engine.selected?.id]);
 
   function pickFiles(kind: "media" | "document" | "audio") {
     if (kind === "document") documentInputRef.current?.click();
@@ -41,6 +48,29 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
       : template.body;
     engine.handleTyping(nextValue);
     markTemplateUsed(template.id).catch(() => undefined);
+  }
+
+  async function suggestReply() {
+    if (!engine.selected?.id) return;
+    setSuggestingReply(true);
+    setSuggestReplyError("");
+    try {
+      const response = await analyzeAssistantConversation<{ data: { autoReply: string } }>({
+        conversationId: engine.selected.id,
+        task: "draft_reply",
+      });
+      engine.handleTyping(response.data.autoReply);
+    } catch (error) {
+      setSuggestReplyError(
+        isPlanLimitError(error)
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Could not suggest a reply.",
+      );
+    } finally {
+      setSuggestingReply(false);
+    }
   }
 
   return (
@@ -95,6 +125,8 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         uploading={engine.uploading}
         recording={engine.recording}
         quickReplies={quickReplies}
+        suggestingReply={suggestingReply}
+        suggestReplyError={suggestReplyError}
         crmSaving={engine.crmSaving}
         assigning={engine.assigning}
         mobileChatOpen={engine.store.mobileChatOpen}
@@ -114,6 +146,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         onClearContext={engine.clearDraftContext}
         onToggleRecording={() => engine.setRecording((value) => !value)}
         onQuickReplySelect={applyQuickReply}
+        onSuggestReply={suggestReply}
         onMessageAction={engine.handleMessageAction}
         onAssign={engine.handleAssign}
         onStatusChange={engine.handleStatusChange}
