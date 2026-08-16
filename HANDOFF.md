@@ -143,62 +143,57 @@ describing a much larger long-term vision, which got scoped down to something co
   four-stage ownership framework above, laid out in full with the per-stage WhatsApp/platform/
   supporting-software breakdown).
 
-## Production bug found, deferred - outbound WhatsApp messages may silently fake "sent"
+## "Missing" outbound WhatsApp message — investigated 2026-08-16, NOT an app bug, closed
 
-**Not investigated to a root cause yet - deliberately deferred by the user to a later
-"fine-tuning" session, not this one.** Recorded here so it isn't lost, with everything gathered so
-far so the next session doesn't have to redo the diagnosis from scratch.
+**Diagnosed and closed 2026-08-16.** The two app-side hypotheses below were both ruled out by the
+message's own database record — this was not a code issue.
 
-**What the user observed**: sent a message reading "Soomil" from the live production dashboard
-(`dashboard.nemnidhi.com`) to their own WhatsApp number as a test. It showed as sent (checkmarks) in
-the dashboard's Inbox, but never arrived on the actual WhatsApp side (confirmed by checking the real
-WhatsApp/WhatsApp Web thread with that number - the message is absent). Later messages in the same
-conversation ("Hello", "How can i help you?") did arrive.
+**What the user originally observed**: sent a message reading "Soomil" from the live production
+dashboard (`dashboard.nemnidhi.com`) to their own WhatsApp number as a test. It showed as sent
+(checkmarks) in the dashboard's Inbox, but appeared absent when they checked the real WhatsApp/
+WhatsApp Web thread with that number. Later messages in the same conversation ("Hello", "How can i
+help you?") did arrive.
 
-**Leading hypothesis, not yet confirmed**: `server/services/whatsappProvider.js`'s
-`sendWhatsAppText()` (lines ~323-330) has a silent fallback -
-```js
-if (!account) {
-  return { providerMessageId: `local_${Date.now()}`, status: "sent", mode: "local" };
+**Diagnostic query run against production** (via a `dashboard`-user shell on the VPS, full raw
+document, not just the summary fields originally planned):
+```json
+{
+  "_id": "6a80469496b3e4670a4fd926",
+  "direction": "outbound",
+  "type": "text",
+  "body": "Soomil",
+  "status": "read",
+  "metadata": { "providerMode": "meta", "statusError": null },
+  "providerMessageId": "wamid.HBgMOTE3MDAwNDQ1NDYzFQIAERgSNjcyNkU4OEY1MzdEMkMxRDIwAA==",
+  "sentAt": "2026-08-15T10:59:36.032Z",
+  "deliveredAt": "2026-08-15T11:01:19.419Z",
+  "readAt": "2026-08-15T11:01:19.419Z"
 }
 ```
-- if the caller passes no `account` (e.g. `conversations.js`'s `POST /:id/messages` handler's fresh
-  `WhatsAppAccount.findOne({status: {$in: ["connected","needs_attention"]}})` lookup comes back
-  empty for any reason at send time), this returns a **fake success** instead of throwing - no real
-  API call to Meta/Twilio/Wati ever happens, but the message is stored and rendered as a normal sent
-  message with no error indication anywhere.
-- **User's own alternative theory**: "Soomil" was the first-ever contact attempt to that test number
-  (no prior inbound message from it), so it may have been rejected by Meta for being a free-form
-  message outside the 24-hour customer-service window (or a billing/payment-method gap on the
-  connected WABA) - then the *next* messages worked because messaging FROM the personal number to
-  the business first opened a real 24-hour window.
-- **Evidence gathered so far, from the Settings → WhatsApp console page**: exactly 1 connected
-  account, status healthy, 0 needs-attention. Aggregate stats: 69 outbound, 61 delivered, **0
-  failed**. This evidence is more consistent with the `!account` local-fallback hypothesis than with
-  the user's Meta-rejection theory - a real Meta API rejection (billing or 24-hour-window) is a
-  thrown HTTP error in this codebase, which the catch block in `conversations.js` turns into
-  `status: "failed"` on the message document, and that *is* what "Failed sends" counts
-  (`server/routes/whatsapp.js`'s `/console` handler aggregates `Message.status === "failed"`
-  directly). Zero failed messages argues Meta was never actually asked, not that it said no. The
-  69−61=8 outbound-but-not-delivered gap is consistent with messages sitting at `status: "sent"`
-  forever (exactly what the local fallback produces, since there's no real provider message id for
-  a delivery-status webhook to ever match against) - though some of that gap could also just be
-  normal delivery latency on genuinely-sent messages, not proof by itself.
-- **Not yet run - the one thing that would settle this**: query the "Soomil" message's own stored
-  record directly (`status`, `metadata.providerMode`, `providerMessageId`, `metadata.error`). A
-  read-only diagnostic command for this was written and handed to the user but not yet executed:
-  ```bash
-  ssh -p 2424 samvid@72.60.97.58 "cd /opt/dashboard-whatsapp/server && node -e 'require(\"dotenv/config\");const mongoose=require(\"mongoose\");(async()=>{await mongoose.connect(process.env.MONGODB_URI);const docs=await mongoose.connection.collection(\"messages\").find({body:\"Soomil\"}).sort({createdAt:-1}).limit(3).toArray();console.log(JSON.stringify(docs.map(d=>({status:d.status,providerMode:(d.metadata||{}).providerMode,providerMessageId:d.providerMessageId,error:(d.metadata||{}).error,createdAt:d.createdAt})),null,2));process.exit(0);})();'"
-  ```
-  `providerMode: "local"` → confirms the app-side silent-fallback bug (fix: `sendWhatsAppText`/its
-  callers should throw or surface a clear error when no connected account is found, not fake
-  success). `status: "failed"` with a real `error` → a real Meta/provider rejection that isn't
-  reaching the "Failed sends" counter (a different, second bug). A real `providerMessageId` with
-  `providerMode: "meta"` → the problem is outside this app entirely.
-- **Next session should start here**: run that query (or re-derive an equivalent one), confirm which
-  branch above is true, then scope an actual fix - likely making the account-lookup failure path
-  throw a clear, user-visible error instead of silently faking delivery, regardless of which
-  specific trigger caused it this time.
+Decoding the WAMID's base64 payload directly (`HBgMOTE3MDAwNDQ1NDYzFQ...` → contains
+`917000445463`) confirms the exact recipient number Meta's API actually sent to: `+91 7000445463`
+— confirmed by the user to be their correct test number, saved correctly.
+
+- **Both original hypotheses are disproven by this record**: `providerMode: "meta"` (not `"local"`)
+  rules out the `sendWhatsAppText()` silent-fallback theory — a real Meta API call was made, with a
+  genuine `wamid` and no `statusError`. `status: "read"` (not `"failed"`) rules out an un-surfaced
+  Meta rejection — Meta's own delivery pipeline confirms the message was delivered and opened by the
+  recipient's client, 1m43s after send. The app's record of what it sent and what Meta confirmed is
+  internally consistent and airtight — the "missing message" is not reproducible from server-side
+  data at all.
+- **Working theory for what the user actually saw, unverified, not app-fixable**: a linked device
+  (WhatsApp Web/Desktop) on that number auto-synced the chat to "read" without a visible notification
+  ever firing on the phone — this is a real WhatsApp UX behavior when a linked session is open in the
+  background. Since "Soomil" was also the very first message in that conversation (before "Hello"/
+  "How can i help you?"), it's also plausible it was just scrolled past rather than genuinely absent.
+  Recommended to the user: re-open the real thread and explicitly search for "Soomil" rather than
+  glancing at recent messages. If it's genuinely not there even after that, this is a rare Meta-side
+  read-receipt anomaly worth a Meta support ticket, not an engineering task in this codebase.
+- **No code change made or needed.** The originally-flagged silent-fallback code path in
+  `whatsappProvider.js`'s `sendWhatsAppText()` (returns `status: "sent", mode: "local"` when no
+  `account` is passed) is still real and still worth hardening defensively at some point — it just
+  wasn't the cause of this specific report. Not scheduled as urgent work; revisit only if a future
+  report actually shows `providerMode: "local"` in a message's stored record.
 
 ## Session paused here 2026-08-15 (continued a fifth time) — validation backfill in progress, not finished
 
