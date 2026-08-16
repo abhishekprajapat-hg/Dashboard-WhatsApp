@@ -66,6 +66,13 @@ export const config = {
     rabbitmqEvents: process.env.FEATURE_RABBITMQ_EVENTS === "true",
     zeroDowntimeMode: process.env.FEATURE_ZERO_DOWNTIME_MODE !== "false",
   },
+  // Both empty by default - vegaIntegration.js's notifyVega() no-ops rather than erroring when
+  // unconfigured, since this is a best-effort side channel, not a required integration.
+  vega: {
+    apiUrl: process.env.VEGA_API_URL || "",
+    integrationSecret: process.env.VEGA_INTEGRATION_SECRET || "",
+    requestTimeoutMs: numberFromEnv("VEGA_REQUEST_TIMEOUT_MS", 5000),
+  },
 };
 
 export function validateProductionConfig() {

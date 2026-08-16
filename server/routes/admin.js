@@ -24,6 +24,7 @@ import {
   setFeatureFlagOverride,
 } from "../services/featureFlags.js";
 import { jsonCsv } from "../utils/csv.js";
+import { notifyVega } from "../services/vegaIntegration.js";
 import { allPermissions } from "../utils/rbac.js";
 import { optionalDateString } from "../utils/zodHelpers.js";
 
@@ -476,8 +477,14 @@ adminRouter.put(
     if (!organization) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Organization not found." });
     }
+    const previousPlan = organization.plan;
     organization.plan = req.body.plan;
     await organization.save();
     res.json({ ok: true, data: getEntitlements(organization.plan) });
+
+    // Fired after the response, not awaited by it - a slow or unreachable Vega must never delay
+    // or fail this admin action. notifyVega already swallows its own errors; this catch is just
+    // defense against something unexpected in the call itself.
+    notifyVega(organization._id.toString(), "plan_changed", { plan: organization.plan, previousPlan }).catch(() => undefined);
   }
 );
