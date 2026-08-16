@@ -3,40 +3,289 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `d033ee1` (`d033ee139cf9342eb63f8ab0315b6b6409157edb` — check `git log -1`
-to confirm nothing's moved since). This exact commit is confirmed deployed and running on
-production - VPS `.last-deploy-sha` read back exactly `d033ee139cf9342eb63f8ab0315b6b6409157edb`
-and `https://dashboard.nemnidhi.com/health` returned `200 OK`, checked directly against the VPS in
-the same session it shipped (every earlier commit back through `d6e1394` is confirmed live too, see
-the dated sections below). **Working tree is NOT clean right now** - the `socket.io-parser`
-vulnerability fix (see the dedicated section below) is implemented and verified but deliberately
-not yet committed, pending the user's go-ahead. Run `git status --short` before touching anything
-else in this repo.
+**HEAD as of this handoff:** `5cb6f5d` — six commits shipped and confirmed deployed on
+2026-08-16 (see the dated section directly below for what each one is). `https://dashboard.
+nemnidhi.com/health` returned `200 OK` after the final one, checked directly. **Working tree is
+STILL not clean** - the validation-backfill work described lower in this file (mid-flight before
+this session started) is untouched, deliberately left alone throughout 2026-08-16's session so as
+not to interfere with it. Run `git status --short` before touching anything else in this repo -
+you should see exactly `HANDOFF.md` plus the five validation-backfill route files modified, nothing
+else.
+**Also see "Production bug found, deferred" below** - a real outbound-message delivery issue the
+user found live on production, still not investigated (deliberately deferred to a later
+fine-tuning pass).
+**Also see "Strategy discussion: competitive gaps and long-term vision" below** - the planning
+conversation that today's session's work (pack-tier entitlements, the Dashboard→Vega feed) was
+scoped from.
 
-## Session paused here 2026-08-15 (continued a fourth time) — socket.io-parser fix implemented, not yet committed
+## Pack-tier entitlements, Dashboard→Vega feed, AI reply-assist — 2026-08-16, DONE, all deployed
 
-A fifth pass this same day closed one of the two follow-up tasks flagged during the OpenAPI pass:
-the high-severity `socket.io-parser` advisory (`GHSA-2m8v-j782-fhvr`, zero-attachment memory
-exhaustion). Chosen by the user as the smallest, most contained item still open.
+Six commits, each independently verified against a real running local server before pushing, each
+confirmed deployed via `https://dashboard.nemnidhi.com/health` returning `200 OK` after the ~5min
+cron cycle. This closed out `execution-sequence.md` (see `D:\Research\ecosystem-audit\`) step 7,
+step 9, and step 20 in full, plus all three pieces of the "Vega copilot" internal-AI scope (the
+third piece, sales reply-assist, lives here in Dashboard, not in Vega - see Vega's own `HANDOFF.md`
+for the other two pieces and everything Vega-side).
 
-**Implemented and verified (including a direct Engine.IO handshake check and a real logged-in
-browser session) this session — but `git status` still shows it uncommitted.** Deliberate pause for
-the user's explicit go-ahead. See the dedicated section below for the full writeup.
+1. **`1cdce1b` Pack-tier entitlements, deliberately separate from `FeatureFlag`.** The original
+   plan (`execution-sequence.md` step 7, and this file's own earlier "Admin-level feature flag
+   management UI" section) called for adding `workspaceId` to the existing `FeatureFlag` system.
+   That turned out to be the wrong fix: `FeatureFlag`'s two real flags (`queueProcessing`,
+   `rabbitmqEvents`) gate whether *this process* connects to Redis/RabbitMQ - a deployment-wide
+   concern that can't vary per tenant within one running server. What actually needed to vary per
+   client already had a home: `Organization.plan` (existed, previously free-text/unenforced).
+   New `server/services/entitlements.js` - `PACK_TIERS` (`basic`/`medium`/`pro`/`custom`),
+   `CAPABILITY_DEFINITIONS` (`messaging`→basic, `campaigns`/`automationBuilder`→medium,
+   `analytics`/`aiAssistant`→pro), `hasEntitlement()`. New `requireEntitlement(capability)` in
+   `server/middleware/auth.js`, deliberately separate from `requirePermission` - permission is
+   "can this role do this", entitlement is "did this org's plan buy this". Wired onto every
+   `automation.js` route and `assistant.js`'s action routes (not `/assistant/overview`, which
+   stays open since its metrics have value on any plan).
+2. **`51b66a5` Admin Plan management UI.** New "Plan" tab in `AdminView.tsx` next to the existing
+   "Feature Flags" tab - shows the org's tier, a one-click Basic/Medium/Pro/Custom switcher, and
+   every capability's enabled/locked state with its minimum tier. `GET`/`PUT
+   /admin/entitlements[/plan]`.
+3. **`65840a6` Locked/upsell states for gated pages.** New shared `PlanLockedState` component,
+   driven by the server's real `PLAN_LIMIT` error text, not a separate client-side guess.
+   `AutomationView.tsx` gets a full-page block (its data list fails to load entirely when
+   ungated, so a full swap is the honest state). `AssistantView.tsx` gets a per-action reactive
+   banner (only its action routes are gated, not the read-only overview).
+4. **`ea66d54` Proactive upsell gate on the AI Assistant page.** `GET /assistant/overview` now
+   returns `entitlements.aiAssistant`, computed the same way `requireEntitlement` does, so the
+   client can show the locked state immediately on page load instead of waiting for a user to
+   click something and hit a 403. Metrics and conversation history stay visible - they have value
+   on any plan; only the action panels (Run Assistant, Knowledge Base, Search, Voice/Tools) swap
+   for the locked card.
+5. **`a52eb46` Dashboard→Vega event feed - sender side.** New `server/services/
+   vegaIntegration.js` - `notifyVega(organizationId, event, data)`, fire-and-forget POST to
+   Vega's `/api/integrations/dashboard-events` with a shared secret header
+   (`VEGA_INTEGRATION_SECRET`/`VEGA_API_URL`, both optional so an unconfigured environment just
+   no-ops rather than erroring). Wired into `PUT /admin/entitlements/plan` as the first real
+   event - fires after a plan change, never blocks the response, swallows its own errors (a Vega
+   outage must never break a plan change on this side). See Vega's `HANDOFF.md` for the receiver
+   side and exactly what it does with the event.
+6. **`5cb6f5d` AI reply-assist in the Inbox composer.** No new AI backend needed -
+   `/assistant/analyze` (`task: "draft_reply"`) already returns a real `autoReply` for any
+   conversation, including a genuinely useful local-rules fallback with zero AI providers
+   configured (confirmed live: correctly picked "automation" out of a test customer message and
+   recommended the matching product). Almost entirely UI wiring - a "Suggest reply" button
+   threaded `InboxView.tsx` (owns the actual state/API call, mirrors the existing
+   `applyQuickReply` pattern) → `WhatsAppBusinessInbox.tsx` → `ChatWindow.tsx` → `Composer.tsx`.
+   Automatically inherited the `aiAssistant` entitlement gate from item 1, for free - a `PLAN_
+   LIMIT` error shows as a small inline warning in the composer bar (no room for the full
+   `PlanLockedState` card there).
 
-**What's actually left:** nothing implementation-wise for this fix. Only remaining step is the user
-deciding whether/when to commit + push. The other follow-up task (validation gap on ~15 routes) is
-still open, untouched by this pass. Roadmap-wise, Phase 1 now has only Socket.io Redis adapter (low
-current value, single-VPS deployment) and the Playwright E2E suite (biggest remaining lift, no
-frontend test infra exists yet) left; Phase 2 has tenant quotas/billing and backup drills left, both
-needing decisions outside pure engineering scope before they can be sized further.
+**Production deploy of the Dashboard→Vega feed needs env vars on BOTH sides before it does
+anything** - `VEGA_INTEGRATION_SECRET` (this app) / `DASHBOARD_INTEGRATION_SECRET` (Vega, must be
+the identical value) / `VEGA_API_URL=https://vega.nemnidhi.com`. **Already done, 2026-08-16** -
+added to `/opt/dashboard-whatsapp/server/.env` (needs `sudo -u dashboard`, this app's PM2 process
+runs as a different Linux user than the `hrmsdeploy` user Vega runs as, even though both apps
+share one VPS) and to Vega's `/home/hrmsdeploy/apps/hrms/.env.local`, both restarted with
+`pm2 restart <name> --update-env`, both confirmed via a clean `tail` read-back. Not yet verified
+against a real production plan change (only tested locally) - the first real one will be the
+actual live proof.
+
+**Not done, left for later:** more event types on the Dashboard→Vega feed beyond `plan_changed`
+(e.g. usage/activity signals - Vega's account-health flags are currently limited to plan-trend
+data because of this, see Vega's `HANDOFF.md`); BillStack's Razorpay plan IDs/webhook were
+deliberately left unconfigured (no client needs billing yet, and doing it speculatively was
+explicitly ruled out this session - revisit only when a real client signs).
+
+## Strategy discussion: competitive gaps and long-term vision — 2026-08-15, planning only
+
+**Nothing in this section was built. This is a decision-context record for whoever scopes the next
+phase of roadmap work**, so the reasoning behind future prioritization calls doesn't have to be
+re-derived from scratch. Triggered by the user asking for a competitive feature audit, then
+describing a much larger long-term vision, which got scoped down to something concrete.
+
+- **Competitive feature gap audit** (real web research, not guessed): against direct competitors
+  (WATI, Interakt, AiSensy, Gallabox), this product is **ahead** on automation-engine depth, AI
+  assistant depth, and enterprise admin/observability maturity - none of those competitors appear to
+  match this at the same price tier. It is **behind** on four things, confirmed via real search, not
+  assumption: WhatsApp Catalog/commerce (no `Product`/`Catalog`/`Order` model exists anywhere in this
+  codebase today), omnichannel beyond WhatsApp (Instagram/Facebook unified inbox), WhatsApp Business
+  Calling (voice calls in the same inbox as chat - explicitly a 2026 buying criterion per research,
+  not present at all), and catalog-tied cart-recovery campaigns (downstream of the catalog gap).
+  **None of these four appear anywhere in `docs/FUTURE_ROADMAP.md`'s five phases** - the existing
+  roadmap is entirely infrastructure/hardening/AI-depth/compliance-shaped, not competitive-parity
+  shaped. Worth a deliberate decision on sequencing, not an oversight to just fix quietly.
+- **SOC 2 / compliance question, resolved for now**: researched what a real SOC 2 audit actually
+  requires (an independent CPA firm, a 3-12 month Type II observation window, $15k-50k+ engagement
+  fee - none of it shortened by more engineering effort) and checked whether direct competitors
+  publish one - none of WATI/Interakt/AiSensy/Gallabox appear to (only Twilio, a much bigger
+  infrastructure-tier company, does). **Conclusion: not needed now, with no live clients.** It's a
+  customer-procurement gate, not a Meta/WhatsApp Business Platform requirement - pursue reactively,
+  once a real deal is actually stuck behind it, not speculatively.
+- **Long-term vision, scoped down to something buildable**: the user's stated ambition was "one-stop
+  solution across 20+ industries, each with multiple participant types (manufacturer/wholesaler/
+  retailer)." Clarified via direct question: **each business stays isolated** (its own contacts, own
+  catalog, own campaigns) - this is *not* a multi-sided marketplace where businesses transact with
+  each other through the platform. That distinction matters enormously: the isolated-business version
+  is a genuinely incremental extension of the existing `Organization`/`Workspace` multi-tenant model
+  (the hard architectural part already exists); the marketplace version would have been a different
+  category of product entirely (Udaan/Moglix-scale, a different multi-year build).
+- **System-boundaries framework** worked out for the vision as scoped: a four-stage process (Marketing
+  &amp; Sales &rarr; Operations &rarr; Delivery &rarr; Maintenance/Taxation/Feedback) that repeats
+  under every industry's specific process, with a clear ownership rule - **WhatsApp never owns data,
+  it's the channel every stage talks through; the platform owns the identity thread connecting all
+  four stages end to end; supporting software owns deep/regulated/industry-specific execution.**
+  Concrete conclusions worth remembering: keep Operations deliberately thin in the platform until
+  specific anchor industries are chosen (a generic ops module serving 20 industries would serve none
+  of them well); **taxation/GST compliance should be an integration with Tally/Zoho Books/Vyapar, not
+  a native rebuild** - regulated, penalty-bearing, and the market already trusts an incumbent there;
+  Marketing &amp; Sales and Delivery are where the nearest-term work (catalog/commerce, payments,
+  omnichannel - the same four competitive gaps above) should land, since that extends an already-
+  strong foundation rather than starting one from nothing.
+- Two artifacts published capturing this discussion in full, in case either needs to be shared or
+  referenced again: **[Build Manifest](https://claude.ai/code/artifact/51fdf45f-46c9-4c32-9950-8aab02a1dfba)**
+  (this session's shipped/in-progress/deferred/not-started status across the whole roadmap) and
+  **[System Boundaries](https://claude.ai/code/artifact/caaa4ef2-f235-454f-8cc2-b353d0b8320b)** (the
+  four-stage ownership framework above, laid out in full with the per-stage WhatsApp/platform/
+  supporting-software breakdown).
+
+## Production bug found, deferred - outbound WhatsApp messages may silently fake "sent"
+
+**Not investigated to a root cause yet - deliberately deferred by the user to a later
+"fine-tuning" session, not this one.** Recorded here so it isn't lost, with everything gathered so
+far so the next session doesn't have to redo the diagnosis from scratch.
+
+**What the user observed**: sent a message reading "Soomil" from the live production dashboard
+(`dashboard.nemnidhi.com`) to their own WhatsApp number as a test. It showed as sent (checkmarks) in
+the dashboard's Inbox, but never arrived on the actual WhatsApp side (confirmed by checking the real
+WhatsApp/WhatsApp Web thread with that number - the message is absent). Later messages in the same
+conversation ("Hello", "How can i help you?") did arrive.
+
+**Leading hypothesis, not yet confirmed**: `server/services/whatsappProvider.js`'s
+`sendWhatsAppText()` (lines ~323-330) has a silent fallback -
+```js
+if (!account) {
+  return { providerMessageId: `local_${Date.now()}`, status: "sent", mode: "local" };
+}
+```
+- if the caller passes no `account` (e.g. `conversations.js`'s `POST /:id/messages` handler's fresh
+  `WhatsAppAccount.findOne({status: {$in: ["connected","needs_attention"]}})` lookup comes back
+  empty for any reason at send time), this returns a **fake success** instead of throwing - no real
+  API call to Meta/Twilio/Wati ever happens, but the message is stored and rendered as a normal sent
+  message with no error indication anywhere.
+- **User's own alternative theory**: "Soomil" was the first-ever contact attempt to that test number
+  (no prior inbound message from it), so it may have been rejected by Meta for being a free-form
+  message outside the 24-hour customer-service window (or a billing/payment-method gap on the
+  connected WABA) - then the *next* messages worked because messaging FROM the personal number to
+  the business first opened a real 24-hour window.
+- **Evidence gathered so far, from the Settings → WhatsApp console page**: exactly 1 connected
+  account, status healthy, 0 needs-attention. Aggregate stats: 69 outbound, 61 delivered, **0
+  failed**. This evidence is more consistent with the `!account` local-fallback hypothesis than with
+  the user's Meta-rejection theory - a real Meta API rejection (billing or 24-hour-window) is a
+  thrown HTTP error in this codebase, which the catch block in `conversations.js` turns into
+  `status: "failed"` on the message document, and that *is* what "Failed sends" counts
+  (`server/routes/whatsapp.js`'s `/console` handler aggregates `Message.status === "failed"`
+  directly). Zero failed messages argues Meta was never actually asked, not that it said no. The
+  69−61=8 outbound-but-not-delivered gap is consistent with messages sitting at `status: "sent"`
+  forever (exactly what the local fallback produces, since there's no real provider message id for
+  a delivery-status webhook to ever match against) - though some of that gap could also just be
+  normal delivery latency on genuinely-sent messages, not proof by itself.
+- **Not yet run - the one thing that would settle this**: query the "Soomil" message's own stored
+  record directly (`status`, `metadata.providerMode`, `providerMessageId`, `metadata.error`). A
+  read-only diagnostic command for this was written and handed to the user but not yet executed:
+  ```bash
+  ssh -p 2424 samvid@72.60.97.58 "cd /opt/dashboard-whatsapp/server && node -e 'require(\"dotenv/config\");const mongoose=require(\"mongoose\");(async()=>{await mongoose.connect(process.env.MONGODB_URI);const docs=await mongoose.connection.collection(\"messages\").find({body:\"Soomil\"}).sort({createdAt:-1}).limit(3).toArray();console.log(JSON.stringify(docs.map(d=>({status:d.status,providerMode:(d.metadata||{}).providerMode,providerMessageId:d.providerMessageId,error:(d.metadata||{}).error,createdAt:d.createdAt})),null,2));process.exit(0);})();'"
+  ```
+  `providerMode: "local"` → confirms the app-side silent-fallback bug (fix: `sendWhatsAppText`/its
+  callers should throw or surface a clear error when no connected account is found, not fake
+  success). `status: "failed"` with a real `error` → a real Meta/provider rejection that isn't
+  reaching the "Failed sends" counter (a different, second bug). A real `providerMessageId` with
+  `providerMode: "meta"` → the problem is outside this app entirely.
+- **Next session should start here**: run that query (or re-derive an equivalent one), confirm which
+  branch above is true, then scope an actual fix - likely making the account-lookup failure path
+  throw a clear, user-visible error instead of silently faking delivery, regardless of which
+  specific trigger caused it this time.
+
+## Session paused here 2026-08-15 (continued a fifth time) — validation backfill in progress, not finished
+
+A sixth pass this same day picked up the other follow-up task flagged during the OpenAPI pass (the
+`socket.io-parser` fix, the first follow-up, shipped and deployed as `048103f` - confirmed via
+`.last-deploy-sha` and PM2 restart count directly against the VPS before this pass started).
+
+**Unlike every other entry in this file, this one is not "implemented and verified, just
+uncommitted" - it's genuinely partway through.** Real, wired `validateBody`/`validateQuery` schemas
+have been added to all 15 gap routes across `team.js`/`templates.js`/`whatsapp.js`/`campaigns.js`/
+`conversations.js` (see the dedicated section below for exactly what and why), syntax-checked, and
+confirmed not to regress the existing 113-test non-spawning suite. **Not yet done**: reconciling the
+OpenAPI pass's now-superseded guessed schemas in `server/openapi/paths/*.js` with these real ones,
+new test coverage for the 15 new schemas, e2e coverage for the highest-traffic routes, the full
+manual UI verification pass, and regenerating `docs/openapi.json`. Whoever (or whatever fresh
+window) picks this back up should treat the plan this was built from as still authoritative for
+what's left - re-derive it from this section plus the route-level diffs already in the working tree
+rather than re-researching from scratch.
+
+**What's actually left:** everything in the "Not yet done" list above, then the usual commit/push
+pause for the user's go-ahead. Roadmap-wise, once this closes: Phase 1 has only the Socket.io Redis
+adapter (low current value, single-VPS deployment) and the Playwright E2E suite (biggest remaining
+lift, no frontend test infra exists yet) left; Phase 2 has tenant quotas/billing and backup drills
+left, both needing decisions outside pure engineering scope before they can be sized further.
 
 ## `.last-deploy-sha`/deploy history note
 
 Everything from `## Feature-flag admin UI` through the rest of this file (down to `## History`)
-predates the OpenAPI, structured-logging, and socket.io-parker fix work above and was true as of
-`HEAD 30cda73` before the feature-flag commit landed. It's kept as-is below for the detailed
-implementation record of each piece; only the top banner and the "Session paused" headers above have
-been kept current.
+predates the OpenAPI, structured-logging, socket.io-parser fix, and validation-backfill work above
+and was true as of `HEAD 30cda73` before the feature-flag commit landed. It's kept as-is below for
+the detailed implementation record of each piece; only the top banner and the "Session paused"
+headers above have been kept current.
+
+## Validation backfill on 15 gap routes — in progress 2026-08-15, not finished
+
+Closes the follow-up flagged during the OpenAPI pass: `HANDOFF.md` had claimed "Zod validation on
+all routes" was closed entirely (see the "Zod validation on the remaining route files" section
+further below - accurate for the 7 files it covered, just not a complete picture of the whole
+codebase), but ~15 routes across `team.js`, `templates.js`, `whatsapp.js`, `campaigns.js`, and
+`conversations.js` still read `req.body`/`req.query` with zero `validateBody`/`validateQuery`
+coverage.
+
+Three parallel research passes traced every route's real handler logic against the real client-side
+call shape (`client/src/app/lib/api.ts` + every component caller) before writing anything, since
+this is genuinely behavior-changing work (unlike the OpenAPI pass, which only wrote
+documentation-only, unwired guesses for these same routes). That research paid off immediately:
+
+- **A real bug the OpenAPI pass's guess would have shipped**: `templates.js`'s sync-whatsapp guess
+  marked `accountId` required, but the only real caller (`TemplatesView.tsx`'s "Sync WhatsApp"
+  button) always calls with zero arguments. The real schema makes `accountId` optional.
+- **A real unguarded crash, not just a gap**: `conversations.js`'s `POST /:id/messages` did
+  `content.trim()` with no null-check - an omitted `content` was a `TypeError` → unhandled 500, not
+  a clean 400. The new schema requires `content` (allowing `""`, since media-only messages
+  legitimately send empty content) - the one deliberate behavior change in this whole pass, and it
+  fixes a crash rather than introducing a new rejection.
+- **A real type mismatch in the earlier guess**: `conversations.js`'s `POST /:id/template` guessed
+  `parameters` as a record; the client's own type and the handler's `Array.isArray` check both treat
+  it as an array. Corrected.
+- **Every other silently-coerced/defaulted field stays exactly that permissive** - `role` (team.js),
+  `type`/`status`/`category`/`language` (templates.js), `stage`/`mode` (conversations.js),
+  `limit`/`cursor`/`before` (conversations.js) all keep their current "invalid input silently
+  falls back, never rejects" behavior. Tightening any of these into a hard-rejecting enum was
+  deliberately not done - that's a separate decision, not bundled into a validation-gap backfill.
+- `team.js`'s new schema reuses the existing, already-tested `isEmail`/`passwordPolicy` functions
+  (`server/utils/validation.js`) via `.refine()` instead of re-deriving the acceptance rules by
+  hand - `isEmail` is a custom regex, not `z.string().email()` (those accept different input).
+  `templates.js`'s `POST /` schema deliberately stays shape-level only (types, not business rules) -
+  `cleanPayload()`'s existing defaulting/coercion logic keeps doing that job untouched, so there's
+  one source of truth for those rules instead of two that could drift apart.
+
+**Route changes are done and syntax-checked** (`team.js`, `templates.js`, `whatsapp.js`,
+`campaigns.js`, `conversations.js` - all 15 routes now wired). **Not yet done, in order**:
+1. Reconcile `server/openapi/paths/{team,templates,whatsapp,campaigns,conversations}.js` - swap
+   their now-superseded local guessed schemas for imports of the real ones, delete the dead guesses.
+2. Extend `server/tests/routeValidation.unit.test.js` with all 15 new schemas (minimal-valid-succeeds
+   + invalid-fails, plus explicit assertions that the permissive fields still accept garbage rather
+   than rejecting it).
+3. New/extended e2e coverage for the highest-traffic routes (team invite, sync-whatsapp zero-arg
+   call, whatsapp template creation defaults, campaign preview, and both message shapes on
+   `conversations.js POST /:id/messages` including the fixed crash case).
+4. Full test suite run.
+5. Manual verification against the real running dashboard UI - team invite, template create, the
+   "Sync WhatsApp" button specifically, campaign audience preview, CSV contact import, and (highest
+   traffic) sending a chat message in the real Inbox UI both text-only and attachment-only.
+6. `npm run generate:openapi` re-run so `docs/openapi.json` reflects the corrected shapes.
+
+Only after all of that should this be committed - do not commit mid-way through this list.
 
 ## `socket.io-parser` vulnerability fix — implemented 2026-08-15, uncommitted
 
@@ -217,9 +466,13 @@ confirmed on the VPS one at a time as they went out (not batched at the end):
    month-grid calendar. See the dedicated section below.
 2. **Execution-history UI nesting** — `sub_workflow` child runs now render nested in the Run
    History panel via `$graphLookup`, independently expandable. See the dedicated section below.
-3. **Zod validation on the remaining 7 route files** — closes that `FUTURE_ROADMAP.md` Phase 1 item
-   entirely. Along the way, fixed a pre-existing `$text` `sanitizeFilter` bug and the missing
-   `Message.body` text index that made search actually work for the first time ever.
+3. ~~**Zod validation on the remaining 7 route files** — closes that `FUTURE_ROADMAP.md` Phase 1 item
+   entirely.~~ **Correction, added later the same day**: this closed the 7 files it actually covered,
+   but a later pass found ~15 routes across 5 *other* files this item never touched still had zero
+   validation - see "Validation backfill on 15 gap routes" near the top of this file (in progress,
+   not finished as of this correction). The item wasn't closed entirely; this entry's original claim
+   was wrong. Along the way, this pass fixed a pre-existing `$text` `sanitizeFilter` bug and the
+   missing `Message.body` text index that made search actually work for the first time ever.
 4. **`infrastructure.js` permission gap** — all three routes were reachable by any authenticated
    user of any role; now gated behind `admin:read`/`admin:write`.
 5. **AuditLog export + retention** — closes that `FUTURE_ROADMAP.md` Phase 2 item entirely.
@@ -399,6 +652,13 @@ so this lets the same index serve both the workspace scoping and the text search
 - Full non-spawning suite (98 tests) still green.
 
 ## Zod validation on the remaining route files — implemented 2026-08-15
+
+> **Correction added later the same day**: despite this section's original framing, this did not
+> close `FUTURE_ROADMAP.md`'s "Add Zod/Joi validation to all routes" item entirely - it closed the
+> 7 files listed below, but ~15 routes across `team.js`/`templates.js`/`whatsapp.js`/`campaigns.js`/
+> `conversations.js` (never touched by this pass) still had zero validation. See "Validation
+> backfill on 15 gap routes" near the top of this file for that follow-up (in progress, not
+> finished as of this correction).
 
 Picked up `docs/FUTURE_ROADMAP.md`'s Phase 1 "Add Zod/Joi validation to all routes" item (a separate,
 much broader wishlist than the automation-engine plan above — see that file for the other 4 phases,
