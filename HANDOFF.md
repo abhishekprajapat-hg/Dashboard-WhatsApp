@@ -84,22 +84,50 @@ already carries `error.meta` with the full payload; it's just not surfaced in th
 today (`ads.js` only forwards `error.message`/`error.code`) - worth logging `error.meta` server-side
 on failure if this happens again.
 
-## App Review submission for ads_management/ads_read — drafted 2026-08-19, waiting on Meta's 24h test-call propagation
+## App Review submission — fully prepared 2026-08-19, blocked only on Meta's 24h test-call propagation
 
-Justification text and a ~2min screencast (`Ads Manager - Manage ads - Campaigns - Ulaa
-2026-08-19 01-21-33.mp4`, saved in `C:\Users\HP\Videos\Captures`) are ready and uploaded into the
-App Review submission form for `ads_management` - reused for `ads_read` too, same as the existing
-WhatsApp review's one-recording-for-both-permissions pattern. See `docs/META_APP_REVIEW_ADS.md`
-for the exact text and screencast script.
+**Everything on our side is genuinely done.** The submission bundle ("Requests" tab, App Dashboard
+-> Review -> App Review) is exactly four permissions - `ads_management`, `ads_read`,
+`pages_show_list`, `pages_read_engagement` - each with justification text, the same ~2min
+screencast (`Ads Manager - Manage ads - Campaigns - Ulaa 2026-08-19 01-21-33.mp4`, saved in
+`C:\Users\HP\Videos\Captures`), and a real, correctly-scoped API call behind it:
+- `ads_management`/`ads_read`: the real campaign/ad-set/ad creation against `act_338172839578849`
+- `pages_show_list`: `GET /me/accounts` (also independently confirmed Page `822153367655733` is
+  really "Nemnidhi", genuinely managed by this account)
+- `pages_read_engagement`: `GET /822153367655733/insights?metric=page_post_engagements` using that
+  Page's own Page Access Token (not the user token) - the first attempt with `page_impressions`/
+  `page_fans` failed with "must be a valid insights metric" (deprecated metric names, not a
+  permission problem), `page_post_engagements` is the current valid one and returned a real 200.
+- See `docs/META_APP_REVIEW_ADS.md` for the exact justification text and screencast script for all
+  four.
+
+**Deliberately excluded from this submission**: "Marketing API Access Tier" (the Full-access tier
+upgrade). Its real requirement is 500 Marketing API calls at <15% error rate over 15 days - a much
+bigger bar than the "1 successful call" every other item needed, and per Meta's own docs, Full
+access isn't required just to manage your own ad account (only relevant once actually operating as
+a multi-client BSP). It never actually got added to the "New requests" bundle despite appearing as
+a card on the Allowed Usage page - confirmed by checking the actual submissions list, which only
+showed the four permissions above. Revisit Full access later, once real sustained usage or genuine
+multi-client scale makes it relevant - don't chase the 500-call bar for its own sake.
+
+**Also done this session, unrelated to the new requests**: certified the periodic renewal for the
+already-approved `whatsapp_business_messaging`/`whatsapp_business_management` (2026-08-13 grant) -
+separate "Renewal" tab on the same App Review submissions page, just a compliance re-attestation,
+no functional change. And completed the Data Handling questionnaire, which Meta pre-filled from the
+same already-approved review's most recent responses (self-hosted MongoDB + app on the same VPS,
+presumably Hostinger per the browser's own bookmarks, encrypted-at-rest tokens via
+`WHATSAPP_CREDENTIAL_SECRET`, AI providers used for message/campaign content but not the narrow
+Meta-defined "Platform Data" fields) - pre-filled answers were still accurate, nothing changed.
 
 **Confirmed directly in Meta's own submission form UI, not inferred**: "Make sure you've completed
 the required API test calls for added permissions. Completed test calls can take up to 24 hours to
 show for your app." This is why the Requirements panel's "1 successful API test call" item stayed
-gray even after the real production campaign-creation call (see the two sections above) - it's
-processing lag, officially documented by Meta's own form, not a real gap. **Do not re-diagnose this
-as stuck again** - just recheck the Requirements panel a few hours to a day later; once
-`ads_management` shows "1 of 1 API call(s) required" instead of "0 of 1," come back to this same
-draft submission and finish it.
+gray on every one of the four permissions even after the real, correctly-scoped calls above - it's
+processing lag, officially documented by Meta's own form, not a real gap. **Do not re-diagnose any
+of this as stuck again** - just recheck the Requirements panel (or the submission form directly) a
+few hours to a day later; once all four show "1 of 1 API call(s) required" instead of "0 of 1," come
+back to this same draft submission (App Dashboard -> Review -> App Review -> Requests tab) and hit
+submit. Nothing else is outstanding.
 
 ## READ THIS FIRST — where the ads work actually stands, 2026-08-18 end of session
 
