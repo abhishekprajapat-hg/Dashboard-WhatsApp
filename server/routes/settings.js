@@ -109,6 +109,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
         phoneNumber: account.phoneNumber,
         phoneNumberId: account.phoneNumberId,
         businessAccountId: account.businessAccountId,
+        conversionsDatasetId: account.conversionsDatasetId || "",
         provider: account.provider,
         providerConfig: account.providerConfig || {},
         status: account.status,
