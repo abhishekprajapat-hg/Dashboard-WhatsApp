@@ -23,6 +23,7 @@ import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js"
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
 import { absoluteBaseUrl, mediaTypeFor } from "../services/mediaStorage.js";
+import { sendConversionEvent } from "../services/metaConversionsApi.js";
 import {
   credentialSummary,
   decodeCredentials,
@@ -46,6 +47,7 @@ function serializeAccount(account) {
     phoneNumber: account.phoneNumber,
     phoneNumberId: account.phoneNumberId,
     businessAccountId: account.businessAccountId,
+    conversionsDatasetId: account.conversionsDatasetId || "",
     provider: account.provider,
     providerConfig: account.providerConfig || {},
     webhookStatus: account.webhookStatus,
@@ -296,6 +298,8 @@ export const connectAccountSchema = z.object({
   tenantId: z.string().optional().default(""),
   verifyToken: z.string().optional().default(""),
   appSecret: z.string().optional().default(""),
+  conversionsDatasetId: z.string().optional().default(""),
+  conversionsTestEventCode: z.string().optional().default(""),
 });
 
 whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBody(connectAccountSchema), async (req, res) => {
@@ -313,6 +317,8 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     tenantId,
     verifyToken,
     appSecret,
+    conversionsDatasetId,
+    conversionsTestEventCode,
   } = req.body;
 
   const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
@@ -343,6 +349,8 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
       phoneNumberId,
       businessAccountId,
       encryptedCredentials: encodeCredentials(credentials),
+      conversionsDatasetId: cleanString(conversionsDatasetId) || existingAccount?.conversionsDatasetId || "",
+      conversionsTestEventCode: cleanString(conversionsTestEventCode) || existingAccount?.conversionsTestEventCode || "",
       provider: providerKey,
       providerConfig: {
         tenantId: tenantId || businessAccountId,
@@ -501,6 +509,35 @@ whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), a
       error: error.code || "CONNECTION_TEST_FAILED",
       message: error.message || "Connection test failed.",
       account: serializeAccount(account),
+    });
+  }
+});
+
+whatsappRouter.post("/accounts/:id/test-conversion-event", requirePermission("settings:write"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  if (!account.conversionsDatasetId) {
+    return res.status(400).json({ error: "CONVERSIONS_NOT_CONFIGURED", message: "Set a Conversions Dataset ID on this account first." });
+  }
+
+  try {
+    const result = await sendConversionEvent(account, {
+      eventName: "QualifiedLead",
+      ctwaClid: `demo-${Date.now()}`,
+      testEventCode: account.conversionsTestEventCode || undefined,
+    });
+    res.json({ result });
+  } catch (error) {
+    res.status(error.status || 502).json({
+      error: error.code || "META_CONVERSIONS_TEST_FAILED",
+      message: error.message || "Test conversion event failed.",
     });
   }
 });

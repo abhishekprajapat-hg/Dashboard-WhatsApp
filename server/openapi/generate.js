@@ -5,6 +5,7 @@ import { registry } from "./registry.js";
 // registry.registerPath(...) at module load). Order doesn't matter - the registry just
 // accumulates definitions.
 import "./paths/admin.js";
+import "./paths/ads.js";
 import "./paths/analytics.js";
 import "./paths/assistant.js";
 import "./paths/auth.js";

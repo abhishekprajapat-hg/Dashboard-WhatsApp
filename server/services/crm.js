@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
-import { AuditLog, Lead, Membership, Role, Tag } from "../models/index.js";
+import { AuditLog, Lead, Membership, Role, Tag, WhatsAppAccount } from "../models/index.js";
 import { leadStages } from "../models/Lead.js";
+import { sendConversionEvent } from "./metaConversionsApi.js";
+import { logger } from "./logger.js";
 
 const requirementPattern = /\b(need|require|requirement|looking|interested|want|buy|purchase|price|pricing|quote|quotation|demo|plan|package|service|proposal|call back|callback)\b/i;
 const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
@@ -120,8 +122,16 @@ export async function ensureConversationInCrm({
   const leadTag = await ensureLeadTag({ organizationId, workspaceId });
   const ownerUserId = await chooseOwner({ workspaceId, contact, conversation });
   const campaign = extractCampaign({ normalized, source });
+  const ctwaClid = contact?.customFields?.metaAdReferral?.ctwa_clid || "";
   const location = extractLocation(normalized);
   const normalizedStage = normalizeLeadStage(stage);
+  // Broader than leadFilter below on purpose - leadFilter requires status:"open" to match, so it
+  // stops seeing a lead the moment it's already won. This read is only used to detect a genuine
+  // open->won transition (see the conversion-event call after the upsert), which needs the lead's
+  // real current status regardless of whether the upsert's own filter would still match it.
+  const existingLead = await Lead.findOne({ workspaceId, contactId: contact._id })
+    .sort({ createdAt: -1 })
+    .select("status metaCtwaClid");
   const firstMessage = inboundMessage?.body || conversation.lastMessageId?.body || "";
   const providerMessageId = inboundMessage?.providerMessageId || normalized?.providerMessageId || "";
   const messageId = inboundMessage?._id?.toString?.() || providerMessageId || conversation._id.toString();
@@ -238,6 +248,7 @@ export async function ensureConversationInCrm({
         ownerUserId: ownerUserId || undefined,
         source,
         campaign,
+        metaCtwaClid: ctwaClid || existingLead?.metaCtwaClid || "",
         stage: normalizeLeadStage(crm.stage || normalizedStage),
         status: ["won", "lost"].includes(normalizeLeadStage(crm.stage || normalizedStage)) ? normalizeLeadStage(crm.stage || normalizedStage) : "open",
         score: Number(crm.leadScore || 10),
@@ -263,6 +274,19 @@ export async function ensureConversationInCrm({
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  if (normalizedStage === "won" && existingLead?.status !== "won" && lead.metaCtwaClid) {
+    try {
+      const whatsappAccount = await WhatsAppAccount.findOne({ workspaceId, provider: "meta" });
+      if (whatsappAccount) {
+        await sendConversionEvent(whatsappAccount, { eventName: "Purchase", ctwaClid: lead.metaCtwaClid });
+      }
+    } catch (error) {
+      // A Meta outage (or a misconfigured/missing Conversions dataset) must never break marking a
+      // real deal as won - this is best-effort reporting, not part of the CRM write itself.
+      logger.warn({ err: error }, "Meta Conversions API event failed");
+    }
+  }
 
   await AuditLog.create({
     organizationId,

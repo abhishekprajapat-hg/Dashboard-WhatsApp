@@ -27,7 +27,9 @@ import {
   ExternalLink,
   LockKeyhole,
   Sparkles,
+  Megaphone,
 } from "lucide-react";
+import { AdsSettingsPanel } from "./AdsSettingsPanel";
 import {
   createWhatsAppAccount,
   createWhatsAppTemplate,
@@ -36,13 +38,14 @@ import {
   getWhatsAppConsole,
   getSettings,
   syncWhatsAppTemplates,
+  testConversionEvent,
   testWhatsAppAccount,
   testIntegrationWebhook,
   updateIntegrations,
   updateCurrentWorkspace,
 } from "../lib/api";
 
-type SettingsTab = "workspace" | "whatsapp" | "api" | "integrations" | "billing" | "notifications" | "security";
+type SettingsTab = "workspace" | "whatsapp" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
 
 interface WhatsAppAccount {
   id: string;
@@ -51,6 +54,7 @@ interface WhatsAppAccount {
   phoneNumber: string;
   phoneNumberId: string;
   businessAccountId: string;
+  conversionsDatasetId?: string;
   providerConfig?: { webhookPath?: string; tenantId?: string; apiBaseUrl?: string };
   status: "connected" | "disconnected" | "needs_attention";
   webhookStatus: string;
@@ -138,6 +142,7 @@ interface WhatsAppConsolePayload {
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "workspace", label: "Workspace", icon: <Building2 size={14} /> },
   { id: "whatsapp", label: "WhatsApp", icon: <MessageCircle size={14} /> },
+  { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
   { id: "api", label: "API Keys", icon: <Key size={14} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
   { id: "billing", label: "Billing", icon: <CreditCard size={14} /> },
@@ -262,6 +267,8 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     tenantId: "",
     verifyToken: "",
     appSecret: "",
+    conversionsDatasetId: "",
+    conversionsTestEventCode: "",
   });
   const [templateForm, setTemplateForm] = useState({
     accountId: "",
@@ -277,6 +284,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [integrationNotice, setIntegrationNotice] = useState("");
   const [copiedValue, setCopiedValue] = useState("");
   const [accountTesting, setAccountTesting] = useState("");
+  const [conversionTesting, setConversionTesting] = useState("");
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
 
   async function loadSettings() {
@@ -341,6 +349,8 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         tenantId: "",
         verifyToken: "",
         appSecret: "",
+        conversionsDatasetId: "",
+        conversionsTestEventCode: "",
       });
       setShowAccountForm(false);
       await loadSettings();
@@ -392,6 +402,28 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       await loadSettings().catch(() => undefined);
     } finally {
       setAccountTesting("");
+    }
+  }
+
+  async function handleTestConversionEvent(id: string) {
+    if (!canWrite) return;
+    setConversionTesting(id);
+    setAccountNotice((current) => ({ ...current, [id]: "" }));
+    try {
+      const response = await testConversionEvent<{ result: { eventsReceived?: number; skipped?: boolean } }>(id);
+      setAccountNotice((current) => ({
+        ...current,
+        [id]: response.result.skipped
+          ? "Skipped - dataset or credentials not fully configured."
+          : `Sent. Meta reported ${response.result.eventsReceived ?? 0} event(s) received - check Events Manager's Test Events tab.`,
+      }));
+    } catch (error) {
+      setAccountNotice((current) => ({
+        ...current,
+        [id]: error instanceof Error ? error.message : "Test conversion event failed.",
+      }));
+    } finally {
+      setConversionTesting("");
     }
   }
 
@@ -738,6 +770,24 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             className={fieldClass}
                           />
                         </div>
+                        <div className="space-y-1.5">
+                          <Label>Conversions Dataset ID</Label>
+                          <Input
+                            value={form.conversionsDatasetId}
+                            onChange={(e) => setForm((current) => ({ ...current, conversionsDatasetId: e.target.value }))}
+                            placeholder="Optional - from Meta Events Manager"
+                            className={fieldClass}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Conversions test event code</Label>
+                          <Input
+                            value={form.conversionsTestEventCode}
+                            onChange={(e) => setForm((current) => ({ ...current, conversionsTestEventCode: e.target.value }))}
+                            placeholder="Optional - from the dataset's Test Events tab"
+                            className={fieldClass}
+                          />
+                        </div>
                       </>
                     )}
                     {form.provider === "wati" && (
@@ -838,6 +888,11 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         <RefreshCw size={12} className="mr-1" />
                         Sync
                       </Button>
+                      {account.conversionsDatasetId && (
+                        <Button variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => handleTestConversionEvent(account.id)} disabled={conversionTesting === account.id}>
+                          {conversionTesting === account.id ? "Sending" : "Send test conversion event"}
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" className="h-8 text-xs border-destructive/30 text-destructive" onClick={() => handleDeleteAccount(account.id)}>
                         <Trash2 size={12} />
                       </Button>
@@ -979,6 +1034,12 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                 </div>
               </Card>
             </div>
+          </div>
+        )}
+
+        {activeTab === "ads" && (
+          <div className="max-w-4xl">
+            <AdsSettingsPanel />
           </div>
         )}
 

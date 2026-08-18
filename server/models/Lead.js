@@ -11,6 +11,7 @@ const leadSchema = new mongoose.Schema(
     ownerUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     source: { type: String, default: "WhatsApp", index: true },
     campaign: String,
+    metaCtwaClid: { type: String, trim: true, default: "" },
     stage: { type: String, enum: leadStages, default: "new_lead", index: true },
     score: { type: Number, default: 10, index: true },
     status: { type: String, enum: ["open", "won", "lost", "archived"], default: "open", index: true },

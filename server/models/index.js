@@ -11,6 +11,8 @@ export * from "./FeatureFlag.js";
 export * from "./Lead.js";
 export * from "./Membership.js";
 export * from "./Message.js";
+export * from "./MetaAdsAccount.js";
+export * from "./MetaAdCampaign.js";
 export * from "./Organization.js";
 export * from "./Role.js";
 export * from "./Tag.js";

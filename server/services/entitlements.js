@@ -41,6 +41,12 @@ export const CAPABILITY_DEFINITIONS = [
     description: "The assistant subsystem - analyze/stream/knowledge-search/voice/tool-call (server/routes/assistant.js).",
     minTier: "pro",
   },
+  {
+    key: "ads",
+    label: "Meta Ads (Click-to-WhatsApp)",
+    description: "Create and manage Click-to-WhatsApp ad campaigns via the Marketing API (server/routes/ads.js).",
+    minTier: "pro",
+  },
 ];
 
 const KNOWN_CAPABILITY_KEYS = new Set(CAPABILITY_DEFINITIONS.map((definition) => definition.key));

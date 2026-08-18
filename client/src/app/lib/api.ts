@@ -500,6 +500,8 @@ export function createWhatsAppAccount<T>(account: {
   tenantId?: string;
   verifyToken?: string;
   appSecret?: string;
+  conversionsDatasetId?: string;
+  conversionsTestEventCode?: string;
 }) {
   return request<T>("/whatsapp/accounts", {
     method: "POST",
@@ -510,6 +512,12 @@ export function createWhatsAppAccount<T>(account: {
 export function deleteWhatsAppAccount(id: string) {
   return request<void>(`/whatsapp/accounts/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function testConversionEvent<T>(id: string) {
+  return request<T>(`/whatsapp/accounts/${id}/test-conversion-event`, {
+    method: "POST",
   });
 }
 
@@ -709,6 +717,51 @@ export function sendCampaign<T>(id: string, payload: { sendNow?: boolean; limit?
 export function deleteCampaign(id: string) {
   return request<void>(`/campaigns/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function getAdsAccounts<T>() {
+  return request<T>("/ads/accounts");
+}
+
+export function createAdsAccount<T>(account: {
+  adAccountId: string;
+  pageId: string;
+  whatsappPhoneNumber?: string;
+  accessToken?: string;
+}) {
+  return request<T>("/ads/accounts", {
+    method: "POST",
+    body: JSON.stringify(account),
+  });
+}
+
+export function testAdsAccount<T>(id: string) {
+  return request<T>(`/ads/accounts/${id}/test`, {
+    method: "POST",
+  });
+}
+
+export function deleteAdsAccount(id: string) {
+  return request<void>(`/ads/accounts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function getAdCampaigns<T>() {
+  return request<T>("/ads/campaigns");
+}
+
+export function createAdCampaign<T>(campaign: {
+  metaAdsAccountId: string;
+  name: string;
+  dailyBudgetMinorUnits: number;
+  message: string;
+  imageBase64: string;
+}) {
+  return request<T>("/ads/campaigns", {
+    method: "POST",
+    body: JSON.stringify(campaign),
   });
 }
 

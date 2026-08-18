@@ -10,6 +10,7 @@ import { rateLimiter } from "./middleware/rateLimiter.js";
 import { authRouter } from "./routes/auth.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import { adminRouter } from "./routes/admin.js";
+import { adsRouter } from "./routes/ads.js";
 import { assistantRouter } from "./routes/assistant.js";
 import { automationRouter } from "./routes/automation.js";
 import { calendarEventsRouter } from "./routes/calendarEvents.js";
@@ -104,6 +105,7 @@ app.use("/api/dashboard", requireAuth, requireWorkspaceContext, dashboardRouter)
 app.use("/api/contacts", requireAuth, requireWorkspaceContext, contactsRouter);
 app.use("/api/conversations", requireAuth, requireWorkspaceContext, conversationsRouter);
 app.use("/api/campaigns", requireAuth, requireWorkspaceContext, campaignsRouter);
+app.use("/api/ads", requireAuth, requireWorkspaceContext, adsRouter);
 app.use("/api/automation", requireAuth, requireWorkspaceContext, automationRouter);
 app.use("/api/team", requireAuth, requireWorkspaceContext, teamRouter);
 app.use("/api/tasks", requireAuth, requireWorkspaceContext, tasksRouter);

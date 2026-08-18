@@ -3,16 +3,129 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff:** `f7f4e25` — the six 2026-08-16 feature commits, plus the
-outbound-message-investigation doc update (see "Missing outbound WhatsApp message" below, closed).
-`https://dashboard.nemnidhi.com/health` returned `200 OK`, checked directly. **The validation
-backfill (15 gap routes) is now fully closed and ready to commit** - see its own section below for
-what was done in this pass. Run `git status --short` before touching anything else in this repo -
-as of this handoff you should see the validation-backfill file set (5 route files, 5
-`server/openapi/paths/*.js` files, `docs/openapi.json`, 2 test files) staged/ready, not yet
-committed.
-**Also see "Strategy discussion: competitive gaps and long-term vision" below** - the planning
-conversation that today's session's work (pack-tier entitlements, the Dashboard→Vega feed) was
+**HEAD as of this handoff includes two new feature commits on top of `f7f4e25`** (Click-to-WhatsApp
+ads + Conversions API demos, both built for App Review submissions — see their own sections below),
+plus the account-config work described in "Workspace #1 WhatsApp connection." **Deploy note: this
+repo's 5-minute cron auto-deploys `main`** — confirm the live commit actually matches after pushing,
+same "don't trust it silently" discipline as Vega's manual deploy.
+
+## Click-to-WhatsApp ads + Conversions API — built for Meta App Review demos — 2026-08-18
+
+Second and third pieces of today's Meta-review-gated feature work (after confirming Advanced Access
+on `whatsapp_business_management`/`whatsapp_business_messaging` was already approved 2026-08-13 —
+see "Tech Provider onboarding" below). Both built via the same discipline: research the real Meta
+API shape against current docs first, build the minimum genuine feature needed for an honest App
+Review demo, verify with real API calls, never fabricate.
+
+**Click-to-WhatsApp ads** (`server/routes/ads.js`, `server/services/metaAdsProvider.js`, new models
+`MetaAdsAccount`/`MetaAdCampaign`, new Settings → Ads tab via `AdsSettingsPanel.tsx`): creates a real
+campaign/ad set/ad via the Marketing API, always left Meta-side `PAUSED` — deliberately no "activate"
+action in this pass, so the feature can produce a genuine App Review demo with zero real ad-spend
+risk. New `ads:read`/`ads:write` permissions, new `ads` entitlement capability at `pro` tier.
+
+**Conversions API** (`server/services/metaConversionsApi.js`): reports a real `Purchase` event back
+to Meta, tied to the WhatsApp ad-click id (`ctwa_clid`), when a `Lead` genuinely transitions to
+`"won"` — fire-and-forget from `ensureConversationInCrm` in `server/services/crm.js`, never blocks
+or fails the actual CRM write. Fixed a real pre-existing gap along the way: the raw `ctwa_clid` was
+already captured on `Contact`/`Message` (`server/routes/whatsapp.js:597,647`) but silently dropped
+before reaching `Lead` — added `Lead.metaCtwaClid` to fix that, independent of Conversions API. New
+`WhatsAppAccount.conversionsDatasetId`/`conversionsTestEventCode` fields (reuses the account's
+existing encrypted access token, no new credential storage) and a "Send test conversion event"
+button on the account card, using Meta's real `test_event_code` mechanism — lets this get a genuine
+demo without needing the (deliberately still-paused) ad campaign to ever go live first.
+
+**Both verified via `npm run check`** (server syntax check, 144 files; client `tsc --noEmit`, 0
+errors) — no server-spawning e2e tests possible in this dev environment's sandbox (pre-existing,
+documented limitation, unrelated to this work).
+
+**Real user-facing setup still needed** (same category as the WhatsApp App Secret/token work below —
+entering real credentials into a live form is something done directly by the user, not automated):
+connect a real Meta Ads account + create one real paused campaign (Ads tab); get a real Conversions
+Dataset ID + test event code from Meta Events Manager and enter them on the WhatsApp account (done
+live this session — Dataset `1380752696776303`, "Nemnidhi" dataset, associated Page `822153367655733`
+"Nemnidhi" since no Page was formally pre-linked to the WABA anywhere in Business Settings — checked
+directly rather than assumed). Once both are exercised for real, their permissions
+(`ads_management`, `whatsapp_business_manage_events`) should flip from "Ready for testing" to "Ready
+to publish" on the relevant app, which is what actually unlocks submitting each for App Review.
+
+## Workspace #1 WhatsApp connection — actually already existed, then fixed — 2026-08-18
+
+**Corrects a wrong assumption carried from the previous session's handoff/memory**: it was believed
+Workspace #1 had never been provisioned with a real WhatsApp number. That was false — "Main
+Workspace" already had a connected Meta WhatsApp account with real traffic (62 inbound / 70 outbound
+messages, 0 failed) before this session touched anything. Nobody currently knows which earlier
+session actually did that connection; it predates what any handoff/memory file recorded. **Lesson:
+the "1 Connected accounts" tile on Settings → WhatsApp is ground truth — check it before assuming a
+workspace needs onboarding from scratch.**
+
+What was actually broken on the existing connection, found and fixed:
+- **`businessAccountId` had a typo** — `2620677422892767` (16 digits) saved instead of the real
+  `26206774228927667` (17 digits), causing `(#100) Tried accessing nonexisting field
+  (message_templates)` on every template sync/test. Confirmed by hitting Meta's API directly with
+  both values using the real token — the correct one returned real templates (`jmms_receipt_new`,
+  `hello_world`), the saved one reproduced the exact UI error. Root cause was manual copy/transcription
+  error, not a code bug.
+- **No App Secret was set** (`signature off` badge) — meaning `hasValidMetaSignature` was silently
+  skipping webhook signature verification entirely (see `server/routes/whatsapp.js:133` — returns
+  `true` when `!appSecret`). Anyone who discovered the callback URL could have POSTed forged webhook
+  events. Fixed by re-saving the account with the real App Secret from the **Dashboard** Meta app
+  (App ID `1622746365465041`) — `signature on` now shows.
+- **Access token replaced** with a fresh non-expiring System User token (`lead-system`, which turned
+  out to already have Full/"Everything" access to both the Dashboard app and the "Nemnidhi Official"
+  WhatsApp Business Account — reused rather than creating a redundant System User).
+- Fix applied by re-submitting Dashboard-WhatsApp's own "Add account" form with the same Phone
+  Number ID (`1016928568166058`) — the backend upserts on `{workspaceId, phoneNumberId}`
+  (`server/routes/whatsapp.js:336`), so this updated the existing record in place rather than
+  creating a duplicate.
+- **Real send/receive round trip confirmed working**, with one non-bug caught along the way: a
+  freeform text sent to a number that had never messaged the business number first got a `200` +
+  real `wamid` from Meta's API but was **never delivered** — this is expected WhatsApp Business
+  Platform behavior (the 24-hour customer-service session window; freeform messages only deliver to
+  a number that has messaged in first, templates are exempt). Once the user messaged the business
+  number from their real phone, the session opened, the automation's template reply delivered
+  immediately, and subsequent freeform replies delivered with normal ~20-30s latency. Worth
+  remembering next time a "message didn't arrive" report comes in before assuming it's a bug.
+
+**Real numbers, for reference**: Phone `+918269150205` ("Nemnidhi"), Phone Number ID
+`1016928568166058`, WhatsApp Business Account ID `26206774228927667` ("Nemnidhi Official"), Meta app
+`Dashboard` (App ID `1622746365465041`).
+
+## Tech Provider onboarding + Advanced Access — already further along than assumed — 2026-08-18
+
+User's stated goal: become a high-end WhatsApp BSP (automations + AI + CRM per client), and wants
+to front-load anything Meta-review-gated since review lead times are long. Investigated the
+Dashboard app's real state rather than assuming:
+- **Independent Tech Provider status**: completed this session (one click, both prerequisites —
+  Business verification, App review — were already green). Required before Embedded Signup or
+  managing other businesses' WhatsApp assets at scale.
+- **`whatsapp_business_management` and `whatsapp_business_messaging` Advanced Access: already
+  approved**, via a submission from **2026-08-13** — predates this session, nobody had it recorded.
+  This means the single biggest review-time-sensitive blocker for a multi-client BSP model
+  (managing/messaging on behalf of *other* businesses' WABAs, not just Nemnidhi's own) is already
+  cleared. **What's actually left to reach a self-serve multi-client model is engineering
+  (Embedded Signup integration), not waiting on Meta.**
+- **Three more permissions identified as relevant to the BSP ambition, all still requiring App
+  Review, none yet submitted:**
+  1. **Marketing Messages Lite API** ("Improve ROI with marketing messages with optimizations") —
+     ML-based send-time optimization/frequency capping for `MARKETING`-category templates. Upgrades
+     the existing campaign-sending feature's deliverability/quality, doesn't add new capability.
+  2. **Conversions API for WhatsApp** ("Get actionable insights from Conversions API") — reports
+     server-side business outcomes (deal closed, purchase made) back to Meta tied to the originating
+     WhatsApp conversation, closing the loop between ad spend and real revenue (not just lead-form
+     fills). Directly plugs into the existing Meta Lead Ads → Vega (`meta_ads_launch`) → WhatsApp
+     pipeline built the same day on the Vega side — see Vega's `HANDOFF.md`.
+  3. **Marketing API — Click-to-WhatsApp ads** ("Drive discovery and demand") — programmatic
+     creation/management of ads that open a WhatsApp conversation on click, via the Marketing API
+     instead of manually in Ads Manager. Matches the "Meta ads" pillar already in the 6-pillar
+     pack-tier model from `nemnidhi-ecosystem-map.md`.
+- **User's decision**: build the minimum real feature needed to demonstrate each of these three in
+  an actual App Review submission (Meta requires a working demo, not a description — confirmed this
+  explicitly rather than assuming, after initially giving vaguer, less-grounded reasoning about
+  "burning review history" that didn't hold up and was corrected), **starting with Marketing API
+  (Click-to-WhatsApp ads) first.** Not yet built as of this handoff — this is the next work.
+
+## Also see "Strategy discussion: competitive gaps and long-term vision" below - the planning
+conversation that an earlier session's work (pack-tier entitlements, the Dashboard→Vega feed) was
 scoped from.
 
 ## Pack-tier entitlements, Dashboard→Vega feed, AI reply-assist — 2026-08-16, DONE, all deployed
