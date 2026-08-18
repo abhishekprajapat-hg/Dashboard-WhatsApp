@@ -1366,7 +1366,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "integrations" && (
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "integrations" && activeTab !== "ads" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>
