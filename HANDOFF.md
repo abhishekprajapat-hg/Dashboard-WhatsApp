@@ -84,6 +84,23 @@ already carries `error.meta` with the full payload; it's just not surfaced in th
 today (`ads.js` only forwards `error.message`/`error.code`) - worth logging `error.meta` server-side
 on failure if this happens again.
 
+## App Review submission for ads_management/ads_read — drafted 2026-08-19, waiting on Meta's 24h test-call propagation
+
+Justification text and a ~2min screencast (`Ads Manager - Manage ads - Campaigns - Ulaa
+2026-08-19 01-21-33.mp4`, saved in `C:\Users\HP\Videos\Captures`) are ready and uploaded into the
+App Review submission form for `ads_management` - reused for `ads_read` too, same as the existing
+WhatsApp review's one-recording-for-both-permissions pattern. See `docs/META_APP_REVIEW_ADS.md`
+for the exact text and screencast script.
+
+**Confirmed directly in Meta's own submission form UI, not inferred**: "Make sure you've completed
+the required API test calls for added permissions. Completed test calls can take up to 24 hours to
+show for your app." This is why the Requirements panel's "1 successful API test call" item stayed
+gray even after the real production campaign-creation call (see the two sections above) - it's
+processing lag, officially documented by Meta's own form, not a real gap. **Do not re-diagnose this
+as stuck again** - just recheck the Requirements panel a few hours to a day later; once
+`ads_management` shows "1 of 1 API call(s) required" instead of "0 of 1," come back to this same
+draft submission and finish it.
+
 ## READ THIS FIRST — where the ads work actually stands, 2026-08-18 end of session
 
 **The immediate next action is a single API call that was never run.** A **sandbox ad account was
