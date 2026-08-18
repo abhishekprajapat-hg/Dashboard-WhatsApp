@@ -11,6 +11,79 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## RESOLVED 2026-08-19 — the whole ads_management blocker was a wrong ad account ID, not a Meta tier issue
+
+**Supersedes every diagnosis below about the Marketing API Access Tier being the root cause.** The
+multi-day, multi-session `(#200) "Ad account owner has NOT grant ads_management or ads_read
+permission"` error — the tier theory, the re-tested OAuth consent, the System User task-permission
+changes, the sandbox ad account detour — was diagnosed against **`act_638172839578849`**, an ad
+account ID that turned out not to be the real one. The actual "Nemnidhi Personal Ads" account,
+confirmed directly from Business Settings → Accounts → Ad accounts, is **`act_338172839578849`**
+(first digit 3, not 6) - a one-digit transcription error made once, early on, and silently inherited
+by every subsequent session's notes and by the app's own stored `MetaAdsAccount` record, never
+cross-checked against Meta's literal UI digits until now.
+
+Confirmed with a direct side-by-side curl using the identical token:
+```
+act_338172839578849 (correct) -> {"name":"Nemnidhi Personal Ads","currency":"INR","account_status":1,...}
+act_638172839578849 (wrong, used everywhere until now) -> same (#200) error as always
+```
+
+Everything diagnosed in "Click-to-WhatsApp ads: the real-ad-account blocker, fully diagnosed" below
+(Marketing API Access Tier = Limited access, the bootstrapping trap, the sandbox ad account escape
+hatch) may still be independently true as *general* facts about this app's Marketing API state, but
+**none of it was actually why real campaigns couldn't be created** - the account being called just
+wasn't the right one. The sandbox ad account (`act_1211245004535801`) is a real, separate asset that
+might still be useful later, but it was an unnecessary detour for this specific blocker.
+
+**Fixed and reconnected 2026-08-19**: `act_338172839578849` reconnected in Dashboard-WhatsApp's
+Settings -> Ads with a new non-expiring System User (`lead-system`) token carrying
+`ads_management`+`ads_read`, Page `822153367655733`. "Test connection" (the app's real backend code
+path, not a curl test) confirmed connected with no error - the first genuine, real (non-sandbox)
+successful Marketing API call this app has ever made against its own real ad account.
+
+**How to apply**: before ever touching the ads_management/Marketing API Access Tier saga again,
+confirm which literal ad account ID is in play - it's `338172839578849`, not `638172839578849`.
+Every reference to `act_638172839578849` in the sections below describes a misdiagnosis chasing the
+wrong account, not the real account's actual behavior.
+
+## Two real Meta API payload bugs found and fixed, 2026-08-19 - first time campaign creation ever reached real Meta validation
+
+With the correct ad account finally in play, `createClickToWhatsAppCampaign` (`server/services/
+metaAdsProvider.js`) got run for real for the first time - every previous attempt had died
+immediately at `(#200)` before Meta ever validated the campaign/ad-set payload shape itself. Two
+genuinely new Meta API requirements surfaced, neither related to permissions or account access,
+both confirmed by reproducing the exact same calls directly via curl before touching the code:
+
+1. **Campaign creation** now requires an explicit `is_adset_budget_sharing_enabled` boolean
+   whenever the campaign doesn't use a campaign-level budget (this code budgets per ad set via
+   `daily_budget`, so `false`). Without it: `(#100) Invalid parameter` /
+   `error_subcode 4834011`, `error_user_title: "Must specify True or False in
+   is_adset_budget_sharing_enabled field"`.
+2. **Ad set creation** now requires an explicit `bid_strategy` for this `optimization_goal`
+   (`CONVERSATIONS`) + `billing_event` (`IMPRESSIONS`) combination - Meta no longer defaults one.
+   Set to `LOWEST_COST_WITHOUT_CAP` (no bid cap, matches this feature's zero-spend-risk /
+   always-`PAUSED` design intent). Without it: `(#100) Invalid parameter` /
+   `error_subcode 2490487`, `error_user_title: "Bid Amount Or Bid Constraints Required For Bid
+   Strategy"`.
+
+Both fixed in `metaAdsProvider.js`'s `createClickToWhatsAppCampaign`, verified by reproducing
+campaign creation -> ad set creation end to end via curl against the real `act_338172839578849`
+before editing the source (each diagnostic campaign deleted immediately after, zero clutter left on
+the Meta side). Not yet verified: the third call in the chain, ad creation (`/ads` with the
+uploaded image's `image_hash`) - untested because it needs a real image file, which wasn't
+available outside the browser session. **Next real test**: retry "Create campaign" in Settings ->
+Ads through the actual UI (exercises the real image upload + all three calls end to end) once this
+fix is deployed.
+
+**How to apply**: if `createClickToWhatsAppCampaign` ever errors again with a Meta `(#100) Invalid
+parameter`, always read `error_user_title`/`error_user_msg` (not just `message`) - Meta's Graph API
+routinely adds new required fields to existing objectives/optimization-goal combinations without
+notice, and the generic top-level message never says which field. `graphRequest`'s thrown error
+already carries `error.meta` with the full payload; it's just not surfaced in the route's response
+today (`ads.js` only forwards `error.message`/`error.code`) - worth logging `error.meta` server-side
+on failure if this happens again.
+
 ## READ THIS FIRST — where the ads work actually stands, 2026-08-18 end of session
 
 **The immediate next action is a single API call that was never run.** A **sandbox ad account was

@@ -102,6 +102,9 @@ export async function createClickToWhatsAppCampaign(account, { name, dailyBudget
       objective: "OUTCOME_ENGAGEMENT",
       status: "PAUSED",
       special_ad_categories: [],
+      // Meta now requires this explicitly whenever the campaign doesn't use a campaign-level
+      // budget (budget is set per ad set below, via daily_budget).
+      is_adset_budget_sharing_enabled: false,
     },
   });
 
@@ -114,6 +117,9 @@ export async function createClickToWhatsAppCampaign(account, { name, dailyBudget
       optimization_goal: "CONVERSATIONS",
       destination_type: "WHATSAPP",
       billing_event: "IMPRESSIONS",
+      // Meta now requires an explicit bid strategy - it no longer defaults one for this
+      // optimization goal/billing event combination.
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
       daily_budget: dailyBudgetMinorUnits,
       status: "PAUSED",
       promoted_object: {
