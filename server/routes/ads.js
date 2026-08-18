@@ -4,6 +4,7 @@ import { z } from "zod";
 import { MetaAdCampaign, MetaAdsAccount } from "../models/index.js";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
+import { notifyWorkspace } from "../services/notifications.js";
 import { trimmedString } from "../utils/zodHelpers.js";
 import {
   createClickToWhatsAppCampaign,
@@ -117,6 +118,10 @@ adsRouter.post("/accounts/:id/test", requirePermission("ads:write"), requireEnti
     account.lastTestedAt = new Date();
     account.lastError = error.message || "Connection test failed.";
     await account.save();
+    notifyWorkspace(req.user.workspaceId, "adsNeedsAttention", {
+      subject: `Meta Ads account "${account.adAccountId}" needs attention`,
+      body: `The connection test for "${account.adAccountId}" failed: ${account.lastError}`,
+    });
     res.status(error.status || 502).json({
       error: error.code || "CONNECTION_TEST_FAILED",
       message: error.message || "Connection test failed.",

@@ -42,6 +42,7 @@ import {
   testWhatsAppAccount,
   testIntegrationWebhook,
   updateIntegrations,
+  updateNotifications,
   updateCurrentWorkspace,
 } from "../lib/api";
 
@@ -81,7 +82,14 @@ interface SettingsPayload {
   whatsappAccounts: WhatsAppAccount[];
   templates: Template[];
   integrations: IntegrationsPayload;
+  notifications: NotificationsPayload;
   roles: { id: string; name: string; permissions: string[] }[];
+}
+
+interface NotificationsPayload {
+  enabled: boolean;
+  recipientEmail: string;
+  events: { whatsappNeedsAttention: boolean; adsNeedsAttention: boolean };
 }
 
 interface AiProviderConfig {
@@ -163,6 +171,11 @@ const initialSettings: SettingsPayload = {
     },
     email: { enabled: false, apiKey: "", fromAddress: "", fromName: "" },
     sms: { enabled: false, accountSid: "", authToken: "", fromNumber: "" },
+  },
+  notifications: {
+    enabled: false,
+    recipientEmail: "",
+    events: { whatsappNeedsAttention: true, adsNeedsAttention: true },
   },
   roles: [],
 };
@@ -282,6 +295,9 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [integrationForm, setIntegrationForm] = useState<IntegrationsPayload>(initialSettings.integrations);
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [integrationNotice, setIntegrationNotice] = useState("");
+  const [notificationsForm, setNotificationsForm] = useState<NotificationsPayload>(initialSettings.notifications);
+  const [notificationsSaving, setNotificationsSaving] = useState(false);
+  const [notificationsNotice, setNotificationsNotice] = useState("");
   const [copiedValue, setCopiedValue] = useState("");
   const [accountTesting, setAccountTesting] = useState("");
   const [conversionTesting, setConversionTesting] = useState("");
@@ -298,6 +314,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       setSettings(settingsResponse);
       setWhatsappConsole(consoleResponse);
       setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
+      setNotificationsForm(settingsResponse.notifications || initialSettings.notifications);
     } catch (error) {
       setSettingsNotice(error instanceof Error ? error.message : "Settings could not be loaded.");
       setSettings(initialSettings);
@@ -475,6 +492,22 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       setIntegrationNotice(error instanceof Error ? error.message : "Test webhook failed.");
     } finally {
       setIntegrationSaving(false);
+    }
+  }
+
+  async function handleNotificationsSave(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canWrite) return;
+    setNotificationsSaving(true);
+    setNotificationsNotice("");
+    try {
+      const response = await updateNotifications<{ notifications: NotificationsPayload }>(notificationsForm);
+      setNotificationsForm(response.notifications);
+      setNotificationsNotice("Notification preferences saved.");
+    } catch (error) {
+      setNotificationsNotice(error instanceof Error ? error.message : "Notification preferences could not be saved.");
+    } finally {
+      setNotificationsSaving(false);
     }
   }
 
@@ -1366,7 +1399,84 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "integrations" && activeTab !== "ads" && (
+        {activeTab === "notifications" && (
+          <div className="max-w-xl space-y-4">
+            <Card className={`p-4 ${cardClass}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <Bell size={16} className="text-primary" />
+                <h3 className="text-sm font-medium text-foreground">Notifications</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get an email when a connected WhatsApp or Meta Ads account needs attention. Sent through the
+                email provider configured on the Integrations tab.
+              </p>
+            </Card>
+
+            <form onSubmit={handleNotificationsSave} className={`space-y-4 ${cardClass} p-4`}>
+              <div className="flex items-center justify-between">
+                <Label>Enable notifications</Label>
+                <input
+                  type="checkbox"
+                  checked={notificationsForm.enabled}
+                  onChange={(event) => setNotificationsForm((current) => ({ ...current, enabled: event.target.checked }))}
+                  disabled={!canWrite}
+                  className="h-4 w-4"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Recipient email</Label>
+                <Input
+                  type="email"
+                  value={notificationsForm.recipientEmail}
+                  onChange={(event) => setNotificationsForm((current) => ({ ...current, recipientEmail: event.target.value }))}
+                  placeholder="alerts@yourbusiness.com"
+                  disabled={!canWrite}
+                  className={fieldClass}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Alert me when</Label>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">A connected WhatsApp account needs attention</span>
+                  <input
+                    type="checkbox"
+                    checked={notificationsForm.events.whatsappNeedsAttention}
+                    onChange={(event) => setNotificationsForm((current) => ({ ...current, events: { ...current.events, whatsappNeedsAttention: event.target.checked } }))}
+                    disabled={!canWrite}
+                    className="h-4 w-4"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">A connected Meta Ads account needs attention</span>
+                  <input
+                    type="checkbox"
+                    checked={notificationsForm.events.adsNeedsAttention}
+                    onChange={(event) => setNotificationsForm((current) => ({ ...current, events: { ...current.events, adsNeedsAttention: event.target.checked } }))}
+                    disabled={!canWrite}
+                    className="h-4 w-4"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={notificationsSaving}>
+                  {notificationsSaving ? "Saving..." : "Save notifications"}
+                </Button>}
+                {notificationsNotice && (
+                  <span className={`rounded-md border px-3 py-2 text-xs ${/failed|could not|error/i.test(notificationsNotice) ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
+                    {notificationsNotice}
+                  </span>
+                )}
+              </div>
+              {notificationsForm.enabled && !integrationForm.email.enabled && (
+                <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+                  Email delivery isn&apos;t configured yet - set it up on the Integrations tab first, otherwise these alerts won&apos;t actually send.
+                </div>
+              )}
+            </form>
+          </div>
+        )}
+
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "notifications" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>

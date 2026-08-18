@@ -486,6 +486,17 @@ export function testIntegrationWebhook<T>(payload: { url: string; secret?: strin
   });
 }
 
+export function updateNotifications<T>(notifications: {
+  enabled?: boolean;
+  recipientEmail?: string;
+  events?: { whatsappNeedsAttention?: boolean; adsNeedsAttention?: boolean };
+}) {
+  return request<T>("/settings/notifications", {
+    method: "PUT",
+    body: JSON.stringify(notifications),
+  });
+}
+
 export function createWhatsAppAccount<T>(account: {
   provider?: string;
   displayName: string;

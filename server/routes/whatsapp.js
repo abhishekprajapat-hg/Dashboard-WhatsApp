@@ -17,6 +17,7 @@ import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
+import { notifyWorkspace } from "../services/notifications.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
@@ -505,6 +506,10 @@ whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), a
     account.lastTestedAt = new Date();
     account.lastError = error.message || "Connection test failed.";
     await account.save();
+    notifyWorkspace(req.user.workspaceId, "whatsappNeedsAttention", {
+      subject: `WhatsApp account "${account.displayName}" needs attention`,
+      body: `The connection test for "${account.displayName}" (${account.phoneNumber}) failed: ${account.lastError}`,
+    });
     res.status(error.status || 502).json({
       error: error.code || "CONNECTION_TEST_FAILED",
       message: error.message || "Connection test failed.",

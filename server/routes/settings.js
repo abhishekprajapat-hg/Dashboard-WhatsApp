@@ -62,6 +62,17 @@ export const testWebhookSchema = z.object({
   secret: z.string().optional().default(""),
 });
 
+// Kept deliberately small - real, already-emittable events (whatsapp.js/ads.js's own
+// needs_attention transitions) rather than a large speculative catalog nothing fires yet.
+export const notificationsSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  recipientEmail: z.union([z.literal(""), z.string().email("Must be a valid email address.")]).default(""),
+  events: z.object({
+    whatsappNeedsAttention: z.boolean().optional().default(true),
+    adsNeedsAttention: z.boolean().optional().default(true),
+  }).optional().default({}),
+});
+
 function defaultIntegrations() {
   return {
     outboundWebhook: { enabled: false, url: "", secret: "" },
@@ -69,6 +80,23 @@ function defaultIntegrations() {
     aiProviders: { openai: { enabled: false, apiKey: "" }, claude: { enabled: false, apiKey: "" }, gemini: { enabled: false, apiKey: "" } },
     email: { enabled: false, apiKey: "", fromAddress: "", fromName: "" },
     sms: { enabled: false, accountSid: "", authToken: "", fromNumber: "" },
+  };
+}
+
+function defaultNotifications() {
+  return {
+    enabled: false,
+    recipientEmail: "",
+    events: { whatsappNeedsAttention: true, adsNeedsAttention: true },
+  };
+}
+
+function mergeNotifications(stored = {}) {
+  const defaults = defaultNotifications();
+  return {
+    ...defaults,
+    ...stored,
+    events: { ...defaults.events, ...stored.events },
   };
 }
 
@@ -132,6 +160,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
         permissions: role.permissions,
       })),
       integrations: mergeIntegrations(workspace?.settings?.integrations),
+      notifications: mergeNotifications(workspace?.settings?.notifications),
     });
   }
 
@@ -139,6 +168,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
     whatsappAccounts: [],
     templates: [],
     integrations: defaultIntegrations(),
+    notifications: defaultNotifications(),
     roles: Object.entries(roleDefinitions).map(([key, role]) => ({ id: `role_${key}`, key, ...role })),
   });
 });
@@ -168,6 +198,26 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), validat
   await currentWorkspace.save();
 
   res.json({ integrations });
+});
+
+settingsRouter.put("/notifications", requirePermission("settings:write"), validateBody(notificationsSchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const currentWorkspace = await Workspace.findById(req.user.workspaceId);
+  if (!currentWorkspace) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
+  }
+
+  const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
+  const notifications = { enabled: req.body.enabled, recipientEmail: req.body.recipientEmail, events: req.body.events };
+
+  currentWorkspace.settings = { ...settings, notifications };
+  currentWorkspace.markModified("settings");
+  await currentWorkspace.save();
+
+  res.json({ notifications });
 });
 
 settingsRouter.post("/integrations/test-webhook", requirePermission("settings:write"), validateBody(testWebhookSchema), async (req, res) => {
