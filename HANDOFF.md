@@ -3,11 +3,57 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff includes two new feature commits on top of `f7f4e25`** (Click-to-WhatsApp
-ads + Conversions API demos, both built for App Review submissions — see their own sections below),
-plus the account-config work described in "Workspace #1 WhatsApp connection." **Deploy note: this
-repo's 5-minute cron auto-deploys `main`** — confirm the live commit actually matches after pushing,
-same "don't trust it silently" discipline as Vega's manual deploy.
+**HEAD as of this handoff: `611fe90`** — three commits on top of `f7f4e25` (`0eab0fd` the
+ads+conversions feature build, `611fe90` a real bug fix to it, see below). Both deployed and
+confirmed live via the 5-minute cron. **Deploy note: this repo's cron auto-deploys `main`** —
+confirm the live commit actually matches after pushing, same "don't trust it silently" discipline
+as Vega's manual deploy. Client and server can end up on different effective versions if only one
+side's cache/process picks up a push — see the settings.js bug below for a real example of what
+that desync can hide.
+
+## Click-to-WhatsApp ads: blocked on a genuine Meta App Review requirement — 2026-08-18
+
+After the feature itself was built and deployed (see "Click-to-WhatsApp ads + Conversions API"
+below), actually creating a real campaign hit a hard wall that is **not fixable by more
+configuration** — confirmed through extensive direct testing, not assumed:
+
+- `POST act_638172839578849/...` (Nemnidhi Personal Ads) fails every time with
+  `(#200) Ad account owner has NOT grant ads_management or ads_read permission`, regardless of:
+  - Which token is used — tried a `lead-system` System User token (confirmed via `debug_token`:
+    valid, non-expiring, `ads_management`+`ads_read` genuinely present in `scopes`) **and** a
+    personal user token generated as the actual ad account owner (Somil Jain, confirmed "Full
+    access" on the ad account in Business Settings) with the same scopes explicitly re-consented
+    through Graph API Explorer. Both fail identically.
+  - The ad-account-level people permission (`lead-system` was upgraded from generic "Full access"
+    to explicit "Partial access: Manage campaigns (ads)" mid-session — did not fix it either).
+- **Real root cause**: the Dashboard app's **Marketing API Access Tier** shows **"Limited access"**
+  (visible on the "Create & manage ads with Marketing API" use case's Permissions and features
+  page). This is a *separate* Meta approval gate from the `ads_management` permission itself —
+  Limited/Development tier restricts real (non-test) ad account access at the app level,
+  independent of which token or how much Business Manager access it has.
+- **The bootstrapping problem, worth knowing before trying this again**: `ads_management` needs a
+  successful real API call to move from "Ready for testing" to "Ready to publish" (the status this
+  session has repeatedly seen gate whether Advanced Access can even be requested — same pattern as
+  `whatsapp_business_management`/`messaging`, which got there from real successful calls earlier
+  today). But every real call against this ad account fails *because of* Limited access tier — so
+  the usage counter is stuck at 0 and can't self-resolve through more testing.
+- **Not yet tried**: clicking "Actions" → checking whether "Request Advanced Access" (or equivalent)
+  is actually available on `ads_management` despite the 0-call counter — some Meta permissions allow
+  starting a review submission on the strength of a written explanation + demo video without a hard
+  usage-count gate. This is the next thing to check, not yet confirmed either way.
+- **The "Samvid Os Campaign" the user tried to create doesn't exist** — every creation attempt
+  failed at the Graph API call inside `metaAdsProvider.js`'s `createClickToWhatsAppCampaign`, so
+  nothing was ever actually created on Meta's side this session (the campaign the user thought
+  they'd deleted from an earlier session was likely something else, or never existed either — no
+  real paused campaign has existed since the original one built earlier today, which nobody
+  confirmed still exists on Meta's side after all this).
+
+**Bottom line**: the ads feature's *code* is done, deployed, and correct — verified end-to-end
+against Meta's real API errors, not guessed at. What's blocked is a genuine Meta-side App Review /
+access-tier approval, not anything fixable in this repo. Conversions API is in a similar but
+distinct spot — its code works, but the App Review demo needs a real `ctwa_clid` from a genuine
+Click-to-WhatsApp ad click, which requires *this* ads blocker to clear first (or a real ad running
+through some other path) before that demo can be produced either.
 
 ## Click-to-WhatsApp ads + Conversions API — built for Meta App Review demos — 2026-08-18
 
@@ -37,6 +83,19 @@ demo without needing the (deliberately still-paused) ad campaign to ever go live
 **Both verified via `npm run check`** (server syntax check, 144 files; client `tsc --noEmit`, 0
 errors) — no server-spawning e2e tests possible in this dev environment's sandbox (pre-existing,
 documented limitation, unrelated to this work).
+
+**Real deploy bug caught by the user's own testing, not review**: the initial build (`0eab0fd`) was
+committed and pushed but sat undeployed for a while (production code and local code diverged - a
+reminder to always push+deploy in the same breath, not just build and move on). After deploying,
+saving a WhatsApp account's new `conversionsDatasetId` field appeared to silently fail in the UI (no
+button showing, `Save account` briefly appeared stuck). Traced live with the user via DevTools
+Network tab rather than guessed at: the `POST /whatsapp/accounts` save and its response were both
+genuinely correct (`conversionsDatasetId` present in the real response body) - the actual bug was
+`server/routes/settings.js`'s **separate, hand-maintained copy** of the WhatsApp account
+serialization (used by the account-list endpoint the client refetches after saving), which had never
+been updated alongside `server/routes/whatsapp.js`'s own `serializeAccount()`. Fixed in `611fe90` -
+**worth remembering that this codebase has at least two independent serializations of
+`WhatsAppAccount` that must be kept in sync by hand**, not one shared function reused everywhere.
 
 **Real user-facing setup still needed** (same category as the WhatsApp App Secret/token work below —
 entering real credentials into a live form is something done directly by the user, not automated):
