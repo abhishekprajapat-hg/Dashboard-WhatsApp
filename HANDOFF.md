@@ -3,57 +3,100 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `611fe90`** — three commits on top of `f7f4e25` (`0eab0fd` the
-ads+conversions feature build, `611fe90` a real bug fix to it, see below). Both deployed and
-confirmed live via the 5-minute cron. **Deploy note: this repo's cron auto-deploys `main`** —
-confirm the live commit actually matches after pushing, same "don't trust it silently" discipline
-as Vega's manual deploy. Client and server can end up on different effective versions if only one
-side's cache/process picks up a push — see the settings.js bug below for a real example of what
-that desync can hide.
+**HEAD as of this handoff: `757da3c`** — three commits on top of `f7f4e25` (`0eab0fd` the
+ads+conversions feature build, `611fe90` a real bug fix to it, `757da3c` handoff notes). All
+deployed and confirmed live via the 5-minute cron. **Deploy note: this repo's cron auto-deploys
+`main`** — confirm the live commit actually matches after pushing, same "don't trust it silently"
+discipline as Vega's manual deploy. Client and server can end up on different effective versions if
+only one side's cache/process picks up a push — see the settings.js bug below for a real example of
+what that desync can hide.
 
-## Click-to-WhatsApp ads: blocked on a genuine Meta App Review requirement — 2026-08-18
+## READ THIS FIRST — where the ads work actually stands, 2026-08-18 end of session
+
+**The immediate next action is a single API call that was never run.** A **sandbox ad account was
+created** (`act_1211245004535801`, currency INR, Page "Nemnidhi" `822153367655733` associated) via
+the Dashboard app → "Create & manage ads with Marketing API" use case → **Tools** tab → "New Sandbox
+Ad Account". Meta's own tier note on that page: *"Your app is on the `development_access` tier, which
+means that you can create up to 1 sandbox ad account(s)."* **The call against it was never
+tested** — this environment's Bash tool went unavailable (classifier overloaded) at exactly that
+moment, and the session ended before it came back. So:
+
+1. **Test `ads_read`/`ads_management` against the sandbox account.** A plain read is enough:
+   `GET /v24.0/act_1211245004535801?fields=name,currency,account_status`. Use a personal user token
+   for the **Dashboard** app (App ID `1622746365465041`) carrying `ads_management`+`ads_read` —
+   generate a fresh one via Graph API Explorer, they expire in ~1-2h so the ones in this session's
+   history are dead.
+2. **If it succeeds**, that is very likely the whole unlock: both `ads_management` and `ads_read`
+   show **"0 of 1 API call(s) required"** on the use case's Permissions and features page, so *one*
+   successful call should flip each to "Completed" and make the App Review submission possible.
+   Then create a real Click-to-WhatsApp campaign through Dashboard-WhatsApp's own Ads tab against
+   the sandbox account (which is exactly the "our integration really works" demo App Review wants).
+3. **If it fails the same way**, the sandbox theory is dead too and the honest remaining options are
+   the ones already weighed with the user: submit App Review with a code walkthrough instead of a
+   live-fire demo, or wait until a real ad campaign can run through some other path.
+
+**Do not re-derive the blocker from scratch** — it cost most of a session. The full diagnosis is
+immediately below.
+
+## Click-to-WhatsApp ads: the real-ad-account blocker, fully diagnosed — 2026-08-18
 
 After the feature itself was built and deployed (see "Click-to-WhatsApp ads + Conversions API"
-below), actually creating a real campaign hit a hard wall that is **not fixable by more
-configuration** — confirmed through extensive direct testing, not assumed:
+below), creating a real campaign hit a wall that is **not fixable by more configuration**, confirmed
+through exhaustive direct testing rather than assumed:
 
-- `POST act_638172839578849/...` (Nemnidhi Personal Ads) fails every time with
-  `(#200) Ad account owner has NOT grant ads_management or ads_read permission`, regardless of:
-  - Which token is used — tried a `lead-system` System User token (confirmed via `debug_token`:
-    valid, non-expiring, `ads_management`+`ads_read` genuinely present in `scopes`) **and** a
-    personal user token generated as the actual ad account owner (Somil Jain, confirmed "Full
-    access" on the ad account in Business Settings) with the same scopes explicitly re-consented
-    through Graph API Explorer. Both fail identically.
-  - The ad-account-level people permission (`lead-system` was upgraded from generic "Full access"
-    to explicit "Partial access: Manage campaigns (ads)" mid-session — did not fix it either).
-- **Real root cause**: the Dashboard app's **Marketing API Access Tier** shows **"Limited access"**
-  (visible on the "Create & manage ads with Marketing API" use case's Permissions and features
-  page). This is a *separate* Meta approval gate from the `ads_management` permission itself —
-  Limited/Development tier restricts real (non-test) ad account access at the app level,
-  independent of which token or how much Business Manager access it has.
-- **The bootstrapping problem, worth knowing before trying this again**: `ads_management` needs a
-  successful real API call to move from "Ready for testing" to "Ready to publish" (the status this
-  session has repeatedly seen gate whether Advanced Access can even be requested — same pattern as
-  `whatsapp_business_management`/`messaging`, which got there from real successful calls earlier
-  today). But every real call against this ad account fails *because of* Limited access tier — so
-  the usage counter is stuck at 0 and can't self-resolve through more testing.
-- **Not yet tried**: clicking "Actions" → checking whether "Request Advanced Access" (or equivalent)
-  is actually available on `ads_management` despite the 0-call counter — some Meta permissions allow
-  starting a review submission on the strength of a written explanation + demo video without a hard
-  usage-count gate. This is the next thing to check, not yet confirmed either way.
-- **The "Samvid Os Campaign" the user tried to create doesn't exist** — every creation attempt
-  failed at the Graph API call inside `metaAdsProvider.js`'s `createClickToWhatsAppCampaign`, so
-  nothing was ever actually created on Meta's side this session (the campaign the user thought
-  they'd deleted from an earlier session was likely something else, or never existed either — no
-  real paused campaign has existed since the original one built earlier today, which nobody
-  confirmed still exists on Meta's side after all this).
+- `act_638172839578849` (**Nemnidhi Personal Ads**, the real production ad account) fails every
+  time with `(#200) Ad account owner has NOT grant ads_management or ads_read permission`.
+- **Every plausible cause was ruled out by testing, not reasoning:**
+  - **System User token** (`lead-system`) — `debug_token` confirmed valid, non-expiring,
+    `ads_management`+`ads_read` genuinely present in both `scopes` and `granular_scopes`. Fails.
+  - **Personal user token as the actual ad account owner** (Somil Jain, "Full access" on the ad
+    account in Business Settings) with the same scopes. Fails identically.
+  - **Ad-account-level task permission** — `lead-system` was changed from generic "Full access" to
+    explicit "Partial access: Manage campaigns (ads), View performance, Manage Creative Hub
+    mockups". No change.
+  - **The formal OAuth consent dialog** that Meta's own Marketing API authorization docs prescribe
+    for this exact situation (`facebook.com/v25.0/dialog/oauth?client_id=…&scope=ads_management`) —
+    completed successfully end to end ("Somil Jain has been connected to Dashboard", with the
+    consent screen explicitly listing "Manage ads for ad accounts that you have access to" and
+    "Access your Facebook ads and related stats"). A token generated *after* that consent **still
+    fails identically.** This was the most promising theory and it is definitively dead.
+- **Real root cause**: the Dashboard app's **Marketing API Access Tier** is **"Limited access"**
+  (a.k.a. `development_access`) — a *separate* Meta gate from the `ads_management` permission
+  itself. Meta's docs describe Limited access as *"Heavily rate-limited per ad account. For
+  development only. Not for production apps running for live advertisers."* It restricts real ad
+  account access at the **app** level, so no token, consent, or Business-Manager permission can work
+  around it.
+- **The bootstrapping trap**: `ads_management` needs successful API calls to progress, but calls
+  against the real ad account fail *because of* the tier — so the counter sits at 0 and cannot
+  self-resolve. **The sandbox ad account above is the intended escape hatch from exactly this
+  trap** (Meta's docs and the app's own Tools tab both point at it).
+- **Terminology worth knowing** (Meta renamed these and the docs are confusing): "Ads Management
+  Standard Access" is now "Marketing API Access Tier"; its levels were renamed **Standard→Limited**
+  and **Advanced→Full**. Separately, *permissions* still have their own standard/advanced access
+  levels. The **500 Marketing API calls in 15 days / <15% error rate** requirement belongs to
+  upgrading the **tier to Full**, *not* to getting `ads_management` reviewed — those are different
+  things and conflating them wastes time. Per Meta's docs, for managing **your own** ad account,
+  standard access to `ads_read`/`ads_management` is supposed to be sufficient.
+- **No real campaign exists on Meta's side.** Every creation attempt failed inside
+  `metaAdsProvider.js`'s `createClickToWhatsAppCampaign`, so "Samvid Os Campaign" was never created.
+  Nobody re-confirmed whether the original paused campaign from earlier in the day still exists
+  either — treat "there is no live or paused Click-to-WhatsApp campaign" as the working assumption
+  until verified.
 
-**Bottom line**: the ads feature's *code* is done, deployed, and correct — verified end-to-end
-against Meta's real API errors, not guessed at. What's blocked is a genuine Meta-side App Review /
-access-tier approval, not anything fixable in this repo. Conversions API is in a similar but
-distinct spot — its code works, but the App Review demo needs a real `ctwa_clid` from a genuine
-Click-to-WhatsApp ad click, which requires *this* ads blocker to clear first (or a real ad running
-through some other path) before that demo can be produced either.
+**Config changed on the Dashboard app while chasing this** (harmless, but worth knowing it wasn't
+there before): "Create & manage ads with Marketing API" use case **added** to the app;
+`dashboard.nemnidhi.com` added to **App domains**; `https://dashboard.nemnidhi.com/` added to
+**Facebook Login for Business → Settings → Valid OAuth Redirect URIs** (the App-domains field alone
+is *not* enough for the OAuth dialog — it validates against this separate list, which cost a few
+rounds to discover).
+
+**Bottom line**: the ads feature's *code* is done, deployed, and correct — every failure this
+session came from Meta's access tier, and each one was diagnosed against real API responses. The
+Conversions API code is likewise done and deployed, but its App Review demo is **transitively
+blocked**: Meta rejects a synthetic `ctwa_clid` outright (`error_subcode 2804087`, *"The ctwa_clid
+parameter is invalid"*) and rejects omitting it (`2804071`, *"missing a ctwa_clid parameter"*), and
+`test_event_code` does **not** relax that validation — so a genuine ad click is required, which
+needs the ads blocker cleared first.
 
 ## Click-to-WhatsApp ads + Conversions API — built for Meta App Review demos — 2026-08-18
 
@@ -77,8 +120,24 @@ already captured on `Contact`/`Message` (`server/routes/whatsapp.js:597,647`) bu
 before reaching `Lead` — added `Lead.metaCtwaClid` to fix that, independent of Conversions API. New
 `WhatsAppAccount.conversionsDatasetId`/`conversionsTestEventCode` fields (reuses the account's
 existing encrypted access token, no new credential storage) and a "Send test conversion event"
-button on the account card, using Meta's real `test_event_code` mechanism — lets this get a genuine
-demo without needing the (deliberately still-paused) ad campaign to ever go live first.
+button on the account card, using Meta's `test_event_code` mechanism.
+
+**Correction to the original plan, proven wrong by testing**: the `test_event_code` route was
+supposed to allow a genuine demo *without* a live ad campaign. It does not — Meta validates
+`ctwa_clid` as a real signed token it issued from an actual ad click, and `test_event_code` only
+re-routes otherwise-valid events to the Test Events console rather than relaxing validation. Both
+failure modes were confirmed by direct API call (see "Bottom line" above for the exact error
+subcodes). **The Conversions API demo therefore requires a real ad click**, same as production.
+
+**Production config is already in place on the live WhatsApp account** (entered by the user this
+session, verified saved via the real POST response): Conversions **Dataset ID `1380752696776303`**
+(dataset named "Nemnidhi", created in Events Manager as a *Direct integration* Messaging data
+source, associated with Page `822153367655733`), **test event code `TEST7167`**. Events Manager's
+Test Events tab for that dataset is already correctly scoped to Messaging → WhatsApp and confirmed
+functional, so the moment a real `ctwa_clid` exists this path can be exercised immediately. Note the
+Events Manager wizard's own "Confirm Setup" button gave no visible feedback on click — the setup
+*had* genuinely gone through; verify via the dataset's Test Events tab rather than trusting the
+button's silence.
 
 **Both verified via `npm run check`** (server syntax check, 144 files; client `tsc --noEmit`, 0
 errors) — no server-spawning e2e tests possible in this dev environment's sandbox (pre-existing,
@@ -97,15 +156,19 @@ been updated alongside `server/routes/whatsapp.js`'s own `serializeAccount()`. F
 **worth remembering that this codebase has at least two independent serializations of
 `WhatsAppAccount` that must be kept in sync by hand**, not one shared function reused everywhere.
 
-**Real user-facing setup still needed** (same category as the WhatsApp App Secret/token work below —
-entering real credentials into a live form is something done directly by the user, not automated):
-connect a real Meta Ads account + create one real paused campaign (Ads tab); get a real Conversions
-Dataset ID + test event code from Meta Events Manager and enter them on the WhatsApp account (done
-live this session — Dataset `1380752696776303`, "Nemnidhi" dataset, associated Page `822153367655733`
-"Nemnidhi" since no Page was formally pre-linked to the WABA anywhere in Business Settings — checked
-directly rather than assumed). Once both are exercised for real, their permissions
-(`ads_management`, `whatsapp_business_manage_events`) should flip from "Ready for testing" to "Ready
-to publish" on the relevant app, which is what actually unlocks submitting each for App Review.
+**Current live state of both integrations' config** (all entered by the user this session — entering
+real credentials into a live form is done by the user directly, not automated):
+- **Conversions API: fully configured**, Dataset `1380752696776303` + `TEST7167` saved on the real
+  WhatsApp account. Blocked only on a real `ctwa_clid`.
+- **Ads: ad account connected but `needs_attention`** — `act_638172839578849` (Nemnidhi Personal Ads)
+  is saved in Settings → Ads with Page `822153367655733`, and its stored `lastError` is the `(#200)`
+  tier error. Once the sandbox path (top of this file) works, either reconnect against
+  `act_1211245004535801` or keep both; the connect form upserts on `adAccountId`, so saving a
+  different one creates a second row rather than replacing the first.
+- Note "no Page was formally pre-linked to the WABA anywhere in Business Settings" — checked
+  directly across all three Pages' Connected assets tabs rather than assumed. Page
+  `822153367655733` ("Nemnidhi") was chosen deliberately for consistency across the ad campaign, the
+  Conversions dataset, and the sandbox ad account, since Meta records no canonical link itself.
 
 ## Workspace #1 WhatsApp connection — actually already existed, then fixed — 2026-08-18
 
