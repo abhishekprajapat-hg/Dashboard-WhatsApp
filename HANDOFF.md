@@ -32,13 +32,24 @@ and subscribe the app to that WABA's webhooks (`POST /{waba-id}/subscribed_apps`
 plugs into Inbox/campaigns/templates/notifications/the Vega feed for free - no separate downstream
 code path.
 
-**Two genuine prerequisites, not yet done, both outside this codebase:**
-1. A Meta **Embedded Signup Configuration ID** must be created once in App Dashboard -> Facebook
-   Login for Business -> Configurations. There's no API for this - it's a manual one-time setup
-   step tied to which permissions/WABA scope the popup will request.
-2. `VITE_META_APP_ID` (public, `1622746365465041`) and `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID` (from
-   step 1) need setting in the client's production env, plus `META_APP_ID` server-side (reuses the
-   existing `WHATSAPP_APP_SECRET` for the code exchange, no new secret needed).
+**Both prerequisites done and deployed, 2026-08-19 morning:**
+1. Configuration ID `2138964750340250` created in App Dashboard -> Facebook Login for Business ->
+   Configurations, scoped to just **WhatsApp Cloud API + Marketing Messages API for WhatsApp**
+   (deliberately excluded Click to WhatsApp Ads / Click to Direct Ads / Click to Messenger Ads /
+   Conversions API - none of those have a client-facing onboarding flow built yet, and Products
+   "can't be changed later" per Meta's own UI, so kept this config minimal). Assets: WhatsApp
+   accounts only, default Manage task permission. Permissions: the 2 pre-populated
+   (`whatsapp_business_management`/`whatsapp_business_messaging`), nothing added.
+2. `META_APP_ID=1622746365465041` set in `/opt/dashboard-whatsapp/server/.env`, `dashboard-api`
+   restarted via `pm2 restart dashboard-api --update-env`. `VITE_META_APP_ID`/
+   `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID` set in `/opt/dashboard-whatsapp/client/.env`, client
+   rebuilt (`npm run build`). **Verified live, not just deployed** - confirmed
+   `dashboard.nemnidhi.com` serves the new bundle hash and that the built JS actually contains the
+   literal Configuration ID string, not just that the build command exited 0.
+
+**Still not done**: a real end-to-end test of the actual popup flow (click "Connect with Facebook"
+in Settings -> WhatsApp, complete Meta's popup, confirm a real `WhatsAppAccount` appears). Code and
+config are both live; the live click-through hasn't happened yet.
 
 **Not yet tested against a real popup flow** - needs the Configuration ID to exist first. Once it
 does, the real test is connecting a genuinely different WABA (not Nemnidhi's own `+918269150205`)
