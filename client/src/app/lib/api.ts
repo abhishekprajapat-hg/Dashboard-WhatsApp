@@ -526,6 +526,19 @@ export function deleteWhatsAppAccount(id: string) {
   });
 }
 
+export function completeEmbeddedSignup<T>(payload: {
+  code: string;
+  wabaId: string;
+  phoneNumberId: string;
+  displayName?: string;
+  phoneNumber?: string;
+}) {
+  return request<T>("/whatsapp/accounts/embedded-signup", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function testConversionEvent<T>(id: string) {
   return request<T>(`/whatsapp/accounts/${id}/test-conversion-event`, {
     method: "POST",

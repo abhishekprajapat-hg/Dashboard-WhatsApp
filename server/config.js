@@ -20,6 +20,16 @@ export const config = {
   credentialEncryptionSecret: process.env.WHATSAPP_CREDENTIAL_SECRET || process.env.CREDENTIAL_ENCRYPTION_KEY || "dev-only-credential-secret-change-me",
   metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || "v21.0",
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || "local-whatsapp-verify-token",
+  // Embedded Signup: appId is public (shipped to the client for the JS SDK), appSecret is the
+  // same Dashboard app secret WHATSAPP_APP_SECRET already uses for webhook signatures - one app,
+  // one secret, not a second credential to manage. embeddedSignupConfigId is a Configuration ID
+  // created once in App Dashboard -> Facebook Login for Business -> Configurations - there's no
+  // API to create it, it's a manual one-time setup step, not something this app can provision.
+  meta: {
+    appId: process.env.META_APP_ID || "",
+    appSecret: process.env.WHATSAPP_APP_SECRET || "",
+    embeddedSignupConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID || "",
+  },
   demoMode: process.env.DEMO_MODE !== "false",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
   cdnBaseUrl: process.env.CDN_BASE_URL || "",

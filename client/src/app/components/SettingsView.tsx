@@ -30,6 +30,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
+import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
   createWhatsAppAccount,
   createWhatsAppTemplate,
@@ -302,6 +303,12 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [accountTesting, setAccountTesting] = useState("");
   const [conversionTesting, setConversionTesting] = useState("");
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
+  const [embeddedSignupPin, setEmbeddedSignupPin] = useState("");
+
+  async function handleEmbeddedSignupConnected({ pin }: { accountId: string; pin: string }) {
+    setEmbeddedSignupPin(pin);
+    await loadSettings();
+  }
 
   async function loadSettings() {
     setLoading(true);
@@ -593,6 +600,21 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                 Add account
               </Button>}
             </div>
+
+            {canWrite && embeddedSignupPin && (
+              <Card className={`p-4 border-primary/40 bg-primary/5 ${cardClass}`}>
+                <p className="text-sm font-medium text-foreground">Account connected - save this two-step verification PIN now</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is the number&apos;s new WhatsApp two-step verification PIN. It won&apos;t be shown again - store it somewhere safe.
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="rounded-md border border-border bg-background/80 px-3 py-1.5 text-sm font-semibold tracking-widest text-foreground">{embeddedSignupPin}</code>
+                  <Button type="button" size="sm" variant="outline" className="h-8 text-xs border-border" onClick={() => setEmbeddedSignupPin("")}>Dismiss</Button>
+                </div>
+              </Card>
+            )}
+
+            {canWrite && <EmbeddedSignupButton onConnected={handleEmbeddedSignupConnected} />}
 
             <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4">
               {[

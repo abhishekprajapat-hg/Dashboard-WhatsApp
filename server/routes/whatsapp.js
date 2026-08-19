@@ -19,6 +19,7 @@ import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
 import { notifyWorkspace } from "../services/notifications.js";
 import { notifyVega } from "../services/vegaIntegration.js";
+import { completeEmbeddedSignup } from "../services/embeddedSignup.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
@@ -304,6 +305,14 @@ export const connectAccountSchema = z.object({
   conversionsTestEventCode: z.string().optional().default(""),
 });
 
+export const embeddedSignupSchema = z.object({
+  code: trimmedString("Authorization code is required."),
+  wabaId: trimmedString("WhatsApp Business Account ID is required."),
+  phoneNumberId: trimmedString("Phone number ID is required."),
+  displayName: z.string().optional().default(""),
+  phoneNumber: z.string().optional().default(""),
+});
+
 whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBody(connectAccountSchema), async (req, res) => {
   const {
     provider: providerKey,
@@ -369,6 +378,57 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
   );
 
   res.status(201).json({ data: serializeAccount(account) });
+});
+
+// The self-serve counterpart to the manual "Add account" form above - a client completes Meta's
+// Embedded Signup popup entirely themselves (no phone/business/token details to hunt down and
+// hand to Nemnidhi staff), the browser posts the resulting code/wabaId/phoneNumberId here, and
+// this does the same three server-side calls every Tech Provider integration needs before the
+// account is usable: exchange the code, register the number, subscribe to its webhooks.
+whatsappRouter.post("/accounts/embedded-signup", requirePermission("settings:write"), validateBody(embeddedSignupSchema), async (req, res) => {
+  const { code, wabaId, phoneNumberId, displayName, phoneNumber } = req.body;
+
+  let accessToken;
+  let pin;
+  try {
+    ({ accessToken, pin } = await completeEmbeddedSignup({ code, wabaId, phoneNumberId }));
+  } catch (error) {
+    logger.warn({ err: error, wabaId, phoneNumberId }, "Embedded Signup completion failed");
+    return res.status(error.status || 502).json({
+      error: error.code || "EMBEDDED_SIGNUP_FAILED",
+      message: error.message || "Embedded Signup could not be completed.",
+    });
+  }
+
+  const account = await WhatsAppAccount.findOneAndUpdate(
+    { workspaceId: req.user.workspaceId, phoneNumberId },
+    {
+      organizationId: req.user.organizationId,
+      workspaceId: req.user.workspaceId,
+      displayName: displayName || `WhatsApp ${phoneNumber || phoneNumberId}`,
+      phoneNumber: phoneNumber || "",
+      phoneNumberId,
+      businessAccountId: wabaId,
+      encryptedCredentials: encodeCredentials({
+        provider: "meta",
+        accessToken,
+        verifyToken: config.whatsappVerifyToken,
+        appSecret: config.meta.appSecret,
+      }),
+      provider: "meta",
+      providerConfig: { webhookPath: "/webhooks/whatsapp" },
+      webhookStatus: "healthy",
+      templateSyncStatus: "pending",
+      status: "connected",
+      lastError: "",
+      credentialsUpdatedAt: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  // pin is intentionally only ever in this one response, never stored - it's the account's new
+  // two-step verification PIN, shown once so the customer can save it themselves.
+  res.status(201).json({ data: serializeAccount(account), pin });
 });
 
 whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), async (req, res) => {
