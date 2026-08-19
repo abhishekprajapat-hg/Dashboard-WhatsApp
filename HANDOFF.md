@@ -11,6 +11,41 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## WhatsApp Embedded Signup — built 2026-08-19, the real Tier-2 BSP unlock
+
+Closes the actual remaining piece of the multi-client BSP ambition. Advanced Access on
+`whatsapp_business_management`/`whatsapp_business_messaging` is already approved (2026-08-13), so
+the only thing left blocking self-serve client onboarding was engineering, not Meta review - a
+client having to hand phone number ID, business account ID, and an access token to Nemnidhi staff
+manually, instead of connecting their own WABA themselves through a popup.
+
+**Built**: `client/src/app/components/EmbeddedSignupButton.tsx` (loads the Facebook JS SDK, opens
+the popup via `FB.login()`, reconciles two independent async signals - the authorization code from
+`FB.login`'s callback, and the `waba_id`/`phone_number_id` from a separate `window` `postMessage`
+event of `type: "WA_EMBEDDED_SIGNUP"` - before submitting) and
+`POST /whatsapp/accounts/embedded-signup` (`server/services/embeddedSignup.js`), which does the
+three server-side calls every Tech Provider integration needs: exchange the code for a Business
+Integration System User token (`GET /oauth/access_token`), register the phone number
+(`POST /{id}/register`, a fresh 2FA PIN generated server-side and returned once - never stored),
+and subscribe the app to that WABA's webhooks (`POST /{waba-id}/subscribed_apps`). The resulting
+`WhatsAppAccount` record has the exact same shape as the existing manual "Add account" flow, so it
+plugs into Inbox/campaigns/templates/notifications/the Vega feed for free - no separate downstream
+code path.
+
+**Two genuine prerequisites, not yet done, both outside this codebase:**
+1. A Meta **Embedded Signup Configuration ID** must be created once in App Dashboard -> Facebook
+   Login for Business -> Configurations. There's no API for this - it's a manual one-time setup
+   step tied to which permissions/WABA scope the popup will request.
+2. `VITE_META_APP_ID` (public, `1622746365465041`) and `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID` (from
+   step 1) need setting in the client's production env, plus `META_APP_ID` server-side (reuses the
+   existing `WHATSAPP_APP_SECRET` for the code exchange, no new secret needed).
+
+**Not yet tested against a real popup flow** - needs the Configuration ID to exist first. Once it
+does, the real test is connecting a genuinely different WABA (not Nemnidhi's own `+918269150205`)
+through the popup end to end, confirming a new `WhatsAppAccount` appears with a real, usable
+message-send capability - same "prove it with a real object, not just green output" discipline as
+everything else tonight.
+
 ## Dashboard→Vega feed — three new event types, 2026-08-19
 
 Closes the "more event types beyond plan_changed" gap flagged in the 2026-08-16 build below.
