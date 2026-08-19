@@ -62,6 +62,7 @@ export const createCampaignSchema = z.object({
   audienceType: z.string().optional().default("all"),
   templateId: optionalObjectIdString,
   templateBId: optionalObjectIdString,
+  useMarketingMessagesLite: z.boolean().optional().default(false),
   status: z.string().optional().default("draft"),
   scheduledAt: optionalDateString("Scheduled date must be a valid date."),
   recurring: z.boolean().optional().default(false),
@@ -173,6 +174,7 @@ function serializeCampaign(campaign) {
     templateName: campaign.templateId?.name || campaign.templateName || "",
     language: campaign.templateId?.language || campaign.language || "en",
     templateId: campaign.templateId?._id?.toString?.() || campaign.templateId?.toString?.() || "",
+    useMarketingMessagesLite: Boolean(campaign.useMarketingMessagesLite),
     failed: Number(metrics.failed || 0),
     failures: Number(metrics.failed || 0),
     queued: Number(queue.queued || 0),
@@ -491,6 +493,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     audienceType,
     templateId,
     templateBId,
+    useMarketingMessagesLite,
     status,
     scheduledAt,
     recurring,
@@ -524,6 +527,13 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     return res.status(400).json({ error: "WHATSAPP_REQUIRED", message: "Connect WhatsApp and sync templates before creating campaigns." });
   }
 
+  if (useMarketingMessagesLite && String(template.category || "").toUpperCase() !== "MARKETING") {
+    return res.status(400).json({
+      error: "MARKETING_MESSAGES_LITE_INVALID_CATEGORY",
+      message: "Marketing Messages Lite is only available for templates in Meta's MARKETING category.",
+    });
+  }
+
   const cleanStatus = requireApproval && status !== "draft" ? "pending_approval" : dbStatus(status);
 
   const campaign = await Campaign.create({
@@ -533,6 +543,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     whatsappAccountId: account._id,
     templateId: template._id,
     templateName: template.name,
+    useMarketingMessagesLite,
     language: template.language || "en",
     templateIds: [template._id, ...(templateBId && mongoose.Types.ObjectId.isValid(templateBId) ? [templateBId] : [])],
     type,

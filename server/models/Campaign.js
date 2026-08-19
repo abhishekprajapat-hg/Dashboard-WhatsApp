@@ -13,6 +13,10 @@ const campaignSchema = new mongoose.Schema(
     audienceFilter: { type: mongoose.Schema.Types.Mixed, default: {} },
     audienceFilters: { type: mongoose.Schema.Types.Mixed, default: {} },
     type: { type: String, enum: ["template", "bulk", "scheduled", "recurring", "ab_test"], default: "template", index: true },
+    // Routes sends through Meta's /marketing_messages endpoint instead of /messages -
+    // send-time optimization/frequency-cap handling for MARKETING-category templates only.
+    // No new permission needed, reuses whatsapp_business_messaging (already approved).
+    useMarketingMessagesLite: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ["draft", "pending_approval", "approved", "rejected", "scheduled", "queued", "sending", "sent", "paused", "cancelled", "failed"],

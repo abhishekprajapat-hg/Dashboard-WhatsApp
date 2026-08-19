@@ -474,7 +474,7 @@ function buildTemplateComponents(template, parameters = []) {
   return components;
 }
 
-export async function sendWhatsAppTemplate({ account, to, template, parameters = [] }) {
+export async function sendWhatsAppTemplate({ account, to, template, parameters = [], useMarketingMessagesLite = false }) {
   if (!account || !template) {
     return {
       providerMessageId: `local_template_${Date.now()}`,
@@ -549,7 +549,13 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
   const components = buildTemplateComponents(template, parameters);
   if (components.length) templatePayload.components = components;
 
-  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`;
+  // Marketing Messages Lite is a routing choice, not a different message shape - Meta's own docs
+  // describe /marketing_messages as "a similar technical schema and same billing model" as the
+  // regular /messages endpoint. Only send MARKETING-category templates through it (the campaign
+  // route validates this before it ever reaches here); other categories always use /messages.
+  const isMarketingCategory = String(template.category || "").toUpperCase() === "MARKETING";
+  const endpoint = useMarketingMessagesLite && isMarketingCategory ? "marketing_messages" : "messages";
+  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/${endpoint}`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -581,6 +587,7 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
     mode: "meta",
     to: recipient,
     template: template.name,
+    viaMarketingMessagesLite: endpoint === "marketing_messages",
   };
 }
 export async function fetchWhatsAppTemplates(account) {

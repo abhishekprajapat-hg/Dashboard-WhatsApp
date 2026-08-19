@@ -195,6 +195,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
     audienceType: "all",
     templateId: "",
     templateBId: "",
+    useMarketingMessagesLite: false,
     status: "draft",
     scheduledAt: "",
     recurring: false,
@@ -279,6 +280,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
         audienceFilters,
         templateId: form.templateId,
         templateBId: form.abTest ? form.templateBId : undefined,
+        useMarketingMessagesLite: form.useMarketingMessagesLite,
         status: form.status,
         scheduledAt: form.scheduledAt || undefined,
         recurring: form.recurring || form.type === "recurring",
@@ -539,6 +541,17 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                   <label className="block space-y-1.5">
                     <span className="text-[11px] font-medium text-muted-foreground">A/B split</span>
                     <input type="number" min={1} max={99} value={form.split} onChange={(event) => setForm((current) => ({ ...current, split: Number(event.target.value) }))} className={fieldClass} />
+                  </label>
+                )}
+                {selectedTemplate?.category?.toUpperCase() === "MARKETING" && (
+                  <label className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/60 px-2 py-2 text-[11px] text-muted-foreground">
+                    <span>Marketing Messages Lite (send-time optimization)</span>
+                    <input
+                      type="checkbox"
+                      checked={form.useMarketingMessagesLite}
+                      onChange={(event) => setForm((current) => ({ ...current, useMarketingMessagesLite: event.target.checked }))}
+                      className="h-4 w-4 accent-primary"
+                    />
                   </label>
                 )}
                 <div className="rounded-md border border-border bg-background/60 p-3 text-[11px] text-muted-foreground">

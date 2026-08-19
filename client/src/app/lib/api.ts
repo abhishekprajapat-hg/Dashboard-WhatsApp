@@ -683,6 +683,7 @@ export function createCampaign<T>(campaign: {
   };
   templateId?: string;
   templateBId?: string;
+  useMarketingMessagesLite?: boolean;
   status?: string;
   scheduledAt?: string;
   recurring?: boolean;
