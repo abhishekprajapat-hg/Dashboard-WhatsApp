@@ -18,6 +18,7 @@ import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
 import { notifyWorkspace } from "../services/notifications.js";
+import { notifyVega } from "../services/vegaIntegration.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
@@ -491,6 +492,8 @@ whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), a
     return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
   }
 
+  const wasNeedsAttention = account.status === "needs_attention";
+
   try {
     const result = await testWhatsAppConnection(account);
     account.status = "connected";
@@ -499,6 +502,14 @@ whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), a
     account.lastTestedAt = new Date();
     account.lastError = "";
     await account.save();
+    // Only worth telling Vega about a recovery, not every routine "still healthy" test click -
+    // the interesting signal is the account coming back, not that it stayed fine.
+    if (wasNeedsAttention) {
+      notifyVega(account.organizationId.toString(), "whatsapp_account_recovered", {
+        accountId: account._id.toString(),
+        phoneNumber: account.phoneNumber,
+      }).catch(() => undefined);
+    }
     res.json({ result, account: serializeAccount(account) });
   } catch (error) {
     account.status = "needs_attention";
@@ -510,6 +521,11 @@ whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), a
       subject: `WhatsApp account "${account.displayName}" needs attention`,
       body: `The connection test for "${account.displayName}" (${account.phoneNumber}) failed: ${account.lastError}`,
     });
+    notifyVega(account.organizationId.toString(), "whatsapp_account_needs_attention", {
+      accountId: account._id.toString(),
+      phoneNumber: account.phoneNumber,
+      error: account.lastError,
+    }).catch(() => undefined);
     res.status(error.status || 502).json({
       error: error.code || "CONNECTION_TEST_FAILED",
       message: error.message || "Connection test failed.",

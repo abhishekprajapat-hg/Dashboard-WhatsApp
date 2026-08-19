@@ -3,6 +3,7 @@ import { Campaign, Contact, Conversation, Message, Template, WhatsAppAccount } f
 import { publishConversationChanged, publishWorkspaceEvent } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
 import { logger } from "./logger.js";
+import { notifyVega } from "./vegaIntegration.js";
 import { sendWhatsAppTemplate } from "./whatsappProvider.js";
 
 const CAMPAIGN_QUEUE = "campaigns";
@@ -244,6 +245,16 @@ async function finalizeRecipientResult({ campaignId, workspaceId, contactObjectI
       { type: "send_completed", actorUserId: userId, at: new Date(), sent: updated.metrics?.sent, failed: updated.metrics?.failed },
     ];
     await updated.save();
+
+    // Real usage/activity signal for Vega's account-health copilot - up to now the Dashboard->Vega
+    // feed only ever carried plan_changed, so dashboardLastEventAt only moved on plan changes, not
+    // on genuine product usage. Fired once per campaign (not per-recipient) to stay low-volume.
+    notifyVega(updated.organizationId.toString(), "campaign_completed", {
+      campaignId: updated._id.toString(),
+      status: updated.status,
+      sent: updated.metrics?.sent || 0,
+      failed: updated.metrics?.failed || 0,
+    }).catch(() => undefined);
   }
 
   publishWorkspaceEvent(workspaceId, "campaign", {
