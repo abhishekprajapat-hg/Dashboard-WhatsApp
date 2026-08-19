@@ -11,6 +11,27 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Marketing Messages Lite (MM Lite) — built 2026-08-19, corrects an earlier framing mistake
+
+**Corrects this file's own earlier claim** (in "Tech Provider onboarding" below) that Marketing
+Messages Lite API "requires App Review" like the other two BSP-scaling permissions. It doesn't -
+confirmed via research before writing any code: MM Lite reuses `whatsapp_business_messaging`
+(already approved 2026-08-13) and is a **self-serve Business Manager opt-in** (accept terms at
+Business Settings -> Requests, BMID level), not an App Review submission at all.
+
+**Built**: `Campaign.useMarketingMessagesLite` (new model field), enforced to MARKETING-category
+templates only (both server-side in `campaigns.js` and client-side in `CampaignsView.tsx` - the
+toggle only renders when the selected template's category is MARKETING). When set,
+`whatsappProvider.js`'s `sendWhatsAppTemplate` routes the send through
+`/{phoneNumberId}/marketing_messages` instead of `/{phoneNumberId}/messages` - Meta's own docs
+describe it as "a similar technical schema and same billing model," so this is a routing change,
+not a different payload shape.
+
+**Not yet tested against a real send** - needs a Business Manager admin to accept the MM Lite terms
+first (Business Settings -> Requests), a manual step outside this codebase. Once accepted, Meta
+notes up to 15 minutes for configuration to sync before sends will actually route through the lite
+endpoint successfully.
+
 ## RESOLVED 2026-08-19 — the whole ads_management blocker was a wrong ad account ID, not a Meta tier issue
 
 **Supersedes every diagnosis below about the Marketing API Access Tier being the root cause.** The
