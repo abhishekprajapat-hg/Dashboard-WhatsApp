@@ -11,6 +11,29 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Dashboard→Vega feed — three new event types, 2026-08-19
+
+Closes the "more event types beyond plan_changed" gap flagged in the 2026-08-16 build below.
+`notifyVega()` was already generic (any `event` string + `data` payload); these three are new
+call sites, same fire-and-forget discipline as the existing `plan_changed` wiring in `admin.js`:
+- **`campaign_completed`** (`campaignSender.js`, once per campaign when every recipient has been
+  processed, not per-recipient) - the first real usage/activity signal on this feed, not just
+  plan-tier data.
+- **`whatsapp_account_needs_attention`** / **`whatsapp_account_recovered`** (`whatsapp.js`'s
+  connection-test handler, reusing the exact hook point wired for the new Notifications feature
+  above) - recovery only fires when the account was genuinely previously `needs_attention`, not on
+  every routine successful test click.
+
+**Not verified on Vega's receiving side** - Vega's `POST /api/integrations/dashboard-events` route
+(per its own `HANDOFF.md`) was built to specifically handle `plan_changed` and update
+`Client.dashboardPlan`/`dashboardPlanUpdatedAt`. Whether it does anything useful with these three
+new event names, or just logs-and-ignores them (its own catch-all logging line was added
+specifically to distinguish "never called" from "called, nothing matched" - see the 2026-08-17
+production note below), needs checking from Vega's side, not assumed from here. Flag this as the
+next real step for whoever's working there next: consume `campaign_completed` and
+`whatsapp_account_*` to give the account-health copilot (`lib/clients/health.ts`) actual usage
+data instead of only plan-trend data.
+
 ## Marketing Messages Lite (MM Lite) — built 2026-08-19, corrects an earlier framing mistake
 
 **Corrects this file's own earlier claim** (in "Tech Provider onboarding" below) that Marketing
