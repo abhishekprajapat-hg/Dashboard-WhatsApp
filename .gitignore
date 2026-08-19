@@ -37,3 +37,4 @@ Thumbs.db
 .idea/
 .sync-temp/
 local-db-backups/
+server/backups/

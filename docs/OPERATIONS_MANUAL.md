@@ -30,10 +30,27 @@
 
 ## Backup and Retention
 
-- MongoDB daily snapshots with point-in-time recovery for production.
-- S3 lifecycle retention by tenant policy.
-- Audit logs retained at least 180 days.
-- Webhook payload retention should be minimized or redacted for privacy.
+- **`npm run backup:mongo`** (`server/scripts/backupMongo.js`) - dumps every collection to
+  timestamped EJSON files (preserves ObjectId/Date types exactly, not just plain JSON) under
+  `server/backups/<timestamp>/`, plus a `manifest.json` with per-collection document counts. Pure
+  Node/mongoose driver, no `mongodump` binary dependency. Also prunes backup runs older than
+  `BACKUP_RETENTION_DAYS` (default 14) on every run.
+- **`npm run restore:drill`** (`server/scripts/restoreMongoDrill.js`) - restores the most recent
+  (or a named) backup into a separate `<dbname>_restore_drill` database by default, verifying
+  every collection's restored document count against the backup's manifest. Refuses to restore
+  into the real `MONGODB_URI` database without an explicit `--confirm-overwrite-target` flag - a
+  real restore always needs to be provably safe to run without asking "will this destroy
+  production data" first.
+- **Not yet scheduled**: neither script has a cron entry on the VPS yet - `npm run backup:mongo`
+  needs to actually be added to a daily cron (same `sudo -u dashboard` pattern as
+  `prune:audit-logs`) before "we have backups" is true in production, not just locally available
+  tooling. Verified once, locally: a real backup + restore drill round-trip against local dev data
+  (22 collections, including a 3942-row `auditlogs` collection) matched exactly, with ObjectId/Date
+  field types confirmed identical post-restore, not just document counts.
+- Audit logs retained via the existing `npm run prune:audit-logs` (`server/services/
+  auditLogRetention.js`), independent of the Mongo-wide backup above.
+- Webhook payload retention should be minimized or redacted for privacy - not yet implemented,
+  still true as an open item.
 
 ## Security Operations
 

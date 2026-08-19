@@ -11,6 +11,8 @@
         "test": "node --test --test-concurrency=1 tests/*.test.js",
         "connect:whatsapp": "node scripts/connect-whatsapp.js",
         "prune:audit-logs": "node scripts/pruneAuditLogs.js",
+        "backup:mongo": "node scripts/backupMongo.js",
+        "restore:drill": "node scripts/restoreMongoDrill.js",
         "generate:openapi": "node scripts/generateOpenApi.js",
         "sync:prod-to-local": "powershell -ExecutionPolicy Bypass -File scripts/sync-prod-to-local.ps1"
     },
