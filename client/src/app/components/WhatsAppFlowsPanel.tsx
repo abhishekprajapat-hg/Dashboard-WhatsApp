@@ -59,6 +59,7 @@ export function WhatsAppFlowsPanel() {
   const [createForm, setCreateForm] = useState({ whatsappAccountId: "", template: "", name: "" });
   const [busyFlowId, setBusyFlowId] = useState("");
   const [sendTargets, setSendTargets] = useState<Record<string, string>>({});
+  const [success, setSuccess] = useState("");
 
   async function loadData() {
     setLoading(true);
@@ -92,6 +93,7 @@ export function WhatsAppFlowsPanel() {
     event.preventDefault();
     setCreating(true);
     setNotice("");
+    setSuccess("");
     try {
       await createWhatsAppFlow({
         whatsappAccountId: createForm.whatsappAccountId,
@@ -111,6 +113,7 @@ export function WhatsAppFlowsPanel() {
   async function handlePublish(id: string) {
     setBusyFlowId(id);
     setNotice("");
+    setSuccess("");
     try {
       await publishWhatsAppFlow(id);
       await loadData();
@@ -129,9 +132,13 @@ export function WhatsAppFlowsPanel() {
     }
     setBusyFlowId(id);
     setNotice("");
+    setSuccess("");
     try {
       await sendWhatsAppFlow(id, { to });
-      setNotice(`Flow sent to ${to}.`);
+      setSuccess(
+        `Flow send accepted by WhatsApp for ${to}. If this is the first message to that number, it won't actually ` +
+          `deliver until they've messaged your business number first - non-template messages need an open 24-hour session.`
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not send the flow.");
     } finally {
@@ -167,6 +174,12 @@ export function WhatsAppFlowsPanel() {
       {notice && (
         <Card className={`p-3 border-destructive/40 bg-destructive/5 ${cardClass}`}>
           <p className="text-xs text-destructive">{notice}</p>
+        </Card>
+      )}
+
+      {success && (
+        <Card className={`p-3 border-primary/40 bg-primary/5 ${cardClass}`}>
+          <p className="text-xs text-primary">{success}</p>
         </Card>
       )}
 
