@@ -156,15 +156,27 @@ code path.
    `dashboard.nemnidhi.com` serves the new bundle hash and that the built JS actually contains the
    literal Configuration ID string, not just that the build command exited 0.
 
-**Still not done**: a real end-to-end test of the actual popup flow (click "Connect with Facebook"
-in Settings -> WhatsApp, complete Meta's popup, confirm a real `WhatsAppAccount` appears). Code and
-config are both live; the live click-through hasn't happened yet.
+**Real popup click-through tested 2026-08-21 - partially verified, not a bug found.** The user
+clicked "Connect with Facebook" in Settings -> WhatsApp for real. The popup genuinely completed
+Facebook login and reached Meta's own "Add your WhatsApp phone number" step - proves
+`EmbeddedSignupButton.tsx`'s `FB.login()` wiring and the Configuration ID are both correct and
+live. Entering Nemnidhi's own number (`+918269150205`) there correctly failed with Meta's own
+error: *"This number is registered to an existing WhatsApp account. To use this number, disconnect
+it from the existing account..."* (`#N/A:01a02553-6d61-73dd-82ff-3202bb79a47b`) - **this is Meta's
+real validation working as designed, not a defect** - that number is already claimed by the old
+manual-connect WABA (`26206774228927667`), so a second claim via this new path is correctly
+refused.
 
-**Not yet tested against a real popup flow** - needs the Configuration ID to exist first. Once it
-does, the real test is connecting a genuinely different WABA (not Nemnidhi's own `+918269150205`)
-through the popup end to end, confirming a new `WhatsAppAccount` appears with a real, usable
-message-send capability - same "prove it with a real object, not just green output" discipline as
-everything else tonight.
+**What this does and doesn't prove:** confirms the popup, Facebook login, and Meta's phone-number
+validation step are all genuinely wired and reachable end to end. **Does not yet prove** the
+success path - a brand-new `WhatsAppAccount` record actually being created via
+`POST /whatsapp/accounts/embedded-signup` - since that needs a phone number that has never been
+claimed by any WABA before. **Deliberately did not disconnect the live production number to force
+this test** - it's actively serving real traffic (65 delivered messages same day), and Meta's own
+error warns reconnection can take up to 3 minutes with no guarantee of a clean re-add; not worth
+the production risk just to exercise this one code path. **Real next step, whenever it happens
+naturally**: either a spare never-used phone number, or the first real new client onboarding
+through this button - whichever comes first is the actual remaining proof.
 
 ## Dashboard→Vega feed — three new event types, 2026-08-19
 
