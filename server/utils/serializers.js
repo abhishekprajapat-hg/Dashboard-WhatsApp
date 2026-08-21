@@ -61,6 +61,7 @@ export function serializeMessage(message) {
     content: message.body || "",
     from: message.direction === "outbound" ? "agent" : "contact",
     type: message.type || "text",
+    channel: message.channel || "whatsapp",
     time: shortTime(message.sentAt || message.receivedAt || message.createdAt),
     status: message.status,
     attachments: message.attachments || [],
@@ -110,6 +111,7 @@ export function serializeConversation(conversation, messages = [], { userId } = 
   return {
     id: conversation._id.toString(),
     contactId: contact._id?.toString?.() || "",
+    channel: conversation.channel || "whatsapp",
     name: contact.name || "Unknown contact",
     waName: contact.waName || "",
     profilePhoto: contact.profilePhoto || "",

@@ -79,13 +79,39 @@ manual dashboard setup below):**
 **Not yet verified, and can't be from this environment**: a real OAuth connect, a real send, or a
 real signature-verified webhook - all need the actual Instagram App ID/Secret and a connected
 Instagram professional account, which only exist after manual Meta Dashboard setup (see below).
-**Not built in this pass, deliberately**: Instagram messages don't yet render with any distinct UI
-in the main `InboxView`/`WhatsAppBusinessInbox` components - they're correctly stored and would
-technically list if those components query `Conversation` without a channel filter, but no channel
-badge/icon or Instagram-specific composer treatment exists yet. Also not built: an `execSendInstagram`
-automation node (the `send_flow` precedent from earlier today), Instagram in Campaigns audience
-targeting, and non-text message types (image/story-reply/reactions) - all real, scoped follow-ups,
-not overlooked.
+**Extended the same day: real Inbox routing + channel UI**, closing the gap this section originally
+flagged. Two things had to change for Instagram conversations to actually be usable through the main
+product, not just the Settings test box:
+- **`conversations.js`'s `POST /:id/messages` (the real Inbox reply endpoint) always called
+  `sendWhatsAppText`, unconditionally** - replying to an Instagram conversation from the Inbox would
+  have sent to the wrong recipient (or crashed) before this. Now branches on `conversation.channel`:
+  Instagram replies fetch the `InstagramAccount` and use `contact.instagramScopedId` as the
+  recipient via `sendInstagramMessage`; the existing WhatsApp path is untouched. Account-health
+  status updates (`needs_attention` on an auth failure) now apply per-channel too, not just to
+  `WhatsAppAccount`.
+- `serializeConversation`/`serializeMessage` (`utils/serializers.js`) now include `channel` - it
+  wasn't exposed to the client at all before, so the Inbox had no way to know which channel a
+  conversation belonged to even though the data was already stored correctly.
+- **Client**: `ConversationList.tsx` and `ChatWindow.tsx` now show a small Instagram badge (avatar
+  corner icon, gradient matching Instagram's own branding) and swap "phone number"/"Online on
+  WhatsApp" text for "Instagram DM" when `channel === "instagram"`.
+
+**Verified for real, not assumed** - seeded a fake local Instagram conversation (real `Contact`/
+`Conversation`/`InstagramAccount` docs) and a fake local WhatsApp conversation side by side, then hit
+the real `POST /:id/messages` route against both: the Instagram one correctly reached
+`graph.instagram.com` and failed with the same expected `Invalid OAuth access token` (fake local
+credentials, exactly like every other local Meta-API test today) with the message correctly marked
+`failed` and the account correctly marked `needs_attention`; **the WhatsApp one still succeeded
+(201) exactly as before** - proves the refactor of this shared, critical route didn't regress
+existing WhatsApp sends. `GET /api/conversations` was also confirmed to return the real `channel`
+field per conversation. All test data and scripts deleted afterward.
+
+**Still not built, deliberately, real scoped follow-ups**: an `execSendInstagram` automation node
+(the `send_flow` precedent from earlier today would extend directly); Instagram in Campaigns
+audience targeting; non-text message types (image/story-reply/reactions) - `sendInstagramMessage`
+and the Composer only handle plain text today, an attachment added to an Instagram reply is
+currently silently dropped rather than sent, since `sendInstagramMessage` has no attachment
+parameter yet.
 
 **Manual setup required before any of this can be tested for real - not something this app can
 provision, same category as `META_EMBEDDED_SIGNUP_CONFIG_ID` earlier:**

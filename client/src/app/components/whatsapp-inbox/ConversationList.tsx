@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { BellOff, CheckCheck, MessageSquareText, Phone, Pin, Search } from "lucide-react";
+import { BellOff, CheckCheck, Instagram, MessageSquareText, Phone, Pin, Search } from "lucide-react";
 import type { Conversation, InboxFilter } from "./types";
 import { cn, initials } from "./utils";
 
@@ -131,7 +131,13 @@ export function ConversationList({
               >
                 <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-primary to-teal-700 text-primary-foreground shadow-[0_10px_24px_rgba(37,211,102,0.14)]">
                   <div className="flex h-full w-full items-center justify-center text-sm font-semibold">{initials(conversation.name)}</div>
-                  <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-card bg-primary" />
+                  {conversation.channel === "instagram" ? (
+                    <span className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
+                      <Instagram size={9} />
+                    </span>
+                  ) : (
+                    <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-card bg-primary" />
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -141,8 +147,17 @@ export function ConversationList({
                     <div className="shrink-0 text-[11px] text-muted-foreground">{conversation.time}</div>
                   </div>
                   <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Phone size={11} />
-                    <span className="truncate">{conversation.phone || "No phone"}</span>
+                    {conversation.channel === "instagram" ? (
+                      <>
+                        <Instagram size={11} />
+                        <span className="truncate">Instagram DM</span>
+                      </>
+                    ) : (
+                      <>
+                        <Phone size={11} />
+                        <span className="truncate">{conversation.phone || "No phone"}</span>
+                      </>
+                    )}
                   </div>
                   <div className="mt-1 flex items-center gap-1.5">
                     {conversation.preview && conversation.preview !== "No messages yet" ? (

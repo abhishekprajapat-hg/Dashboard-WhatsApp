@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { AnimatePresence } from "framer-motion";
-import { ArrowLeft, CheckCircle2, Info, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Info, Instagram, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
 import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import type { Conversation, PendingMedia, WhatsAppMessage } from "./types";
@@ -151,11 +151,25 @@ export function ChatWindow({
         </button>
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-teal-700 text-sm font-semibold text-primary-foreground shadow-[0_12px_26px_rgba(37,211,102,0.16)]">
           {initials(conversation.name)}
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-primary" />
+          {conversation.channel === "instagram" ? (
+            <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
+              <Instagram size={8} />
+            </span>
+          ) : (
+            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-primary" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-foreground">{conversation.name}</div>
-          <div className="truncate text-xs text-muted-foreground">{typing ? "typing..." : conversation.agent ? `Assigned to ${conversation.agent}` : conversation.phone || "Online on WhatsApp"}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {typing
+              ? "typing..."
+              : conversation.agent
+                ? `Assigned to ${conversation.agent}`
+                : conversation.channel === "instagram"
+                  ? "Instagram DM"
+                  : conversation.phone || "Online on WhatsApp"}
+          </div>
         </div>
         <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 sm:flex" onClick={() => onAddToCrm()} disabled={crmSaving || isInCrm}>
           {isInCrm ? <CheckCircle2 size={14} /> : null}

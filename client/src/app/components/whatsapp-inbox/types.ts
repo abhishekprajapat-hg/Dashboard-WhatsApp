@@ -32,6 +32,7 @@ export interface WhatsAppMessage {
   content: string;
   from: "contact" | "agent";
   type?: MessageKind;
+  channel?: "whatsapp" | "instagram";
   time: string;
   status?: MessageStatus;
   clientMessageId?: string;
@@ -54,6 +55,7 @@ export interface Conversation {
   id: string;
   name: string;
   phone: string;
+  channel?: "whatsapp" | "instagram";
   preview: string;
   time: string;
   unread: number;

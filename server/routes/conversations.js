@@ -3,13 +3,14 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { conversations } from "../data/demoData.js";
 import { Contact, Conversation, Membership, Message, Template } from "../models/index.js";
-import { WhatsAppAccount } from "../models/index.js";
+import { InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { logger } from "../services/logger.js";
+import { sendInstagramMessage } from "../services/instagramProvider.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 import { objectIdString, optionalObjectIdString } from "../utils/zodHelpers.js";
@@ -740,8 +741,12 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       }
     }
 
-    const [account, contact] = await Promise.all([
-      WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) }).sort({ createdAt: -1 }),
+    const isInstagram = conversation.channel === "instagram";
+    const [account, instagramAccount, contact] = await Promise.all([
+      isInstagram
+        ? null
+        : WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) }).sort({ createdAt: -1 }),
+      isInstagram ? InstagramAccount.findById(conversation.instagramAccountId) : null,
       Contact.findById(conversation.contactId),
     ]);
     const outboundMessage = await Message.create({
@@ -749,7 +754,9 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       workspaceId: req.user.workspaceId,
       conversationId: conversation._id,
       contactId: conversation.contactId,
-      whatsappAccountId: conversation.whatsappAccountId || account?._id,
+      channel: isInstagram ? "instagram" : "whatsapp",
+      whatsappAccountId: isInstagram ? undefined : conversation.whatsappAccountId || account?._id,
+      instagramAccountId: isInstagram ? instagramAccount?._id : undefined,
       direction: "outbound",
       type: messageTypeForAttachments(mediaAttachments),
       body: messageBody,
@@ -758,7 +765,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       status: "queued",
       sentByUserId: req.user.sub,
       metadata: {
-        providerMode: account?.provider || "meta",
+        providerMode: isInstagram ? "instagram" : account?.provider || "meta",
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(replyToMessageId ? { replyToMessageId } : {}),
       },
@@ -772,17 +779,32 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
     let providerResult;
 
     try {
-      providerResult = await sendWhatsAppText({
-        account,
-        to: contact?.phone,
-        body: messageBody,
-        attachments: mediaAttachments,
-      });
+      if (isInstagram) {
+        if (!instagramAccount || !contact?.instagramScopedId) {
+          const error = new Error("Instagram account or recipient is missing.");
+          error.code = "INSTAGRAM_ACCOUNT_MISSING";
+          error.status = 400;
+          throw error;
+        }
+        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody });
+        providerResult.mode = "instagram";
+      } else {
+        providerResult = await sendWhatsAppText({
+          account,
+          to: contact?.phone,
+          body: messageBody,
+          attachments: mediaAttachments,
+        });
+      }
     } catch (error) {
-      if (account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
+      if (!isInstagram && account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
         account.status = "needs_attention";
         account.webhookStatus = "healthy";
         await account.save();
+      }
+      if (isInstagram && instagramAccount && (error.status === 401 || error.status === 403 || /auth|oauth/i.test(error.message))) {
+        instagramAccount.status = "needs_attention";
+        await instagramAccount.save();
       }
 
       outboundMessage.status = "failed";
@@ -802,13 +824,14 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       await publishConversationChanged(conversation._id);
 
       return res.status(error.status || 502).json({
-        error: "WHATSAPP_SEND_FAILED",
-        message: error.message || "WhatsApp message could not be sent.",
-        accountStatus: account?.status || "missing",
+        error: isInstagram ? error.code || "INSTAGRAM_SEND_FAILED" : "WHATSAPP_SEND_FAILED",
+        message: error.message || "Message could not be sent.",
+        accountStatus: (isInstagram ? instagramAccount?.status : account?.status) || "missing",
       });
     }
 
-    outboundMessage.whatsappAccountId = conversation.whatsappAccountId || account?._id;
+    outboundMessage.whatsappAccountId = isInstagram ? undefined : conversation.whatsappAccountId || account?._id;
+    outboundMessage.instagramAccountId = isInstagram ? instagramAccount?._id : undefined;
     outboundMessage.providerMessageId = providerResult.providerMessageId;
     outboundMessage.status = providerResult.status;
     outboundMessage.sentAt = new Date();
