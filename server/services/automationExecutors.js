@@ -1,12 +1,13 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
 import { sendEmail, sendSms } from "./notificationChannels.js";
 import { sendFlowMessage } from "./whatsappFlows.js";
+import { sendInstagramMessage } from "./instagramProvider.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
@@ -602,6 +603,46 @@ async function execSms({ config: cfg, env, testMode }) {
   }
 }
 
+// Reuses the generic form's "body" field, same as sms. Unlike send_message/sms, the account isn't
+// resolved from trigger.accountId - automation triggers are WhatsApp-only today (no
+// trigger.instagramAccountId concept exists), so this looks up "the" connected Instagram account
+// for the workspace directly, same fallback pattern conversations.js already uses for WhatsApp
+// when a conversation has no account of its own.
+async function execSendInstagram({ config: cfg, env, run, testMode }) {
+  const to = env.contact?.instagramScopedId;
+  const body = String(cfg?.body || "").trim();
+  if (!to) return { status: "skipped", logMessage: "Skipped send_instagram: contact has no Instagram-scoped ID", logLevel: "warn" };
+  if (!body) return { status: "skipped", logMessage: "Skipped send_instagram: empty body", logLevel: "warn" };
+
+  const account = await InstagramAccount.findOne({ workspaceId: run.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) }).sort({ createdAt: -1 });
+  if (!account) {
+    return {
+      status: "failed",
+      error: "instagram_not_connected",
+      action: { type: "send_instagram", status: "failed", error: "instagram_not_connected" },
+      logMessage: "No Instagram account connected for this workspace (Settings > Instagram)",
+      logLevel: "error",
+    };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "send_instagram", status: "skipped", skipped: true, to }, logMessage: "Instagram DM skipped in test mode" };
+  }
+
+  try {
+    const result = await sendInstagramMessage({ account, to, body });
+    return { status: "ok", action: { type: "send_instagram", status: result.status, to }, logMessage: "Instagram DM sent" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "send_instagram", status: "failed", error: error.message },
+      logMessage: "Instagram DM failed to send",
+      logLevel: "error",
+    };
+  }
+}
+
 // Config: {field} - a raw context path (same convention as condition/if_else's "field", resolved
 // via resolve() rather than {{}}-templated) pointing at the array to iterate, e.g.
 // "steps.apiNode.parsed.items" or "variables.contactList".
@@ -807,6 +848,7 @@ const executors = {
   gemini: makeAiExecutor("gemini"),
   email: execEmail,
   send_flow: execSendFlow,
+  send_instagram: execSendInstagram,
   sms: execSms,
   loop: execLoop,
   sub_workflow: execSubWorkflow,

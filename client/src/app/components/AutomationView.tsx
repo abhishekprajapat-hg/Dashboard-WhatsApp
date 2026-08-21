@@ -61,6 +61,7 @@ import {
   Lock,
   Unlock,
   Workflow,
+  Instagram,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -271,6 +272,7 @@ const nodeCatalog = [
   { kind: "gemini", label: "Gemini", icon: "Sparkles", color: "#6366f1", description: "Gemini generation step" },
   { kind: "email", label: "Email", icon: "Mail", color: "#0ea5e9", description: "Send email" },
   { kind: "sms", label: "SMS", icon: "Send", color: "#14b8a6", description: "Send SMS" },
+  { kind: "send_instagram", label: "Instagram DM", icon: "Instagram", color: "#e1306c", description: "Send an Instagram DM" },
   { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
   { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
@@ -319,6 +321,7 @@ function iconFor(name: string, size = 15) {
     Variable: <Variable size={size} />,
     Webhook: <Webhook size={size} />,
     Workflow: <Workflow size={size} />,
+    Instagram: <Instagram size={size} />,
     Zap: <Zap size={size} />,
   };
   return icons[name] || <Zap size={size} />;

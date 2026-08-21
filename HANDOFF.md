@@ -106,12 +106,32 @@ credentials, exactly like every other local Meta-API test today) with the messag
 existing WhatsApp sends. `GET /api/conversations` was also confirmed to return the real `channel`
 field per conversation. All test data and scripts deleted afterward.
 
-**Still not built, deliberately, real scoped follow-ups**: an `execSendInstagram` automation node
-(the `send_flow` precedent from earlier today would extend directly); Instagram in Campaigns
-audience targeting; non-text message types (image/story-reply/reactions) - `sendInstagramMessage`
-and the Composer only handle plain text today, an attachment added to an Instagram reply is
-currently silently dropped rather than sent, since `sendInstagramMessage` has no attachment
-parameter yet.
+**Extended a third time same day: `send_instagram` automation node.** Real design constraint worth
+remembering - automation triggers are entirely WhatsApp-only today (`trigger.accountId` always
+resolves a `WhatsAppAccount`, there's no `trigger.instagramAccountId` concept, and the Instagram
+webhook handler built earlier today doesn't call `runInboundAutomations` at all yet - an Instagram
+DM can't *trigger* a flow yet, only get messaged *by* one). So unlike `send_flow` (which reads
+`env.account`, resolved from the trigger), this node looks up "the" connected `InstagramAccount` for
+the workspace directly at execution time - same fallback pattern `conversations.js` already uses for
+WhatsApp sends with no account on the conversation. Recipient is `env.contact.instagramScopedId`;
+reuses the generic inspector form's `body` field (like `sms`), no dedicated form needed. Verified by
+calling the executor directly with mocked inputs (same technique as `send_flow` and, this time,
+caught a real bug in the *test script itself* mid-verification - had nested `config` under `node` by
+copying `send_flow`'s shape, but `send_instagram` destructures a top-level `config` param like
+`sms`/`email` do, not `node.config` - the engine actually passes both, and which one a node reads
+depends on whether it wants `{{}}`-interpolated text (top-level `config`) or a raw reference like a
+flow/template ID (`node.config`); confirmed correct behavior for all three cases afterward: no
+Instagram-scoped ID (skipped), empty body (skipped), no Instagram account connected (failed with a
+clear error)).
+
+**Still not built, deliberately, real scoped follow-ups**: **Instagram-triggered automations** (the
+gap that made the node above look up its own account rather than use trigger context - wiring the
+Instagram webhook handler to call `runInboundAutomations` the way `whatsapp.js` already does is the
+natural next step, and would make both this node and cross-channel flows actually reachable from a
+real Instagram DM); Instagram in Campaigns audience targeting; non-text message types (image/
+story-reply/reactions) - `sendInstagramMessage` and the Composer only handle plain text today, an
+attachment added to an Instagram reply is currently silently dropped rather than sent, since
+`sendInstagramMessage` has no attachment parameter yet.
 
 **Manual setup required before any of this can be tested for real - not something this app can
 provision, same category as `META_EMBEDDED_SIGNUP_CONFIG_ID` earlier:**
