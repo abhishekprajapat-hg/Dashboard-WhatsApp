@@ -75,3 +75,28 @@ test.describe("Tasks - real CRUD through the actual UI", () => {
     await expect(page.locator("tr", { hasText: title })).toHaveCount(0);
   });
 });
+
+test.describe("Contacts - real CRUD through the actual UI", () => {
+  test("create and delete a contact", async ({ page }) => {
+    const name = `E2E Contact ${Date.now()}`;
+    const phone = `+91 9${Date.now().toString().slice(-9)}`;
+
+    await page.goto("/#/contacts");
+    // Same empty-state-CTA-duplicates-the-header-button pattern as Tasks' "New task".
+    await page.getByRole("button", { name: "New lead" }).first().click();
+
+    await page.getByLabel("Name").fill(name);
+    await page.getByLabel("Phone").fill(phone);
+    await page.getByRole("button", { name: "Save contact" }).click();
+
+    const row = page.locator("tr", { hasText: name });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+
+    // The row itself opens the contact detail panel on click, so the row checkbox stops
+    // propagation - checking it selects for bulk actions instead of navigating away.
+    await row.getByRole("checkbox").check();
+    await page.getByRole("button", { name: "Delete" }).click();
+
+    await expect(page.locator("tr", { hasText: name })).toHaveCount(0);
+  });
+});

@@ -63,16 +63,24 @@ its real description text). `pageerror` (uncaught exceptions) is never filtered 
 hard-fail signal this suite relies on for real regressions.
 
 **Verified via two clean, consecutive, full 14/14-passing runs** (`npx playwright test`), not a
-single lucky pass. **Not yet committed** - pending go-ahead, same convention as every other
-ready-but-unconfirmed change in this file. Root `package-lock.json`'s Linux-only
-`optionalDependencies` block got stripped by this session's `npm install` (the now-familiar Windows
-gotcha, see "Environment gotchas" below) and was manually restored before anything else touched it.
+single lucky pass. Root `package-lock.json`'s Linux-only `optionalDependencies` block got stripped
+by this session's `npm install` (the now-familiar Windows gotcha, see "Environment gotchas" below)
+and was manually restored before anything else touched it. **Committed as `b119be8`, pushed to
+`origin/main`.**
+
+**Extended same day with a second real CRUD flow: Contacts** (`critical-path.spec.ts`'s "Contacts -
+real CRUD through the actual UI" suite) - create via the real form, then delete via the
+checkbox-select + bulk-delete-bar pattern (different from Tasks' per-row hover-delete button -
+Contacts has no per-row delete, only bulk). Same `.first()` empty-state-CTA-duplicate gotcha as
+Tasks' "New task" button, hit again here with "New lead" - worth remembering as a recurring pattern
+in this codebase's `EmptyState` component, not a one-off. Verified via two more clean, consecutive
+15/15 runs. Not yet committed as of writing this note - see below.
 
 **Not covered, deliberately left for a follow-up pass, not attempted this session:** WhatsApp
 Embedded Signup's real popup flow (needs a live Meta OAuth consent screen, can't be scripted
-end-to-end without a real second WABA); Campaigns/Templates/Contacts CRUD through the UI (Tasks was
-chosen as the first deep flow since it's the simplest full CRUD surface - the pattern established
-here extends directly); no CI wiring yet (`.github/workflows/` - this repo doesn't have a CI
+end-to-end without a real second WABA); Campaigns/Templates CRUD through the UI (Contacts and Tasks
+are done - the pattern established here extends directly to the remaining two); no CI wiring yet
+(`.github/workflows/` - this repo doesn't have a CI
 pipeline of its own beyond the deploy cron, so "run in CI" has no home yet).
 
 ## WhatsApp Embedded Signup — built 2026-08-19, the real Tier-2 BSP unlock
