@@ -75,6 +75,62 @@ export const FLOW_TEMPLATES = {
       ],
     }),
   },
+  appointment_request: {
+    label: "Appointment Request",
+    categories: ["APPOINTMENT_BOOKING"],
+    buildFlowJson: () => ({
+      version: "6.2",
+      screens: [
+        {
+          id: "APPOINTMENT_REQUEST",
+          title: "Request an appointment",
+          terminal: true,
+          success: true,
+          data: {},
+          layout: {
+            type: "SingleColumnLayout",
+            children: [
+              {
+                type: "Form",
+                name: "appointment_form",
+                children: [
+                  { type: "TextInput", name: "full_name", label: "Full name", "input-type": "text", required: true },
+                  { type: "TextInput", name: "phone", label: "Phone number", "input-type": "phone", required: true },
+                  { type: "DatePicker", name: "preferred_date", label: "Preferred date", required: true },
+                  {
+                    type: "Dropdown",
+                    name: "preferred_time",
+                    label: "Preferred time",
+                    required: true,
+                    "data-source": [
+                      { id: "morning", title: "Morning (9am - 12pm)" },
+                      { id: "afternoon", title: "Afternoon (12pm - 4pm)" },
+                      { id: "evening", title: "Evening (4pm - 7pm)" },
+                    ],
+                  },
+                  { type: "TextArea", name: "notes", label: "Anything we should know?", required: false },
+                  {
+                    type: "Footer",
+                    label: "Request appointment",
+                    "on-click-action": {
+                      name: "complete",
+                      payload: {
+                        full_name: "${form.full_name}",
+                        phone: "${form.phone}",
+                        preferred_date: "${form.preferred_date}",
+                        preferred_time: "${form.preferred_time}",
+                        notes: "${form.notes}",
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  },
 };
 
 export async function createFlow({ account, template, name }) {

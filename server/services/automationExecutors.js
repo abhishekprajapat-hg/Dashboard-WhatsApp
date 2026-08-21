@@ -1,11 +1,12 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, Tag, Task, Template } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
 import { sendEmail, sendSms } from "./notificationChannels.js";
+import { sendFlowMessage } from "./whatsappFlows.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
@@ -687,6 +688,50 @@ const MAX_SUB_WORKFLOW_DEPTH = 5;
 // child resumes independently later via its own BullMQ job, and this step reports
 // subRunStatus: "waiting" and lets the parent continue immediately. Propagating a pause up through
 // nested runs would need a much bigger change (multi-level wait/resume); not attempted here.
+async function execSendFlow({ node, env, run, testMode }) {
+  const { account, contact } = env;
+  if (!account || !contact?.phone) {
+    return { status: "skipped", logMessage: "Skipped send_flow: missing account/contact phone", logLevel: "warn" };
+  }
+
+  const flowId = String(node.config?.flowId || "").trim();
+  if (!flowId || !mongoose.Types.ObjectId.isValid(flowId)) {
+    return { status: "skipped", logMessage: "Skipped send_flow: no flow selected", logLevel: "warn" };
+  }
+
+  const flow = await WhatsAppFlow.findOne({ _id: flowId, workspaceId: run.workspaceId, status: "published" });
+  if (!flow) {
+    return {
+      status: "failed",
+      error: "flow_not_found",
+      action: { type: "send_flow", status: "failed", error: "flow_not_found" },
+      logMessage: "Send flow failed: flow not found or not published",
+      logLevel: "error",
+    };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "send_flow", status: "skipped", skipped: true, flowId: flow._id.toString() }, logMessage: "Flow send skipped in test mode" };
+  }
+
+  try {
+    const result = await sendFlowMessage({ account, flow, to: contact.phone, screenId: flow.flowJson?.screens?.[0]?.id });
+    return {
+      status: "ok",
+      action: { type: "send_flow", status: "sent", flowId: flow._id.toString(), providerMessageId: result.providerMessageId },
+      logMessage: `Flow "${flow.name}" sent`,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "send_flow", status: "failed", error: error.message },
+      logMessage: "Flow send failed",
+      logLevel: "error",
+    };
+  }
+}
+
 async function execSubWorkflow({ node, config: cfg, run, testMode }) {
   const targetFlowId = String(node.config?.flowId || "").trim();
   if (!targetFlowId || !mongoose.Types.ObjectId.isValid(targetFlowId)) {
@@ -761,6 +806,7 @@ const executors = {
   claude: makeAiExecutor("claude"),
   gemini: makeAiExecutor("gemini"),
   email: execEmail,
+  send_flow: execSendFlow,
   sms: execSms,
   loop: execLoop,
   sub_workflow: execSubWorkflow,

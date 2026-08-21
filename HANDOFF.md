@@ -65,6 +65,25 @@ WABA, i.e. production, same as every other Meta-integration feature in this proj
 **Next real step**: deploy, then create a real Lead Capture flow against the live account, publish
 it, send it to a real test number, fill it out, and confirm the reply lands correctly in the Inbox.
 
+**Extended same day: a second template + automation wiring, while the first deploy propagated.**
+- **Appointment Request template** (`whatsappFlows.js`) - name/phone/`DatePicker`/`Dropdown`
+  time-slot/notes, `APPOINTMENT_BOOKING` category. Same local-verification signal as Lead Capture:
+  a real create call against Meta's live API returned the same `#190` auth-only error (not a
+  malformed-request error), confirming `DatePicker`/`Dropdown`'s `data-source` shape is valid too.
+- **`send_flow` automation node** (`automationExecutors.js`, `AutomationView.tsx`) - lets any
+  automation flow send a published WhatsApp Flow to the current contact, not just the manual
+  Settings button. Same dispatch-table/dedicated-inspector-form pattern as every other Phase 2 node
+  (`email`, `sub_workflow`) - a new `<select>` of *published* flows only, skips gracefully (not an
+  error) when the contact has no phone or no flow is selected, and respects `testMode` like every
+  other external-call node (`email`, AI providers). **Verified directly, not via the trigger-match
+  harness** - `POST /api/automation/:id/test` requires a real trigger match first, which this
+  session's local dev DB wasn't cleanly reproducing (a pre-existing harness quirk unrelated to this
+  node, not investigated further since it wasn't the actual thing being verified). Instead called
+  `executorFor("send_flow")` directly with mocked `env`/`node`/`run` inputs against the real DB
+  connection - confirmed correct behavior for all three edge cases: no flow selected (skipped), no
+  contact phone (skipped), flow not found (failed with a clear error). Local test flows and the
+  throwaway verification script were deleted afterward, zero clutter left.
+
 ## MongoDB backup cron — scheduled and verified on the VPS, 2026-08-21
 
 Closes the real gap left by `1c393ad` (backup + restore drill scripts, built 2026-08-19): the

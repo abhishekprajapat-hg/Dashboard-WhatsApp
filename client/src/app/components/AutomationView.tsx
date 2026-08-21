@@ -60,6 +60,7 @@ import {
   ZoomOut,
   Lock,
   Unlock,
+  Workflow,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -71,12 +72,19 @@ import {
   getAutomationFlows,
   getAutomationRuns,
   getTemplates,
+  getWhatsAppFlows,
   testAutomationFlow,
   updateAutomationCanvas,
   updateAutomationFlow,
 } from "../lib/api";
 
 type FlowStatus = "active" | "inactive" | "draft";
+
+interface WhatsAppFlowOption {
+  id: string;
+  name: string;
+  status: "draft" | "published" | "deprecated";
+}
 
 interface Flow {
   id: string;
@@ -264,6 +272,7 @@ const nodeCatalog = [
   { kind: "email", label: "Email", icon: "Mail", color: "#0ea5e9", description: "Send email" },
   { kind: "sms", label: "SMS", icon: "Send", color: "#14b8a6", description: "Send SMS" },
   { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
+  { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
   { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
   { kind: "lead_stage", label: "Lead Stage", icon: "Activity", color: "#06b6d4", description: "Move CRM stage" },
@@ -309,6 +318,7 @@ function iconFor(name: string, size = 15) {
     UserRoundPlus: <UserRoundPlus size={size} />,
     Variable: <Variable size={size} />,
     Webhook: <Webhook size={size} />,
+    Workflow: <Workflow size={size} />,
     Zap: <Zap size={size} />,
   };
   return icons[name] || <Zap size={size} />;
@@ -534,11 +544,13 @@ function BuilderCanvas({
   onFlowSaved,
   canWrite = false,
   availableFlows = [],
+  availableWhatsAppFlows = [],
 }: {
   selectedFlow?: Flow;
   onFlowSaved: (flow: Flow) => void;
   canWrite?: boolean;
   availableFlows?: Flow[];
+  availableWhatsAppFlows?: WhatsAppFlowOption[];
 }) {
   const reactFlow = useReactFlow();
   const [nodes, setNodes] = useState<Node<AutomationNodeData>[]>(defaultNodes);
@@ -754,6 +766,32 @@ function BuilderCanvas({
           <p className="text-[10px] text-muted-foreground">
             Only active flows can be called. Runs the called flow synchronously and waits for it to finish (unless it hits its
             own delay node).
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "send_flow") {
+      const publishedWhatsAppFlows = availableWhatsAppFlows.filter((flow) => flow.status === "published");
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Flow to send</label>
+          <select
+            value={String(cfg.flowId ?? "")}
+            onChange={(event) => updateSelectedConfig("flowId", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="">Select a flow...</option>
+            {publishedWhatsAppFlows.map((flow) => (
+              <option key={flow.id} value={flow.id}>
+                {flow.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-muted-foreground">
+            Only published WhatsApp Flows can be sent (Settings &gt; Flows). Sent to the current contact&apos;s phone number -
+            skipped if the contact has none.
           </p>
         </>
       );
@@ -1272,6 +1310,7 @@ interface AutomationViewProps {
 
 export function AutomationView({ canWrite = false }: AutomationViewProps) {
   const [flowList, setFlowList] = useState<Flow[]>([]);
+  const [whatsAppFlowsList, setWhatsAppFlowsList] = useState<WhatsAppFlowOption[]>([]);
   const [summary, setSummary] = useState({ runsToday: 0, automatedMessages: 0, handoffs: 0 });
   const [selectedFlowId, setSelectedFlowId] = useState("");
   const [simpleForm, setSimpleForm] = useState({
@@ -1318,6 +1357,9 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     loadFlows().catch(() => undefined);
     getTemplates<{ data: InternalTemplate[] }>({ status: "active" })
       .then((response) => setMessageTemplates(response.data.filter((template) => ["quick_reply", "automation", "follow_up", "lead_stage"].includes(template.type))))
+      .catch(() => undefined);
+    getWhatsAppFlows<{ data: WhatsAppFlowOption[] }>()
+      .then((response) => setWhatsAppFlowsList(response.data))
       .catch(() => undefined);
   }, []);
 
@@ -1727,7 +1769,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
             </div>
           </aside>
 
-          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} availableFlows={flowList} />
+          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} availableFlows={flowList} availableWhatsAppFlows={whatsAppFlowsList} />
         </div>
       </div>
     </ReactFlowProvider>
