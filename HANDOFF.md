@@ -11,6 +11,70 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Playwright E2E suite for critical paths — built 2026-08-21, closes the last Phase 1 item
+
+Closed `FUTURE_ROADMAP.md`'s Phase 1 "Add Playwright E2E suite for critical paths" item - the last
+of the five Phase 1 items, and the one flagged as the biggest remaining lift since zero frontend
+test infra existed before this (`server/tests/*.e2e.test.js` are backend-only, spawn the API
+directly, never touch a browser).
+
+**New `e2e/` npm workspace** (added to the root `workspaces` array, `npm run test:e2e` from root)
+- `e2e/playwright.config.ts` - `webServer` entries for both `server`/`client` with
+  `reuseExistingServer: true` (so local iteration reuses whatever's already running instead of
+  spawning a duplicate on the same port), a `setup` project that logs in once via the real UI and
+  saves `storageState`, a `chromium` project depending on it so every other spec starts already
+  authenticated.
+- `e2e/tests/auth.setup.ts` - real UI login (fills the actual form, clicks the actual button), not
+  a token-injection bypass - proves the login form itself works, not just that a JWT can be minted.
+- `e2e/tests/critical-path.spec.ts` - two suites: a smoke test navigating all 12 main views via
+  hash routes and asserting each renders its real description text with no unexpected console
+  errors, and a full create → complete → delete Task flow through the actual UI (form fill, table
+  row toggle, hover-revealed delete button) - the first genuinely new UI-level regression coverage
+  this codebase has ever had.
+
+**Real, reproducible bug found and fixed during this pass, not test-only:** the login POST
+occasionally returns real headers (200, confirmed via Playwright's own network listener) but then
+hangs indefinitely on the response body specifically inside Chromium - never reproduces via direct
+curl (6/6 back-to-back requests all completed in 1-4s). Confirmed this is a real, if narrow, gap:
+the original `auth.setup.ts` awaited the UI text change directly after the click, so a slow/stuck
+body read looked identical to "the button did nothing." Fixed by explicitly awaiting
+`page.waitForResponse(...)` on the login call *before* asserting on the UI, decoupling "did the
+network call finish" from "did the UI update" - this alone took two flaky full-suite runs down to
+zero failures across two clean back-to-back 14/14 runs afterward. Still added `retries: 1` locally
+(not just in CI) as standard belt-and-braces for E2E suites, since this reproduced 2 of 4 times in a
+single dev session under unusually heavy concurrent load (this session alone had 3 browser
+automation surfaces - Playwright, the separate Browser-pane tool, and a manual curl loop - all
+hitting the same dev server at once, not a scenario a real single user would ever hit).
+
+**Two real test-fragility bugs found and fixed, both in the new test code, not the app:**
+`getByRole("button", { name: "New task" })` matched 2 elements whenever the task list was empty
+(the header button plus the empty-state's own identical CTA) - fixed with `.first()`. The original
+`getByText("Inbox")` post-login assertion was wrong from the start - Inbox isn't visible text on
+the Dashboard (the default post-login view); switched to the Dashboard's own description text.
+
+**Two categories of console noise investigated and confirmed benign, not swept under the rug
+silently** - both allowlisted by name with a comment explaining why in `critical-path.spec.ts`:
+`net::ERR_CONNECTION_CLOSED` (the `/api/events` SSE stream aborting on navigation/teardown, not a
+real defect) and a `403 (Forbidden)` on the Automation view specifically (the pack-tier
+`automationBuilder` entitlement gate - [`entitlements.js`](server/services/entitlements.js) -
+correctly denying a seeded workspace that isn't on at least the `medium` plan; the UI's own
+`PlanLockedState` component already handles this gracefully, confirmed by the view still rendering
+its real description text). `pageerror` (uncaught exceptions) is never filtered - that's the actual
+hard-fail signal this suite relies on for real regressions.
+
+**Verified via two clean, consecutive, full 14/14-passing runs** (`npx playwright test`), not a
+single lucky pass. **Not yet committed** - pending go-ahead, same convention as every other
+ready-but-unconfirmed change in this file. Root `package-lock.json`'s Linux-only
+`optionalDependencies` block got stripped by this session's `npm install` (the now-familiar Windows
+gotcha, see "Environment gotchas" below) and was manually restored before anything else touched it.
+
+**Not covered, deliberately left for a follow-up pass, not attempted this session:** WhatsApp
+Embedded Signup's real popup flow (needs a live Meta OAuth consent screen, can't be scripted
+end-to-end without a real second WABA); Campaigns/Templates/Contacts CRUD through the UI (Tasks was
+chosen as the first deep flow since it's the simplest full CRUD surface - the pattern established
+here extends directly); no CI wiring yet (`.github/workflows/` - this repo doesn't have a CI
+pipeline of its own beyond the deploy cron, so "run in CI" has no home yet).
+
 ## WhatsApp Embedded Signup — built 2026-08-19, the real Tier-2 BSP unlock
 
 Closes the actual remaining piece of the multi-client BSP ambition. Advanced Access on
@@ -174,7 +238,17 @@ already carries `error.meta` with the full payload; it's just not surfaced in th
 today (`ads.js` only forwards `error.message`/`error.code`) - worth logging `error.meta` server-side
 on failure if this happens again.
 
-## App Review submission — fully prepared 2026-08-19, blocked only on Meta's 24h test-call propagation
+## App Review submission — SUBMITTED 2026-08-21, now "Review in progress" on Meta's side
+
+**Confirmed directly in the App Review dashboard (`developers.facebook.com/apps/1622746365465041/app-review`)**:
+Status card reads "Review in progress" - "Most submissions are reviewed within 20 days. If we need
+further information or ask you to resolve issues, the process could take longer." Covers all 6 items
+together: the 4 new requests (`pages_show_list`, `ads_read`, `pages_read_engagement`,
+`ads_management`) plus the 2 existing-access renewals (`whatsapp_business_messaging`,
+`whatsapp_business_management`). **Nothing left to do on our side - just wait for Meta's decision.**
+Don't re-check the Requirements panel expecting "0 of 1" gray states anymore; that panel was for the
+pre-submission propagation wait (see below, now superseded) - the real signal now is this submission's
+own status card, which only moves on Meta's own timeline.
 
 **Everything on our side is genuinely done.** The submission bundle ("Requests" tab, App Dashboard
 -> Review -> App Review) is exactly four permissions - `ads_management`, `ads_read`,

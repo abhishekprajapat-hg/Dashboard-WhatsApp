@@ -38,3 +38,9 @@ Thumbs.db
 .sync-temp/
 local-db-backups/
 server/backups/
+
+# playwright (e2e)
+e2e/.auth/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/

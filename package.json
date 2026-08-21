@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "e2e"
   ],
   "scripts": {
     "dev": "npm run dev --workspace client",
@@ -14,6 +15,7 @@
     "check:server": "npm run check --workspace server",
     "check:client": "npm run check --workspace client",
     "test": "npm run test --workspace server",
+    "test:e2e": "npm run test --workspace e2e",
     "seed": "npm run seed --workspace server"
   },
   "devDependencies": {
