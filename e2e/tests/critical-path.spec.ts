@@ -130,3 +130,28 @@ test.describe("Templates - real create/edit/archive through the actual UI", () =
     await expect(card.getByText("archived", { exact: true })).toBeVisible({ timeout: 15_000 });
   });
 });
+
+test.describe("Campaigns - real create/delete through the actual UI", () => {
+  test("create and delete a draft campaign", async ({ page }) => {
+    const name = `E2E Campaign ${Date.now()}`;
+
+    await page.goto("/#/campaigns");
+    await page.getByRole("button", { name: "New campaign" }).first().click();
+
+    await page.getByLabel("Campaign name").fill(name);
+    // The template <select> has no associated <label> - scope by the section's own heading text
+    // instead and take its first <select> (a second one, right below, picks an optional A/B
+    // variant template and must stay untouched).
+    const templateSection = page.locator("section", { hasText: "Choose approved WhatsApp content." });
+    await templateSection.locator("select").first().selectOption({ index: 0 });
+
+    await page.getByRole("button", { name: "Save campaign" }).click();
+
+    const card = page.locator("div.border-border.bg-card.transition", { hasText: name });
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card.getByText("draft", { exact: true })).toBeVisible();
+
+    await card.locator('button[title="Delete"]').click();
+    await expect(page.locator("div.border-border.bg-card.transition", { hasText: name })).toHaveCount(0);
+  });
+});

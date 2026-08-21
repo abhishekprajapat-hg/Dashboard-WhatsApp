@@ -85,11 +85,20 @@ Edit/Archive controls are icon-only buttons with no visible text or `aria-label`
 `button[title="Edit"]` / `button[title="Archive"]` instead of `getByRole(..., { name })`. Verified
 via two clean, consecutive 16/16 full-suite runs.
 
-**Not covered, deliberately left for a follow-up pass, not attempted this session:** WhatsApp
-Embedded Signup's real popup flow (needs a live Meta OAuth consent screen, can't be scripted
-end-to-end without a real second WABA); Campaigns CRUD through the UI (Contacts, Tasks, and
-Templates are done - the same pattern extends directly); no CI wiring yet (`.github/workflows/` -
-this repo doesn't have a CI
+**Extended a fourth and final time same day with Campaigns - create/delete, the last of the four
+main CRUD surfaces.** Real dependency worth knowing: campaign creation requires selecting an
+approved template (`Save campaign` is disabled without one), which only works locally because
+`seed.js` seeds real `status: "approved"` templates - a genuinely fresh/empty dev DB would need
+that seed step run first for this spec to have anything to select. The template `<select>` has no
+associated `<label>`, unlike every other form field covered so far - scoped by its section's own
+heading text (`"Choose approved WhatsApp content."`) instead of `getByLabel`. Verified via two
+clean, consecutive 17/17 full-suite runs.
+
+**This closes every CRUD surface flagged as a follow-up** - Tasks, Contacts, Templates, and
+Campaigns are all now covered by a real, passing UI-level regression test. What's genuinely left
+uncovered going forward: WhatsApp Embedded Signup's real popup flow (needs a live Meta OAuth
+consent screen, can't be scripted end-to-end without a real second WABA); no CI wiring yet
+(`.github/workflows/` - this repo doesn't have a CI
 pipeline of its own beyond the deploy cron, so "run in CI" has no home yet).
 
 ## WhatsApp Embedded Signup — built 2026-08-19, the real Tier-2 BSP unlock
