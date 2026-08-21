@@ -824,6 +824,34 @@ export function deleteWhatsAppFlow(id: string) {
   });
 }
 
+export function getInstagramAuthorizeUrl<T>() {
+  return request<T>("/instagram/oauth/authorize-url");
+}
+
+export function getInstagramAccounts<T>() {
+  return request<T>("/instagram/accounts");
+}
+
+export function connectInstagramAccount<T>(code: string) {
+  return request<T>("/instagram/accounts", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function deleteInstagramAccount(id: string) {
+  return request<void>(`/instagram/accounts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function sendInstagramTestMessage<T>(id: string, payload: { to: string; body: string }) {
+  return request<T>(`/instagram/accounts/${id}/send`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getAutomationFlows<T>() {
   return request<T>("/automation");
 }

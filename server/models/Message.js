@@ -7,6 +7,8 @@ const messageSchema = new mongoose.Schema(
     conversationId: { type: mongoose.Schema.Types.ObjectId, ref: "Conversation", required: true, index: true },
     contactId: { type: mongoose.Schema.Types.ObjectId, ref: "Contact", required: true, index: true },
     whatsappAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "WhatsAppAccount", index: true },
+    instagramAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "InstagramAccount", index: true },
+    channel: { type: String, enum: ["whatsapp", "instagram"], default: "whatsapp", index: true },
     direction: { type: String, enum: ["inbound", "outbound"], required: true },
     type: { type: String, enum: ["text", "template", "image", "document", "audio", "video", "location", "system", "note", "flow", "flow_response"], default: "text" },
     body: String,

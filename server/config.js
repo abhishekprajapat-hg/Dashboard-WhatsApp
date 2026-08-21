@@ -30,6 +30,16 @@ export const config = {
     appSecret: process.env.WHATSAPP_APP_SECRET || "",
     embeddedSignupConfigId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID || "",
   },
+  // "Instagram API with Instagram Login" is a genuinely separate system from the Facebook app used
+  // for WhatsApp/Ads - its own App ID/Secret, issued only after adding the Instagram product and
+  // completing "API setup with Instagram Login" in App Dashboard. Not provisionable by this app,
+  // same as embeddedSignupConfigId above.
+  instagram: {
+    appId: process.env.META_INSTAGRAM_APP_ID || "",
+    appSecret: process.env.META_INSTAGRAM_APP_SECRET || "",
+    verifyToken: process.env.META_INSTAGRAM_VERIFY_TOKEN || "local-instagram-verify-token",
+    redirectUri: process.env.META_INSTAGRAM_REDIRECT_URI || "",
+  },
   demoMode: process.env.DEMO_MODE !== "false",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
   cdnBaseUrl: process.env.CDN_BASE_URL || "",

@@ -6,6 +6,8 @@ const conversationSchema = new mongoose.Schema(
     workspaceId: { type: mongoose.Schema.Types.ObjectId, ref: "Workspace", required: true, index: true },
     contactId: { type: mongoose.Schema.Types.ObjectId, ref: "Contact", required: true, index: true },
     whatsappAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "WhatsAppAccount", index: true },
+    instagramAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "InstagramAccount", index: true },
+    channel: { type: String, enum: ["whatsapp", "instagram"], default: "whatsapp", index: true },
     assignedToUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     status: { type: String, enum: ["open", "pending", "resolved", "archived"], default: "open" },
     priority: { type: String, enum: ["low", "normal", "high", "urgent"], default: "normal" },

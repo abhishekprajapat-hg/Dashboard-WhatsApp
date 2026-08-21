@@ -11,6 +11,107 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
+
+The other big non-WhatsApp roadmap item, started the same day as Flows. **Research first, before any
+code**: confirmed "Instagram API with Instagram Login" (`instagram_business_basic`/
+`instagram_business_manage_messages`) is a genuinely *separate system* from the Facebook Login flow
+WhatsApp/Ads/Embedded Signup all share - its own OAuth host (`api.instagram.com`, not
+`graph.facebook.com`), its own Graph host (`graph.instagram.com`), and critically **its own
+App ID/Secret**, issued only after adding the Instagram product and completing "API setup with
+Instagram Login" in App Dashboard - not reusable from `META_APP_ID`. This one fact shaped the whole
+build; confirmed via Meta's current docs before writing anything, not assumed.
+
+**Built:**
+- `server/models/InstagramAccount.js` - same shape/pattern as `WhatsAppAccount.js`.
+- **`Contact`/`Conversation`/`Message` extended for real multi-channel support**, not a parallel
+  data model - the whole point of "omnichannel inbox" is Instagram DMs showing up in the *same*
+  Inbox/CRM/tagging/automation surface WhatsApp already has, not a second disconnected system.
+  `channel: "whatsapp"|"instagram"` added to all three; `Contact.phone` changed from required to
+  optional (an Instagram-only contact has none) with a new `instagramScopedId` field. **Real index
+  migration risk, flagged explicitly**: `Contact`'s old `{workspaceId, phone}` unique index required
+  every doc to have a real phone; the new version is a *partial* unique index
+  (`phone: {$ne: ""}`) so multiple Instagram contacts (all `phone: ""` by default) don't collide.
+  Mongoose's `autoIndex` may not cleanly replace an existing index whose *options* changed (same key
+  pattern, different partialFilterExpression) - worth explicitly checking the real index list on
+  next deploy (`db.contacts.getIndexes()`) rather than assuming `autoIndex` silently handled it.
+- `server/services/instagramProvider.js` - OAuth code exchange, short-lived -> long-lived token
+  exchange, account info fetch, `sendInstagramMessage`, webhook signature verification (same
+  HMAC-SHA256 logic as `whatsapp.js`'s `hasValidMetaSignature`, duplicated not imported - consistent
+  with this codebase's existing small-per-file-duplication precedent for near-identical Meta
+  helpers), and `normalizeInstagramWebhookPayload` (parses `entry[].messaging[]`, deliberately
+  ignores `is_echo` messages - our own sent messages bouncing back - and non-text event types for
+  this first pass).
+- `server/routes/instagram.js` - two routers: `instagramRouter` (authenticated: authorize-url,
+  accounts CRUD, a manual send-test action) and `instagramPublicRouter` (unauthenticated, mounted at
+  `/webhooks/instagram`: the webhook GET handshake + POST receiver, and a minimal static HTML
+  `oauth-callback` page).
+- **OAuth connect flow, deliberately not reusing `EmbeddedSignupButton.tsx`'s pattern** - Instagram's
+  classic OAuth is a plain redirect, not a JS-SDK-managed popup like `FB.login()`. Built a
+  hand-rolled equivalent: `window.open()` a popup to Instagram's real authorize URL, the redirect
+  target is a tiny server-rendered HTML page that `postMessage`s the `code` back to the opener and
+  closes itself, and the main window (still on its authenticated session) does the actual token
+  exchange server-side via a normal authenticated `POST`. Same end-user shape as Embedded Signup
+  (popup opens, closes, account appears) via a different mechanism underneath, since Instagram has
+  no equivalent SDK helper.
+- **Client**: new "Instagram" tab in Settings (`InstagramSettingsPanel.tsx`) - connect button, account
+  list, and a manual to/body send box for testing (same "prove it with a real send" pattern as the
+  Flows panel).
+
+**Verified locally, real not assumed, everything short of an actual Meta account (blocked on the
+manual dashboard setup below):**
+- `npm run check:server`/`check:client` both clean (154 server files now).
+- `GET /api/instagram/oauth/authorize-url` correctly returns a clear `INSTAGRAM_NOT_CONFIGURED`
+  error when the (not-yet-set) env vars are empty, rather than crashing or returning a broken URL.
+- The webhook GET handshake correctly returns the challenge on a matching verify token and `403`s a
+  wrong one.
+- **Full inbound pipeline proven end to end against a real HTTP POST**, not just unit-level: seeded a
+  fake local `InstagramAccount`, POSTed a realistic `entry[].messaging[]` webhook payload, and
+  confirmed a real `Contact` (`channel: "instagram"`, correct `instagramScopedId`), `Conversation`
+  (`channel: "instagram"`, `status: "open"`), and `Message` (`channel: "instagram"`, correct body/
+  `providerMessageId`) all got created correctly. **Idempotency verified too** - resent the identical
+  payload, confirmed still exactly one `Message` document, not two. All test data and throwaway
+  scripts deleted afterward, zero clutter left.
+- `normalizeInstagramWebhookPayload` directly verified against three shapes: a real inbound message
+  (parses correctly), an echo of our own outbound message (`is_echo: true`, correctly ignored), and
+  a malformed/unrelated payload (falls through to `"unknown"` without crashing).
+
+**Not yet verified, and can't be from this environment**: a real OAuth connect, a real send, or a
+real signature-verified webhook - all need the actual Instagram App ID/Secret and a connected
+Instagram professional account, which only exist after manual Meta Dashboard setup (see below).
+**Not built in this pass, deliberately**: Instagram messages don't yet render with any distinct UI
+in the main `InboxView`/`WhatsAppBusinessInbox` components - they're correctly stored and would
+technically list if those components query `Conversation` without a channel filter, but no channel
+badge/icon or Instagram-specific composer treatment exists yet. Also not built: an `execSendInstagram`
+automation node (the `send_flow` precedent from earlier today), Instagram in Campaigns audience
+targeting, and non-text message types (image/story-reply/reactions) - all real, scoped follow-ups,
+not overlooked.
+
+**Manual setup required before any of this can be tested for real - not something this app can
+provision, same category as `META_EMBEDDED_SIGNUP_CONFIG_ID` earlier:**
+1. In App Dashboard (the same "Dashboard" app, App ID `1622746365465041`) -> add the **Instagram**
+   product -> **API setup with Instagram Login**. This page shows a **separate Instagram App
+   ID/Secret** - not `META_APP_ID`.
+2. Add `https://dashboard.nemnidhi.com/webhooks/instagram/oauth-callback` as a valid OAuth redirect
+   URI on that same Instagram product page.
+3. Set the webhook URL to `https://dashboard.nemnidhi.com/webhooks/instagram/webhook`, pick a verify
+   token, subscribe to the `messages` field.
+4. Add the real Nemnidhi Instagram professional account as a tester/added account on the app (this
+   unlocks Standard Access for testing before App Review - same "your own account works without
+   review, other people's accounts need Advanced Access" tier structure as every other Meta
+   permission in this project).
+5. On the VPS, add to `server/.env`: `META_INSTAGRAM_APP_ID`, `META_INSTAGRAM_APP_SECRET`,
+   `META_INSTAGRAM_REDIRECT_URI=https://dashboard.nemnidhi.com/webhooks/instagram/oauth-callback`,
+   `META_INSTAGRAM_VERIFY_TOKEN=<the same value picked in step 3>`, then
+   `pm2 restart dashboard-api --update-env`.
+
+**Once that's done, the real test sequence**: Settings -> Instagram -> Connect Instagram (real OAuth
+popup) -> confirm the account appears -> send a real DM to the connected account from a different
+Instagram account -> confirm it lands as a real `Message` (same DB-level proof as today's local test,
+now with a genuine account) -> reply via the panel's send box -> confirm real delivery. That real
+demo is also exactly what the eventual `instagram_business_manage_messages` App Review submission
+needs.
+
 ## WhatsApp Flows (Static) — built 2026-08-22, first roadmap item outside the original Meta-review plan
 
 New feature area, chosen deliberately: real research first (confirmed via Meta's own docs and
