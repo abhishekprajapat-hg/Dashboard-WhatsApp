@@ -74,13 +74,22 @@ checkbox-select + bulk-delete-bar pattern (different from Tasks' per-row hover-d
 Contacts has no per-row delete, only bulk). Same `.first()` empty-state-CTA-duplicate gotcha as
 Tasks' "New task" button, hit again here with "New lead" - worth remembering as a recurring pattern
 in this codebase's `EmptyState` component, not a one-off. Verified via two more clean, consecutive
-15/15 runs. Not yet committed as of writing this note - see below.
+15/15 runs. **Committed as `f2e3c8c`, pushed to `origin/main`.**
+
+**Extended again same day with Templates - create/edit/archive, not create/delete** (a real,
+deliberate scope finding: `TemplatesView.tsx` has no delete action at all, only Archive
+(`IconButton title="Archive"`) - WhatsApp templates are a Meta-governed resource, so this app never
+offers hard deletion. Wrote the test to match what the app actually does rather than forcing a
+delete flow that doesn't exist). Each template renders as its own `Card`, not a table row, and its
+Edit/Archive controls are icon-only buttons with no visible text or `aria-label` - identified via
+`button[title="Edit"]` / `button[title="Archive"]` instead of `getByRole(..., { name })`. Verified
+via two clean, consecutive 16/16 full-suite runs.
 
 **Not covered, deliberately left for a follow-up pass, not attempted this session:** WhatsApp
 Embedded Signup's real popup flow (needs a live Meta OAuth consent screen, can't be scripted
-end-to-end without a real second WABA); Campaigns/Templates CRUD through the UI (Contacts and Tasks
-are done - the pattern established here extends directly to the remaining two); no CI wiring yet
-(`.github/workflows/` - this repo doesn't have a CI
+end-to-end without a real second WABA); Campaigns CRUD through the UI (Contacts, Tasks, and
+Templates are done - the same pattern extends directly); no CI wiring yet (`.github/workflows/` -
+this repo doesn't have a CI
 pipeline of its own beyond the deploy cron, so "run in CI" has no home yet).
 
 ## WhatsApp Embedded Signup — built 2026-08-19, the real Tier-2 BSP unlock

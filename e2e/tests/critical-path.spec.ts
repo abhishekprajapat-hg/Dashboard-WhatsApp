@@ -100,3 +100,33 @@ test.describe("Contacts - real CRUD through the actual UI", () => {
     await expect(page.locator("tr", { hasText: name })).toHaveCount(0);
   });
 });
+
+test.describe("Templates - real create/edit/archive through the actual UI", () => {
+  test("create, edit, and archive a template", async ({ page }) => {
+    const name = `E2E Template ${Date.now()}`;
+    const renamed = `${name} (edited)`;
+
+    await page.goto("/#/templates");
+    await page.getByRole("button", { name: "New template" }).first().click();
+
+    await page.getByLabel("Template name").fill(name);
+    await page.getByLabel("Body").fill("Hello {{name}}, this is a test template.");
+    await page.getByRole("button", { name: "Save template" }).click();
+
+    // Each template renders as its own Card (not a table row) - `.cursor-pointer` is that
+    // card's own root class, scoping the locator to exactly one template.
+    let card = page.locator(".cursor-pointer", { hasText: name });
+    await expect(card).toBeVisible({ timeout: 15_000 });
+
+    // Edit/Archive are icon-only buttons identified by their `title` attribute, not visible text.
+    await card.locator('button[title="Edit"]').click();
+    await page.getByLabel("Template name").fill(renamed);
+    await page.getByRole("button", { name: "Save template" }).click();
+
+    card = page.locator(".cursor-pointer", { hasText: renamed });
+    await expect(card).toBeVisible({ timeout: 15_000 });
+
+    await card.locator('button[title="Archive"]').click();
+    await expect(card.getByText("archived", { exact: true })).toBeVisible({ timeout: 15_000 });
+  });
+});
