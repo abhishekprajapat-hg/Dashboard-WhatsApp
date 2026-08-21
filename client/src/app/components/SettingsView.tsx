@@ -28,8 +28,10 @@ import {
   LockKeyhole,
   Sparkles,
   Megaphone,
+  Workflow,
 } from "lucide-react";
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
+import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
   createWhatsAppAccount,
@@ -47,7 +49,7 @@ import {
   updateCurrentWorkspace,
 } from "../lib/api";
 
-type SettingsTab = "workspace" | "whatsapp" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
+type SettingsTab = "workspace" | "whatsapp" | "flows" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
 
 interface WhatsAppAccount {
   id: string;
@@ -151,6 +153,7 @@ interface WhatsAppConsolePayload {
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "workspace", label: "Workspace", icon: <Building2 size={14} /> },
   { id: "whatsapp", label: "WhatsApp", icon: <MessageCircle size={14} /> },
+  { id: "flows", label: "Flows", icon: <Workflow size={14} /> },
   { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
   { id: "api", label: "API Keys", icon: <Key size={14} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
@@ -1092,6 +1095,12 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
           </div>
         )}
 
+        {activeTab === "flows" && (
+          <div className="max-w-4xl">
+            <WhatsAppFlowsPanel />
+          </div>
+        )}
+
         {activeTab === "ads" && (
           <div className="max-w-4xl">
             <AdsSettingsPanel />
@@ -1498,7 +1507,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "notifications" && (
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "notifications" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>

@@ -692,7 +692,12 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
 
       const isAdLead = isMetaAdReferral(normalized.referral);
       const attachments = await resolveInboundMedia({ account, normalized, baseUrl: absoluteBaseUrl(req) });
-      const messageBody = normalized.body || attachments[0]?.caption || "";
+      const flowResponseSummary = normalized.flowResponse
+        ? Object.entries(normalized.flowResponse.data)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(", ")
+        : "";
+      const messageBody = normalized.body || attachments[0]?.caption || flowResponseSummary;
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const found = await findReusableContactAndConversation({ account, phone: normalized.from });
       const waName = normalized.profile?.waName || found.contact?.waName || found.contact?.name || normalized.from;
@@ -755,7 +760,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           contactId: contact._id,
           whatsappAccountId: account._id,
           direction: "inbound",
-          type: attachments.length ? messageType : "text",
+          type: normalized.flowResponse ? "flow_response" : attachments.length ? messageType : "text",
           body: messageBody,
           attachments,
           providerMessageId: normalized.providerMessageId,
@@ -766,6 +771,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
             ...(normalized.location ? { location: normalized.location } : {}),
             ...(normalized.profile ? { profile: normalized.profile } : {}),
             ...(campaign ? { campaign } : {}),
+            ...(normalized.flowResponse ? { flowResponse: normalized.flowResponse } : {}),
           },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }

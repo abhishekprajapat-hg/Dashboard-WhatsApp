@@ -704,6 +704,15 @@ export function normalizeWebhookPayload(payload) {
 
   if (message) {
     const contact = value.contacts?.find((item) => item.wa_id === message.from) || value.contacts?.[0] || {};
+    const nfmReply = message.interactive?.type === "nfm_reply" ? message.interactive.nfm_reply : null;
+    let flowResponse = null;
+    if (nfmReply) {
+      try {
+        flowResponse = { name: nfmReply.name || "", body: nfmReply.body || "", data: JSON.parse(nfmReply.response_json || "{}") };
+      } catch {
+        flowResponse = { name: nfmReply.name || "", body: nfmReply.body || "", data: {} };
+      }
+    }
     return {
       type: "message",
       idempotencyKey: message.id,
@@ -713,6 +722,7 @@ export function normalizeWebhookPayload(payload) {
       attachments: normalizeMetaAttachments(message),
       providerMessageId: message.id,
       referral: message.referral || null,
+      flowResponse,
       profile: {
         waName: contact.profile?.name || "",
         waId: contact.wa_id || message.from,

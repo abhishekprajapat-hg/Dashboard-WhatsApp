@@ -21,4 +21,5 @@ export * from "./Template.js";
 export * from "./User.js";
 export * from "./WebhookEvent.js";
 export * from "./WhatsAppAccount.js";
+export * from "./WhatsAppFlow.js";
 export * from "./Workspace.js";

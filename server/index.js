@@ -26,6 +26,7 @@ import { mediaRouter } from "./routes/media.js";
 import { infrastructureRouter } from "./routes/infrastructure.js";
 import { legalRouter } from "./routes/legal.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
+import { whatsappFlowsRouter } from "./routes/whatsappFlows.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { eventsRouter } from "./realtime/events.js";
 import { createRealtimeServer } from "./realtime/socket.js";
@@ -115,6 +116,7 @@ app.use("/api/events", eventsRouter);
 app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);
+app.use("/api/whatsapp-flows", requireAuth, requireWorkspaceContext, whatsappFlowsRouter);
 app.use("/webhooks/whatsapp", whatsappWebhookRouter);
 app.use("/api/uploads", express.static(uploadRoot, {
   maxAge: "7d",

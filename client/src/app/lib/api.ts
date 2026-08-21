@@ -790,6 +790,40 @@ export function createAdCampaign<T>(campaign: {
   });
 }
 
+export function getWhatsAppFlowTemplates<T>() {
+  return request<T>("/whatsapp-flows/templates");
+}
+
+export function getWhatsAppFlows<T>() {
+  return request<T>("/whatsapp-flows");
+}
+
+export function createWhatsAppFlow<T>(flow: { whatsappAccountId: string; template: string; name: string }) {
+  return request<T>("/whatsapp-flows", {
+    method: "POST",
+    body: JSON.stringify(flow),
+  });
+}
+
+export function publishWhatsAppFlow<T>(id: string) {
+  return request<T>(`/whatsapp-flows/${id}/publish`, {
+    method: "POST",
+  });
+}
+
+export function sendWhatsAppFlow<T>(id: string, payload: { to: string; headerText?: string; bodyText?: string; ctaLabel?: string }) {
+  return request<T>(`/whatsapp-flows/${id}/send`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWhatsAppFlow(id: string) {
+  return request<void>(`/whatsapp-flows/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function getAutomationFlows<T>() {
   return request<T>("/automation");
 }

@@ -11,6 +11,60 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## WhatsApp Flows (Static) — built 2026-08-22, first roadmap item outside the original Meta-review plan
+
+New feature area, chosen deliberately: real research first (confirmed via Meta's own docs and
+current community sources, not assumed) established Flows reuse the *already-approved*
+`whatsapp_business_management`/`whatsapp_business_messaging` permissions - **no new App Review
+needed**, unlike Instagram omnichannel. Scoped to **Static Flows only** (all screen content defined
+upfront, terminal `complete` action) - deliberately excludes **Dynamic (data-exchange) Flows**,
+which need a new encrypted endpoint (2048-bit RSA keypair, AES-128-GCM payload encryption,
+INIT/data_exchange/BACK/ping action handling, a 10-15s response SLA). Same "minimum genuine feature
+first" discipline as every other node/feature in this codebase - dynamic flows are a clear,
+separate follow-up if a real need for live server logic during a flow ever comes up, not built
+speculatively now.
+
+**Built:**
+- `server/models/WhatsAppFlow.js` - one doc per flow (`name`, `template`, `categories`, `flowJson`,
+  `metaFlowId`, `status: draft|published|deprecated`).
+- `server/services/whatsappFlows.js` - `createFlow`/`publishFlow`/`deleteFlow`/`sendFlowMessage`,
+  same `graphRequest` local-helper pattern already used in `embeddedSignup.js`/`metaAdsProvider.js`
+  (deliberately not extracted into a shared module - matches this codebase's existing precedent of
+  small per-file duplication over a premature shared abstraction). First template: **Lead Capture**
+  (name/phone/email/interest, single screen, `LEAD_GENERATION` category).
+- `server/routes/whatsappFlows.js`, mounted at `/api/whatsapp-flows` - list templates, list/create
+  flows, publish, send-to-a-number, delete (Meta only allows deleting `draft` flows). Reuses
+  `templates:read`/`templates:write` permissions rather than inventing a new pair - a Flow is a
+  content type the same way a Template is.
+- **Inbound side**: a flow's completed answers arrive as a normal webhook message with
+  `interactive.type: "nfm_reply"`, not through any new endpoint - confirmed via research before
+  writing code, since this determined the whole scope (static flows need zero new inbound
+  infrastructure). `normalizeWebhookPayload` (`whatsappProvider.js`) now parses `nfm_reply` into a
+  structured `flowResponse`; the inbound handler (`whatsapp.js`) stores it as `Message.type:
+  "flow_response"` with a readable summary body and the raw answers in `metadata.flowResponse`.
+  `Message.type` enum extended with `"flow"`/`"flow_response"`.
+- **Client**: new "Flows" tab in Settings (`WhatsAppFlowsPanel.tsx`, modeled directly on
+  `AdsSettingsPanel.tsx`'s structure) - create from template, publish, send-to-a-number, delete.
+
+**Real bug found and fixed during local verification, not test-only:** the `POST /` create route
+didn't catch errors from the real Meta API call the way `/:id/publish` and `/:id/send` already did
+- a genuine Meta rejection surfaced as a generic 500 instead of the real error. Caught by actually
+calling the route against the local dev DB's (fake, placeholder-token) WhatsApp account and reading
+what came back, not by inspection. Fixed to match the try/catch pattern already used by every other
+action route in this file.
+
+**Verified so far, real not assumed:** `npm run check:server`/`check:client` both clean. A real
+local `POST /api/whatsapp-flows` call genuinely reaches Meta's live Graph API - confirmed by the
+*specific* error that came back (`#190 Invalid OAuth access token`, not a generic 400 malformed
+request), meaning Meta's parser accepted the `name`/`categories`/`flow_json` shape and only rejected
+the fake local token. This is real evidence the request shape is correct, short of a full happy-path
+proof. **Not yet verified**: the actual happy path (create → publish → send → a real person fills it
+out → the `nfm_reply` webhook arrives and renders correctly in the Inbox) - this local dev DB only
+has a fake placeholder-token WhatsApp account, so a genuine end-to-end test needs the real Nemnidhi
+WABA, i.e. production, same as every other Meta-integration feature in this project's history.
+**Next real step**: deploy, then create a real Lead Capture flow against the live account, publish
+it, send it to a real test number, fill it out, and confirm the reply lands correctly in the Inbox.
+
 ## MongoDB backup cron — scheduled and verified on the VPS, 2026-08-21
 
 Closes the real gap left by `1c393ad` (backup + restore drill scripts, built 2026-08-19): the

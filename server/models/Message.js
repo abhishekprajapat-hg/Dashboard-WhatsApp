@@ -8,7 +8,7 @@ const messageSchema = new mongoose.Schema(
     contactId: { type: mongoose.Schema.Types.ObjectId, ref: "Contact", required: true, index: true },
     whatsappAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "WhatsAppAccount", index: true },
     direction: { type: String, enum: ["inbound", "outbound"], required: true },
-    type: { type: String, enum: ["text", "template", "image", "document", "audio", "video", "location", "system", "note"], default: "text" },
+    type: { type: String, enum: ["text", "template", "image", "document", "audio", "video", "location", "system", "note", "flow", "flow_response"], default: "text" },
     body: String,
     attachments: { type: [mongoose.Schema.Types.Mixed], default: [] },
     providerMessageId: { type: String, sparse: true },
