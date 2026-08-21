@@ -11,6 +11,25 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## MongoDB backup cron — scheduled and verified on the VPS, 2026-08-21
+
+Closes the real gap left by `1c393ad` (backup + restore drill scripts, built 2026-08-19): the
+scripts existed and were verified locally, but nothing actually ran them in production - "we have
+backups" wasn't true yet, only "the tooling to make backups exists." Added to `dashboard`'s
+crontab directly on the VPS (`sudo -u dashboard crontab -e`), daily at 2 AM, an hour ahead of the
+existing 3 AM `prune:audit-logs` entry so the two never overlap:
+```
+0 2 * * * cd /opt/dashboard-whatsapp/server && npm run backup:mongo >> /opt/dashboard-whatsapp/backup-cron.log 2>&1
+```
+**Verified with a real manual run against production** (`sudo -u dashboard bash -c 'cd
+/opt/dashboard-whatsapp/server && npm run backup:mongo'`), not just confirming the crontab line
+exists - 24 real collections backed up, including all 51,303 `auditlogs` documents, written to
+`/opt/dashboard-whatsapp/server/backups/2026-08-21T16-52-44-176Z` with a matching manifest.
+`docs/OPERATIONS_MANUAL.md` updated to match. **Still open, not done here**: `npm run restore:drill`
+has only ever been verified against local dev data, never against a real production backup - worth
+doing once as a genuine drill before trusting the restore path in an actual incident, not assuming
+the local verification generalizes. No further cron/VPS work needed for the backup side itself.
+
 ## Playwright E2E suite for critical paths — built 2026-08-21, closes the last Phase 1 item
 
 Closed `FUTURE_ROADMAP.md`'s Phase 1 "Add Playwright E2E suite for critical paths" item - the last

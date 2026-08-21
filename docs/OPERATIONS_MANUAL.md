@@ -41,12 +41,16 @@
   into the real `MONGODB_URI` database without an explicit `--confirm-overwrite-target` flag - a
   real restore always needs to be provably safe to run without asking "will this destroy
   production data" first.
-- **Not yet scheduled**: neither script has a cron entry on the VPS yet - `npm run backup:mongo`
-  needs to actually be added to a daily cron (same `sudo -u dashboard` pattern as
-  `prune:audit-logs`) before "we have backups" is true in production, not just locally available
-  tooling. Verified once, locally: a real backup + restore drill round-trip against local dev data
-  (22 collections, including a 3942-row `auditlogs` collection) matched exactly, with ObjectId/Date
-  field types confirmed identical post-restore, not just document counts.
+- **Scheduled on the VPS 2026-08-21**: `dashboard`'s crontab runs `npm run backup:mongo` daily at
+  2 AM (`0 2 * * * cd /opt/dashboard-whatsapp/server && npm run backup:mongo >>
+  /opt/dashboard-whatsapp/backup-cron.log 2>&1`), an hour ahead of the existing 3 AM
+  `prune:audit-logs` entry. Verified with a real manual run against production, not just the
+  crontab line existing: 24 collections backed up (including 51,303 real `auditlogs` documents),
+  written to `/opt/dashboard-whatsapp/server/backups/2026-08-21T16-52-44-176Z` with a matching
+  manifest. Restore drill (`npm run restore:drill`) was verified locally only (22 collections,
+  including a 3942-row `auditlogs` collection, ObjectId/Date field types confirmed identical
+  post-restore) - **not yet run against a real production backup**, worth doing once as a genuine
+  drill rather than assuming the local verification generalizes.
 - Audit logs retained via the existing `npm run prune:audit-logs` (`server/services/
   auditLogRetention.js`), independent of the Mongo-wide backup above.
 - Webhook payload retention should be minimized or redacted for privacy - not yet implemented,
