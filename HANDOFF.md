@@ -58,12 +58,37 @@ local `POST /api/whatsapp-flows` call genuinely reaches Meta's live Graph API - 
 *specific* error that came back (`#190 Invalid OAuth access token`, not a generic 400 malformed
 request), meaning Meta's parser accepted the `name`/`categories`/`flow_json` shape and only rejected
 the fake local token. This is real evidence the request shape is correct, short of a full happy-path
-proof. **Not yet verified**: the actual happy path (create → publish → send → a real person fills it
-out → the `nfm_reply` webhook arrives and renders correctly in the Inbox) - this local dev DB only
-has a fake placeholder-token WhatsApp account, so a genuine end-to-end test needs the real Nemnidhi
-WABA, i.e. production, same as every other Meta-integration feature in this project's history.
-**Next real step**: deploy, then create a real Lead Capture flow against the live account, publish
-it, send it to a real test number, fill it out, and confirm the reply lands correctly in the Inbox.
+proof.
+
+**Full happy path verified live in production, 2026-08-22, by the user directly** - create → publish
+→ send → real WhatsApp Flow UI rendered on a real phone → real submission → correct `nfm_reply`
+parsing → correct display in the Inbox, all confirmed via real screenshots, not assumed:
+- First send attempt (00:52) genuinely didn't deliver - confirmed the 24-hour session-window theory
+  directly rather than guessing: the target number's last real activity was 3 days prior, so a
+  non-template interactive message correctly wasn't delivered by WhatsApp. A coincidental unrelated
+  inbound message (a real Meta Lead Ad auto-message, nothing to do with this feature) reopened the
+  session one minute later.
+- Second send (after the session reopened) delivered for real: "Please fill out Nemnidhi." with an
+  **Open** button arrived on the recipient's actual phone.
+- Tapping Open rendered Meta's real native Flow UI - the exact "Get in touch" screen (Full
+  name/Phone/Email/Interest, "Managed by Nemnidhi" branding) from `FLOW_TEMPLATES.lead_capture`'s
+  JSON, proving the Flow JSON schema is fully correct end to end, not just accepted by the create
+  API.
+- Submitting it produced a real `nfm_reply` webhook, correctly parsed and rendered in the Inbox as
+  `full_name: Somil Jain, phone: +917000445463, email: somiljain00@gmail.com, interest: Website and
+  CRM, flow_token: flow_6a88a547893ef...` - exactly the shape `normalizeWebhookPayload`/the inbound
+  handler were built to produce.
+
+**Real, useful finding surfaced by this test, worth remembering**: a freeform (non-template)
+WhatsApp Flow send is subject to the same 24-hour customer-service session window as any other
+freeform message - it will return a real 200/message-id from Meta's API even when it will never
+actually be delivered, exactly like the pre-existing text-message case documented in the
+2026-08-16 "missing outbound message" investigation above. **For a genuinely cold send** (a contact
+who has never messaged the business), **this Static-Flow send path cannot work** - the only way to
+reach a cold contact with a Flow is a Flow attached to an approved **template** message (which
+bypasses the session window the same way template texts already do). Not built here - flagged as a
+real, concrete follow-up if cold Flow outreach (e.g. from a fresh ad campaign) turns out to matter,
+not a defect in what shipped today.
 
 **Extended same day: a second template + automation wiring, while the first deploy propagated.**
 - **Appointment Request template** (`whatsappFlows.js`) - name/phone/`DatePicker`/`Dropdown`
