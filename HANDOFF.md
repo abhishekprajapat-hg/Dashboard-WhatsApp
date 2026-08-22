@@ -11,6 +11,55 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## READ THIS FIRST — session boundary 2026-08-22, mid-diagnosis on one specific Instagram bug
+
+**Pushed and deployed as of this note: `3ca292c`.** Everything described in this file up through
+the Instagram sections below is real, built, and (mostly) verified - Playwright E2E, WhatsApp Flows
+(fully proven end to end with a real Flow filled out on a real phone), the MongoDB backup cron, and
+most of the Instagram DM omnichannel build. **The one open thread, exactly where it stands:**
+
+**What's proven working**: Instagram OAuth connect (`@nemnidhi.official` shows "connected" for
+real in Settings > Instagram, after three real bugs found and fixed in sequence - wrong OAuth host,
+a COOP header, then abandoning `window.opener`/`postMessage` for `localStorage` + the `storage`
+event, since Instagram's own login pages sever `window.opener` regardless of any header on our
+side). The manual send-test box also correctly reaches the real Graph API (confirmed via a real,
+expected "must be a valid ID string" rejection when given a username instead of a numeric ID).
+
+**What's NOT working yet, actively being diagnosed**: a real DM sent from a personal Instagram
+account to `@nemnidhi.official` does not appear in the Inbox. **Root cause confirmed, not
+guessed**: two different Meta APIs use two different numeric IDs for the same real Instagram
+account. Our `InstagramAccount` document (queried directly via `mongosh` on the VPS) stores
+`instagramUserId: '28369344356088380'` (from `graph.instagram.com/me?fields=user_id`, called during
+our OAuth connect flow) - but Meta's own App Dashboard ("Generate access tokens" panel) shows the
+same real account's ID as `17841477991292768`. **6 real webhook deliveries were confirmed arriving
+in production** (via `grep -i instagram` on `dashboard-api-out.log`, all returned 200, zero errors
+logged) - they're silently not matching any stored account, because `instagram.js`'s webhook
+handler looks up `InstagramAccount.findOne({instagramUserId: normalized.instagramUserId})` and the
+ID it's comparing against is apparently the wrong one. Written documentation on which ID a webhook's
+`entry[].id` actually sends has been unreliable/contradictory twice already today (the OAuth-host
+bug and the COOP bug both traced back to docs saying one thing while the real system did another),
+so rather than guess a third time, **diagnostic logging was just added and deployed (`3ca292c`)** -
+`instagram.js`'s webhook handler now logs the real `entry[].id` plus every stored account's ID on
+any lookup miss.
+
+**Exact next step for whoever picks this up**: have the user send one more real Instagram DM to
+`@nemnidhi.official`, then check the logs:
+```bash
+pm2 logs dashboard-api --lines 100 --nostream | grep -A 5 "no matching account"
+```
+That log line will show the real `entry[].id` Meta actually sent, directly comparable against
+`28369344356088380`. Once the real ID is known, the fix is either (a) find the right API call during
+OAuth connect that returns the *matching* ID instead of/alongside `user_id` (likely a different
+`fields` value on the `graph.instagram.com/me` call, or a separate endpoint), or (b) simpler and
+more robust regardless of which ID mismatch theory is exactly right: **store whatever ID the
+`fetchInstagramAccountInfo` call returns as before, but also accept/self-heal on the first real
+webhook** - update the stored `instagramUserId` to match `normalized.instagramUserId` the first
+time a webhook's raw entry can be confidently tied to the one connected account (e.g. when exactly
+one `InstagramAccount` exists per workspace, which is the common case) - never assume, verify with
+the real log output first.
+
+**File path for this handoff document**: `D:\dashboard-whatsapp-src\HANDOFF.md`
+
 ## Instagram OAuth authorize host — real bug fixed 2026-08-22, found during live testing
 
 The user did the full manual Meta Dashboard setup below (Instagram product, App ID/Secret,
