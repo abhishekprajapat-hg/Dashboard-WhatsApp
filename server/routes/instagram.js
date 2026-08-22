@@ -109,13 +109,24 @@ instagramRouter.post("/accounts/:id/send", requirePermission("templates:write"),
 // like WhatsApp Embedded Signup, so this hands the code back to the opener window the same way
 // EmbeddedSignupButton.tsx's postMessage listener already expects, keeping both connect flows on
 // the same client-side pattern.
+//
+// Real bug found via live testing: helmet's default Cross-Origin-Opener-Policy: same-origin
+// (applied to every response by server/index.js) silently severs window.opener on this page once
+// the popup has bounced through Instagram's cross-origin domain and navigated back here - even
+// though the opener is same-origin. window.opener?.postMessage(...) then just silently no-ops (the
+// optional-chaining swallows the null), the popup closes, and the main window never hears about it
+// - no error, no crash, just nothing happening. same-origin-allow-popups is the standard fix for
+// exactly this "a popup needs to talk back to whoever opened it, even after visiting another site"
+// pattern - explicitly overridden here since this route needs different semantics than the rest of
+// the API.
 instagramPublicRouter.get("/oauth-callback", (req, res) => {
   const code = String(req.query.code || "");
   const error = String(req.query.error_description || req.query.error || "");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  const payload = JSON.stringify({ type: "IG_OAUTH_CALLBACK", code, error });
   res.set("Content-Type", "text/html").send(`<!doctype html><html><body>
 <script>
-  window.opener?.postMessage(${JSON.stringify({ type: "IG_OAUTH_CALLBACK" })}, window.location.origin);
-  window.opener?.postMessage(Object.assign(${JSON.stringify({ type: "IG_OAUTH_CALLBACK" })}, { code: ${JSON.stringify(code)}, error: ${JSON.stringify(error)} }), window.location.origin);
+  window.opener?.postMessage(${payload}, window.location.origin);
   window.close();
 </script>
 ${error ? "Connection failed - you can close this window." : "Connected - you can close this window."}

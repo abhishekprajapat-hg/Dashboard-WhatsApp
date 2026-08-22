@@ -27,8 +27,41 @@ which showed the correct host is `www.instagram.com/oauth/authorize` - the token
 Dashboard was more trustworthy than the written docs research found earlier - worth checking that
 first next time something in this Instagram integration doesn't match documentation.
 
-Fixed in `OAUTH_AUTHORIZE_URL` (one line). Not yet re-tested as of this note - next real step is the
-user retrying "Connect Instagram" once this deploys.
+Fixed in `OAUTH_AUTHORIZE_URL` (one line).
+
+**Second real bug found immediately after fixing the first, same live-testing session.** With the
+host fixed, the popup reached the real Instagram consent screen and the user clicked Allow - popup
+closed itself (looked successful) but no account ever appeared in Settings > Instagram, no error
+shown either. Root cause: `server/index.js`'s `helmet()` call uses its default
+`Cross-Origin-Opener-Policy: same-origin` on every response, including the `/oauth-callback` page.
+Once the popup navigates through Instagram's cross-origin domain and back to our own origin, a
+strict `same-origin` COOP silently severs `window.opener` even though the opener genuinely is
+same-origin - `window.opener?.postMessage(...)` then just no-ops (optional chaining swallows the
+null), so the code never reaches the main window. No error, no crash - just nothing happening,
+exactly what was observed. Fixed by explicitly overriding the header to
+`same-origin-allow-popups` on just this one route - the standard, correct value for "a popup needs
+to talk back to whoever opened it, even after visiting another site." Also cleaned up the route to
+build one `postMessage` payload instead of two redundant calls.
+
+**Verified locally for real, not assumed** - confirmed via a direct `curl -D -` that the response
+now carries `Cross-Origin-Opener-Policy: same-origin-allow-popups` (not helmet's default) and that
+the HTML body's `postMessage` payload is well-formed
+(`{"type":"IG_OAUTH_CALLBACK","code":"...","error":""}`). **Real, unrelated environment issue hit
+and worked around during this verification**: this local dev machine's Upstash Redis instance had
+hit its free-tier monthly request quota (500,004/500,000), which was returning a 500 on *every*
+route, not just this one - `rateLimiter.js` calls `redis.incr()`/`redis.pexpire()`/`redis.pttl()`
+with no try/catch, so a Redis *command* failure (as opposed to Redis simply being disconnected,
+which it already handles via a local in-memory fallback) crashes the whole request. Worked around by
+temporarily commenting out this local `.env`'s `REDIS_URL` for the verification, then restoring it
+immediately after - never touched anything committed. **Real, minor robustness gap worth flagging,
+not fixed here**: `rateLimiter.js`'s Redis path has no graceful degradation to the local fallback
+on a command-level failure, only on a connection-level one - if production's Redis ever hits a
+transient error or its own quota limit, every request would 500 instead of falling back locally.
+Not urgent (production's Upstash instance is presumably separate from this local dev one and not
+near its own limit), but a real gap, not a hypothetical one - this session just proved it happens.
+
+Not yet re-tested end to end as of this note - next real step is the user retrying "Connect
+Instagram" once this deploys, for real this time.
 
 ## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
 
