@@ -11,6 +11,53 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Media upload hang on large files - client fix done, nginx config still needed - 2026-08-22
+
+Found while asking the user to real-world test the video/audio Instagram attachment fix above: the
+user attached a real video through the Composer and it sat "trying to send" indefinitely with no
+error - genuinely stuck, not just slow. **This is a pre-existing bug unrelated to the Instagram
+attachment work**, in the generic media upload pipeline every channel shares (WhatsApp included) -
+it just never got triggered before because nobody had sent a large enough file until now.
+
+**Root cause, confirmed not guessed**: `media.js`'s upload route caps the raw file at 10MB, but the
+client sends it as base64-encoded JSON - roughly 33% larger than the raw file. This VPS's nginx
+config for this site (`/etc/nginx/sites-available/dashboard-nemnidhi`) sets
+`client_max_body_size 10m` - smaller than what's needed to carry a base64-encoded 10MB file, so a
+real video well under the app's own "10MB" limit can still trip nginx's limit first. nginx then
+returns its own plain-HTML error page, not JSON. Separately, and this is the part that actually
+caused the *hang* rather than a clean error: `uploadMediaWithProgress`
+([client/src/app/lib/api.ts](client/src/app/lib/api.ts)) did `JSON.parse(xhr.responseText || "{}")`
+inside `xhr.onload` with **no try/catch** - parsing nginx's HTML throws there uncaught, which means
+neither `resolve` nor `reject` ever fires. The upload promise hangs forever with no error surfaced
+anywhere in the UI.
+
+**Fix (client-side, done)**: wrapped the parse in a try/catch that rejects cleanly with a clear
+message (`"Upload failed (<status>). The file may be too large."`) instead of throwing inside the
+handler. **Verified for real, not just read for plausibility** - reproduced the exact bug live: added
+a temporary local route returning the identical non-JSON nginx-style 413 page, confirmed the *old*
+code (copy-pasted inline, unmodified) genuinely throws inside `onload` on that response
+(`Unexpected token '<' ... is not valid JSON`) proving the hang is real, then confirmed the *new*
+code rejects immediately with a clear error against the same response. Also confirmed a real
+successful upload (a real PNG through the actual `/media/upload` endpoint, authenticated) still
+resolves correctly with full attachment metadata - no regression to the working path. All temporary
+test scaffolding (a throwaway server route, a commented-out `REDIS_URL` needed to dodge this local
+dev machine's now-familiar Upstash quota gotcha) removed immediately after, confirmed via `git diff`
+showing zero leftover changes to `server/index.js`.
+
+**Not fixed here, needs the user's own VPS access (root/sudo, not available from this session)**:
+nginx's `client_max_body_size` itself. The client fix stops the *hang* - a large file now fails
+cleanly with a clear error instead of hanging forever - but it will still legitimately fail until
+nginx's limit is raised to comfortably fit a base64-encoded 10MB file (roughly 13.3MB after encoding,
+plus JSON overhead). Exact commands, run as a user with sudo on the VPS:
+```bash
+sudo sed -i 's/client_max_body_size 10m;/client_max_body_size 15m;/' /etc/nginx/sites-available/dashboard-nemnidhi
+sudo nginx -t
+sudo systemctl reload nginx
+```
+`nginx -t` validates the config before reloading - don't skip it. After this, retry the same real
+video-attachment send that originally hung; it should now either succeed or fail with the client's
+new clear error message, never hang silently again either way.
+
 ## RESOLVED 2026-08-22 — the Instagram DM inbound bug, self-healed and confirmed live
 
 **Supersedes the "mid-diagnosis" section immediately below**, which is kept as-is beneath this one for

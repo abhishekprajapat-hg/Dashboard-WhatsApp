@@ -354,7 +354,23 @@ export async function uploadMediaWithProgress<T>(file: File, onProgress?: (progr
       if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
     xhr.onload = () => {
-      const payload = JSON.parse(xhr.responseText || "{}");
+      // A non-JSON body here (e.g. nginx's own plain-HTML error page when a request trips
+      // client_max_body_size before ever reaching this app) must still reject, not throw inside
+      // this handler - an uncaught throw here means neither resolve nor reject ever fires, and the
+      // caller's promise hangs forever with no error surfaced anywhere.
+      let payload: { message?: string } = {};
+      try {
+        payload = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+      } catch {
+        const error = new Error(
+          xhr.status >= 200 && xhr.status < 300
+            ? "Upload succeeded but the server response could not be read."
+            : `Upload failed (${xhr.status || "network error"}). The file may be too large.`
+        ) as ApiError;
+        error.status = xhr.status;
+        reject(error);
+        return;
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         onProgress?.(100);
         resolve(payload as T);
