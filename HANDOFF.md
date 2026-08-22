@@ -11,6 +11,44 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## RESOLVED 2026-08-22/23 — VPS-wide CPU crisis root cause found and mitigated (not a Dashboard-WhatsApp bug)
+
+**Real production impact on this app, worth recording here even though the root cause lives in a
+different project on the same VPS.** While attempting to record the Instagram App Review screencast,
+a real test DM was delivered by Meta but never appeared in the Inbox. Traced to `dashboard-api`
+itself being unresponsive - `curl` to both `dashboard.nemnidhi.com/health` and `127.0.0.1:4000/health`
+(bypassing nginx) were timing out (`curl` exit 28) for an extended period, even though the process was
+alive (`ps` showed it running, not crashed). The webhook almost certainly failed or timed out
+server-side during that window - this app's own code is not implicated.
+
+**Root cause, confirmed via actual error logs (with the user's root access, granted for this specific
+diagnosis)**: a completely separate app on this shared VPS, `nemnidhi-backend`
+(`/home/abhi/Nemnidhi-E-commerce-webiste`, the real backend for `glam.nemnidhi.com`), was configured
+to listen on port 5000 - already occupied by yet another app, `samvid-os-backend` (whose own nginx
+config actually points at port 5200, a separate discrepancy). Every PM2-managed restart attempt of
+`nemnidhi-backend` crashed instantly on `Error: listen EADDRINUSE: address already in use :::5000`,
+and PM2 immediately retried - a tight ~10-20 second crash loop confirmed by watching three different
+PIDs appear across 30 seconds, each with near-zero accumulated CPU time. `pm2 status` showed its
+restart counter (`↺`) at 4,500+ by the time this was found. This VPS also turned out to be a **single
+vCPU** instance (`nproc` = 1) with real CPU steal-time spikes seen in `vmstat` (up to 78% in one
+sample) - on a 1-core box, a rapid crash loop like this can starve every other tenant's app, including
+this one, even though `dashboard-api`'s own code never changed.
+
+**Mitigated**: `pm2 stop nemnidhi-backend` (run by the user as root, since this session's own SSH
+access is deliberately blocked from root-level actions by its own safety tooling). Confirmed via
+before/after: `dashboard.nemnidhi.com/health` went from timing out at 8s to responding in `0.02s`
+immediately after the stop, `127.0.0.1:4000/health` from timeout to `0.001s`. Zero functional loss
+from stopping it - `glam.nemnidhi.com` was already completely non-functional either way (its real
+backend could never successfully bind port 5000 regardless of restart count), so this just stops the
+CPU burn without breaking anything that was working.
+
+**Not this app's problem to fix, but worth knowing if `dashboard-api` health looks flaky again**:
+the actual fix (reassigning `nemnidhi-backend` or `samvid-os-backend` to a free port, updating
+`glam.nemnidhi.com`'s nginx `proxy_pass` to match) belongs to whoever owns those apps (Abhishek) -
+handed off separately. If `dashboard.nemnidhi.com/health` ever times out again, check
+`ps aux --sort=-%cpu` and `uptime` first before assuming a regression in this codebase - a single
+runaway process on this shared, single-core VPS can take the whole box down, as just demonstrated.
+
 ## READ THIS FIRST — Instagram account vanished from production, root cause NOT YET confirmed - 2026-08-22
 
 **Reconnected and working again as of this note, but the "why" is still open.** Sometime after the
