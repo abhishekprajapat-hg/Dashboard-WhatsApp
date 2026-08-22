@@ -98,9 +98,14 @@ directions were actually broken, not just the outbound one the original note des
   right Instagram type and URL, and that accompanying body text triggers a genuinely separate,
   second `fetch` call carrying `message.text`, proving the mutual-exclusivity constraint is honored
   rather than assumed. `npm run check` (154 files) clean.
-- **Not yet verified against the real Graph API** - needs a real image/media URL and a live send
-  through the actual Composer against the connected `@nemnidhi.official` account, the natural next
-  real-world test whenever an agent replies to an Instagram conversation with an attachment.
+- **Verified live against the real Graph API, same day, after `c7d4e13` deployed**: the user sent a
+  real image through the actual Composer, in the real `@nemnidhi.official` Instagram conversation.
+  App-side: the message rendered in the chat with a single ("sent") checkmark, and the conversation
+  list's preview correctly showed "Media" instead of blank/broken. **The real proof**: the user
+  confirmed the photo genuinely arrived on the receiving personal Instagram account's actual DM
+  thread - not just an app-side checkmark, which is exactly the kind of thing that looked fine
+  earlier in this same session's ID-mismatch bug before turning out not to be. Outbound attachment
+  send is now proven end to end, not just unit-verified.
 - **Deliberately not built further**: only the first attachment in a reply is sent (matches this
   codebase's existing WhatsApp precedent - `sendWhatsAppText` also only ever sends
   `firstAttachment(attachments)`, not a real multi-attachment batch), and Instagram-specific
