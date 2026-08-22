@@ -98,6 +98,19 @@ architectural issue that made the header fix insufficient), each one only findab
 clicking through the real flow, not by anything testable locally in advance. **This closes the OAuth
 connect side of Instagram DMs as genuinely done, not just built.**
 
+**Real, unrelated finding surfaced while checking the connected account's real Instagram inbox,
+worth knowing before assuming any future auto-reply on this account came from us**:
+`nemnidhi.official`'s Instagram DMs already had a **pre-existing ManyChat automation** running
+before today - visible directly in the account's own Instagram DM inbox (a conversation row labeled
+"Automation powered by @Manychat"), and confirmed by a canned welcome message
+("We engineer Digital Ecosystems for Real Estate dominance... A Solution Architect will review your
+message shortly") that predates today's OAuth connection entirely (timestamped "Seen yesterday" -
+this app had no Instagram connection at all until today, so it structurally could not have sent it).
+**Real consequence going forward**: two separate systems can now both react to the same inbound
+Instagram DMs - ManyChat's existing automation, and whatever gets built on `send_instagram`/webhook
+triggers here. Not a bug, not something to fix, but worth remembering the next time an unexpected
+auto-reply shows up on this account before assuming it came from this codebase.
+
 ## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
 
 The other big non-WhatsApp roadmap item, started the same day as Flows. **Research first, before any
