@@ -11,12 +11,55 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## RESOLVED 2026-08-22 — the Instagram DM inbound bug, self-healed and confirmed live
+
+**Supersedes the "mid-diagnosis" section immediately below**, which is kept as-is beneath this one for
+the full diagnostic record. **Pushed and deployed: `73b5152`.** The exact next step that section
+called for — one more real Instagram DM plus a log check — was done, and it worked.
+
+**What the diagnostic logging (`3ca292c`) revealed**: the real webhook payload carried
+`webhookInstagramUserId: "17841477991292768"` — confirming the theory exactly. Our stored
+`InstagramAccount.instagramUserId` (`28369344356088380`, from `graph.instagram.com/me?fields=user_id`
+during OAuth connect) really is a different ID namespace than what a real webhook's `entry[].id`
+sends for the same account, no guessing needed.
+
+**Fix chosen: option (b) from the diagnosis, self-heal, not option (a), chase the right OAuth-time
+field.** `instagram.js`'s webhook POST handler now does this on a lookup miss: if exactly one
+`InstagramAccount` document exists (true for this single-account production case), it corrects that
+one account's stored `instagramUserId` to the ID the webhook just proved, then continues processing
+the message instead of dropping it - so the very DM that revealed the mismatch also lands in the
+Inbox, not just future ones. If more than one account is ever on file, self-heal deliberately bails
+out and just logs (same diagnostic shape as before) rather than guessing which account a mismatched
+ID belongs to - a genuinely unresolved case if a second Instagram account is ever connected, not
+something this fix pretends to handle.
+
+**Verified live, real account, real DM, 2026-08-22**: after `73b5152` deployed
+(`.last-deploy-sha` confirmed matching, `/health` returned 200), a real DM sent from a personal
+Instagram account to `@nemnidhi.official` appeared in the Inbox correctly - `channel: instagram`,
+tagged `Lead`/`new_lead`, status `Open`, body "Hi", timestamped "Just now". **This closes the
+Instagram DM omnichannel build's last open gap end to end** - OAuth connect, inbound webhook
+delivery, ID resolution, and Inbox display are all now genuinely proven together, not just each
+piece individually as they were before this fix.
+
+**Real, reusable finding from this session's diagnosis, worth keeping**: when this VPS's hPanel
+browser terminal (`mum.hostingervps.com`) gets stuck/unresponsive mid-session, direct SSH
+(`ssh -p 2424 samvid@72.60.97.58`) works as a real fallback using a keypair already present on the
+local dev machine - confirmed live, bypassed the stuck browser console entirely to check
+`.last-deploy-sha`/`git log`/`curl .../health`. **Caveat confirmed the same session**: `sudo -u
+dashboard ...` from that non-interactive SSH session still needs a real password (no passwordless
+sudo configured for `samvid` -> `dashboard`), so anything needing the `dashboard` user's own
+privileges (PM2 logs, `.env`) still needs the user's own interactive terminal session - only
+`samvid`-level reads (git, the public health endpoint, `dashboard`-group-readable log files like
+`deploy-cron.log`) work through this non-interactive route.
+
 ## READ THIS FIRST — session boundary 2026-08-22, mid-diagnosis on one specific Instagram bug
 
-**Pushed and deployed as of this note: `3ca292c`.** Everything described in this file up through
+**Kept for the full diagnostic record - see the RESOLVED section immediately above for how this
+actually concluded.** Everything described in this file up through
 the Instagram sections below is real, built, and (mostly) verified - Playwright E2E, WhatsApp Flows
 (fully proven end to end with a real Flow filled out on a real phone), the MongoDB backup cron, and
-most of the Instagram DM omnichannel build. **The one open thread, exactly where it stands:**
+most of the Instagram DM omnichannel build. **The one open thread, exactly where it stood at that
+point in the session:**
 
 **What's proven working**: Instagram OAuth connect (`@nemnidhi.official` shows "connected" for
 real in Settings > Instagram, after three real bugs found and fixed in sequence - wrong OAuth host,
