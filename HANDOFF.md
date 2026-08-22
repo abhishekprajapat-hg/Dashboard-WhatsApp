@@ -11,6 +11,25 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram OAuth authorize host — real bug fixed 2026-08-22, found during live testing
+
+The user did the full manual Meta Dashboard setup below (Instagram product, App ID/Secret,
+webhook - verified via a real `hub.challenge` round trip - and business login) and clicked
+"Connect Instagram" for real. The popup opened, navigated to
+`api.instagram.com/oauth/authorize?client_id=...`, and Instagram returned **"Sorry, this page isn't
+available."** Root cause: `instagramProvider.js`'s `OAUTH_AUTHORIZE_URL` used `api.instagram.com`,
+matching what Meta's own docs said during research - but that's wrong specifically for the
+browser-facing authorize step. **Confirmed via the app's own real "API setup with Instagram Login"
+page** ("Set up Instagram business login" step generates a real, working example "Embed URL"),
+which showed the correct host is `www.instagram.com/oauth/authorize` - the token-exchange step
+(`api.instagram.com/oauth/access_token`, server-to-server) was already correct and untouched.
+**Real lesson**: for this specific Instagram OAuth flow, the app's own generated example URL in App
+Dashboard was more trustworthy than the written docs research found earlier - worth checking that
+first next time something in this Instagram integration doesn't match documentation.
+
+Fixed in `OAUTH_AUTHORIZE_URL` (one line). Not yet re-tested as of this note - next real step is the
+user retrying "Connect Instagram" once this deploys.
+
 ## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
 
 The other big non-WhatsApp roadmap item, started the same day as Flows. **Research first, before any

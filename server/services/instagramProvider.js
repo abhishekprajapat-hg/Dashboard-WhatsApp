@@ -3,11 +3,12 @@ import { config } from "../config.js";
 import { decodeCredentials, encodeCredentials } from "./whatsappProvider.js";
 
 // "Instagram API with Instagram Login" is a genuinely separate system from the Facebook Login flow
-// WhatsApp/Ads use - its own OAuth host (api.instagram.com), its own Graph host
-// (graph.instagram.com), and its own App ID/Secret issued only after adding the Instagram product
-// in App Dashboard. Confirmed via Meta's own current docs before writing any of this, not assumed.
-
-const OAUTH_AUTHORIZE_URL = "https://api.instagram.com/oauth/authorize";
+// WhatsApp/Ads use - its own OAuth hosts, its own Graph host (graph.instagram.com), and its own
+// App ID/Secret issued only after adding the Instagram product in App Dashboard. The authorize step
+// (browser-facing) and the token exchange step (server-to-server) use two *different* hosts -
+// confirmed for real against this app's own generated "Embed URL" on the API Setup with Instagram
+// Login page, not just docs (which pointed at the wrong host for the authorize step specifically).
+const OAUTH_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 const OAUTH_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const GRAPH_BASE = `https://graph.instagram.com/${config.metaGraphApiVersion}`;
 
