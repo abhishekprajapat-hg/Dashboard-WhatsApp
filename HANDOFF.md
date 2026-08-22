@@ -60,8 +60,40 @@ transient error or its own quota limit, every request would 500 instead of falli
 Not urgent (production's Upstash instance is presumably separate from this local dev one and not
 near its own limit), but a real gap, not a hypothetical one - this session just proved it happens.
 
-Not yet re-tested end to end as of this note - next real step is the user retrying "Connect
-Instagram" once this deploys, for real this time.
+**Third real bug, same debugging session - the COOP header override wasn't actually enough.** The
+user retried after that deploy: popup reached the real consent screen, clicked Allow, popup closed
+- but still no account appeared and no error showed. Real root cause, found via research into how
+COOP's browsing-context-group algorithm actually works (not guessed): **Instagram's own login pages
+almost certainly set their own strict COOP**, which severs `window.opener` the moment the popup
+first navigates *to* `instagram.com` - before it ever comes back to our `/oauth-callback` page. A
+browsing-context group switch that already happened on Instagram's domain can't be undone by
+anything our own page does afterward, no matter what header it sends. This is a documented, known
+failure mode for `window.opener`-based OAuth popups against any provider with its own strict COOP
+(Google, Facebook, Instagram all commonly do this now) - confirmed via real reports of the identical
+symptom on other projects, not just theory.
+
+**Real fix: stop depending on `window.opener` entirely.** Switched to `localStorage` + the
+`"storage"` event - a mechanism that only needs both windows to be same-origin *when they read/write
+it*, never depends on an opener relationship surviving anything. `/oauth-callback` now writes the
+result to `localStorage.ig_oauth_result` (the old `postMessage` call kept too, harmless, in case it
+happens to work for some providers/browsers). `InstagramSettingsPanel.tsx` listens for the
+`"storage"` event, **plus a fallback poll** on the popup's `.closed` state (500ms interval) that
+checks `localStorage` directly - belt-and-braces against browser-specific timing quirks where a
+`storage` event might not fire reliably, a real risk worth guarding against given how much this
+specific mechanism has already misbehaved today.
+
+**Verified locally for real** - confirmed via direct `curl` that the response body's
+`localStorage.setItem(...)` call contains correctly double-escaped, valid JSON that round-trips
+through `JSON.parse` cleanly (worth checking explicitly - nested `JSON.stringify` calls building a
+`<script>` body are an easy place to introduce a subtle escaping bug). `npm run check:server`/
+`check:client` both clean. Hit the same local Redis-quota issue as before during verification,
+worked around the same way (temporarily comment out `.env`'s `REDIS_URL`, restore immediately after).
+
+Not yet re-tested end to end in the real browser as of this note - next real step is the user
+retrying "Connect Instagram" once this deploys. If `localStorage` + `storage` event also somehow
+fails, the next escalation would be dropping the popup pattern entirely for a full-page redirect
+flow (navigate away and back, no cross-window communication needed at all) - more disruptive to the
+UX but immune to every COOP-related failure mode by construction.
 
 ## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
 

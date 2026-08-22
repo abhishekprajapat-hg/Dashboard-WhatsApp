@@ -48,33 +48,71 @@ export function InstagramSettingsPanel() {
     loadAccounts().catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    async function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string; code?: string; error?: string };
-      if (data?.type !== "IG_OAUTH_CALLBACK" || !data.code) return;
+  // Instagram's own login pages very likely set their own strict Cross-Origin-Opener-Policy,
+  // which severs window.opener the moment the popup navigates *to* instagram.com - before it ever
+  // comes back to our own oauth-callback page. No header on our side can undo a browsing-context
+  // group switch that already happened on Instagram's domain, so postMessage/window.opener can't
+  // be relied on here (confirmed by this failing in real testing even after fixing our own COOP
+  // header). localStorage + the "storage" event doesn't depend on the opener relationship at all -
+  // just on both windows being same-origin when they read/write it, which they always are here.
+  const processedResultRef = useRef(false);
 
-      popupRef.current?.close();
-      setConnecting(true);
-      setNotice("");
-      try {
-        await connectInstagramAccount(data.code);
-        await loadAccounts();
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Could not connect the Instagram account.");
-      } finally {
-        setConnecting(false);
-      }
+  async function handleOAuthResult(raw: string) {
+    if (processedResultRef.current) return;
+    let data: { type?: string; code?: string; error?: string };
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
     }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    if (data?.type !== "IG_OAUTH_CALLBACK") return;
+    processedResultRef.current = true;
+    localStorage.removeItem("ig_oauth_result");
+
+    if (data.error) {
+      setNotice(data.error);
+      return;
+    }
+    if (!data.code) return;
+
+    setConnecting(true);
+    setNotice("");
+    try {
+      await connectInstagramAccount(data.code);
+      await loadAccounts();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not connect the Instagram account.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (event.key !== "ig_oauth_result" || !event.newValue) return;
+      handleOAuthResult(event.newValue);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   async function handleConnect() {
     setNotice("");
+    processedResultRef.current = false;
+    localStorage.removeItem("ig_oauth_result");
     try {
       const response = await getInstagramAuthorizeUrl<{ url: string }>();
       popupRef.current = window.open(response.url, "ig_oauth", "width=520,height=720");
+
+      // Fallback for the (rare, browser-dependent) case where the "storage" event doesn't fire in
+      // time or at all - poll for the popup closing and check localStorage directly once it does.
+      const pollId = window.setInterval(() => {
+        if (!popupRef.current || popupRef.current.closed) {
+          window.clearInterval(pollId);
+          const stored = localStorage.getItem("ig_oauth_result");
+          if (stored) handleOAuthResult(stored);
+        }
+      }, 500);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Instagram connect is not configured yet.");
     }

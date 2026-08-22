@@ -106,27 +106,33 @@ instagramRouter.post("/accounts/:id/send", requirePermission("templates:write"),
 });
 
 // Minimal static popup page - Instagram's classic OAuth is a plain redirect, not a JS-SDK popup
-// like WhatsApp Embedded Signup, so this hands the code back to the opener window the same way
-// EmbeddedSignupButton.tsx's postMessage listener already expects, keeping both connect flows on
-// the same client-side pattern.
+// like WhatsApp Embedded Signup.
 //
-// Real bug found via live testing: helmet's default Cross-Origin-Opener-Policy: same-origin
-// (applied to every response by server/index.js) silently severs window.opener on this page once
-// the popup has bounced through Instagram's cross-origin domain and navigated back here - even
-// though the opener is same-origin. window.opener?.postMessage(...) then just silently no-ops (the
-// optional-chaining swallows the null), the popup closes, and the main window never hears about it
-// - no error, no crash, just nothing happening. same-origin-allow-popups is the standard fix for
-// exactly this "a popup needs to talk back to whoever opened it, even after visiting another site"
-// pattern - explicitly overridden here since this route needs different semantics than the rest of
-// the API.
+// Two real bugs found via live testing, in sequence, both around getting the code back to the
+// opener window:
+// 1. helmet's default Cross-Origin-Opener-Policy: same-origin applies to every response including
+//    this one - overriding it to same-origin-allow-popups (still set below, cheap and correct
+//    regardless) fixes the case where *our own* header was the problem.
+// 2. That alone wasn't enough: Instagram's own login/consent pages very likely set their own
+//    strict COOP, which severs window.opener the moment the popup first navigates *to*
+//    instagram.com - before it ever comes back here. No header on our side can undo a group
+//    switch that already happened on Instagram's domain. This is a known failure mode for
+//    window.opener-based OAuth popups on any provider with its own strict COOP (Google, Facebook,
+//    Instagram, etc. all commonly do this now).
+//
+// Real fix: don't depend on window.opener at all. Write the result to localStorage instead - the
+// main window listens for the "storage" event, which fires cross-window for any same-origin
+// window/tab regardless of whether an opener relationship survived. InstagramSettingsPanel.tsx is
+// the other half of this.
 instagramPublicRouter.get("/oauth-callback", (req, res) => {
   const code = String(req.query.code || "");
   const error = String(req.query.error_description || req.query.error || "");
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-  const payload = JSON.stringify({ type: "IG_OAUTH_CALLBACK", code, error });
+  const payload = JSON.stringify({ type: "IG_OAUTH_CALLBACK", code, error, at: Date.now() });
   res.set("Content-Type", "text/html").send(`<!doctype html><html><body>
 <script>
-  window.opener?.postMessage(${payload}, window.location.origin);
+  try { localStorage.setItem("ig_oauth_result", ${JSON.stringify(payload)}); } catch (e) {}
+  window.opener?.postMessage(JSON.parse(${JSON.stringify(payload)}), window.location.origin);
   window.close();
 </script>
 ${error ? "Connection failed - you can close this window." : "Connected - you can close this window."}
