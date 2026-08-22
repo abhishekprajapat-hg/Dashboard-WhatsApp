@@ -158,15 +158,27 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
   const normalized = normalizeInstagramWebhookPayload(req.body);
   if (normalized.type !== "message") return res.sendStatus(200);
 
-  const account = await InstagramAccount.findOne({ instagramUserId: normalized.instagramUserId });
+  let account = await InstagramAccount.findOne({ instagramUserId: normalized.instagramUserId });
   if (!account) {
-    // Diagnostic only, temporary: two different ID namespaces exist across Meta's Instagram APIs
-    // (confirmed for real in production - the account stored via OAuth's graph.instagram.com/me
-    // doesn't match what the webhook's entry[].id actually sends), and written docs on which is
-    // which have been unreliable twice already today. Logging the real payload here to get ground
-    // truth from an actual live delivery instead of guessing a third time.
-    logger.warn({ webhookInstagramUserId: normalized.instagramUserId, rawEntryId: req.body?.entry?.[0]?.id, storedAccounts: (await InstagramAccount.find({}).select("instagramUserId username")).map((a) => ({ id: a.instagramUserId, username: a.username })) }, "Instagram webhook: no matching account found");
-    return res.sendStatus(200);
+    // Two different ID namespaces exist across Meta's Instagram APIs (confirmed live in production -
+    // graph.instagram.com/me?fields=user_id, called during OAuth connect, returns a different numeric
+    // ID than what a real webhook's entry[].id sends for the same account). Rather than chase which
+    // OAuth-time call would've returned the matching ID, self-heal here: when the mismatch happens and
+    // exactly one InstagramAccount is on file, it can only be that one account under its real webhook
+    // ID, so correct it and keep processing this message instead of dropping it.
+    const candidates = await InstagramAccount.find({});
+    if (candidates.length === 1) {
+      const previousInstagramUserId = candidates[0].instagramUserId;
+      account = await InstagramAccount.findByIdAndUpdate(
+        candidates[0]._id,
+        { $set: { instagramUserId: normalized.instagramUserId } },
+        { new: true }
+      );
+      logger.warn({ previousInstagramUserId, correctedInstagramUserId: normalized.instagramUserId, username: account.username }, "Instagram webhook: self-healed instagramUserId on the single connected account");
+    } else {
+      logger.warn({ webhookInstagramUserId: normalized.instagramUserId, rawEntryId: req.body?.entry?.[0]?.id, storedAccounts: candidates.map((a) => ({ id: a.instagramUserId, username: a.username })) }, "Instagram webhook: no matching account found, and self-heal skipped (more than one account on file)");
+      return res.sendStatus(200);
+    }
   }
 
   const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");
