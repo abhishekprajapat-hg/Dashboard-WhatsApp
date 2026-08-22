@@ -89,11 +89,14 @@ through `JSON.parse` cleanly (worth checking explicitly - nested `JSON.stringify
 `check:client` both clean. Hit the same local Redis-quota issue as before during verification,
 worked around the same way (temporarily comment out `.env`'s `REDIS_URL`, restore immediately after).
 
-Not yet re-tested end to end in the real browser as of this note - next real step is the user
-retrying "Connect Instagram" once this deploys. If `localStorage` + `storage` event also somehow
-fails, the next escalation would be dropping the popup pattern entirely for a full-page redirect
-flow (navigate away and back, no cross-window communication needed at all) - more disruptive to the
-UX but immune to every COOP-related failure mode by construction.
+**Confirmed working, real browser, real account, 2026-08-22.** The user retried after this deploy:
+popup reached the consent screen, clicked Allow, and this time `@nemnidhi.official` genuinely
+appeared in the Settings > Instagram panel with a green "connected" badge. The `localStorage` +
+`storage`-event fix was the one that actually worked - three real bugs found and fixed in sequence
+during one live-testing session (wrong OAuth host, then a COOP header, then the deeper COOP
+architectural issue that made the header fix insufficient), each one only findable by actually
+clicking through the real flow, not by anything testable locally in advance. **This closes the OAuth
+connect side of Instagram DMs as genuinely done, not just built.**
 
 ## Instagram DM omnichannel inbox — built 2026-08-22, backend done, blocked on manual Meta Dashboard setup
 
