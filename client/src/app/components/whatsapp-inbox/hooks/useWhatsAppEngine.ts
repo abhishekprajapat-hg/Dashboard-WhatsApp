@@ -58,6 +58,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   const [crmSaving, setCrmSaving] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const currentTypingId = useRef("");
+  const sentReceiptIds = useRef<Set<string>>(new Set());
 
   const conversations = useMemo(
     () =>
@@ -145,11 +146,20 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   }, [store.selectedId, canWrite, onUnreadCountChange]);
 
   useEffect(() => {
-    if (!canWrite) return;
+    if (!canWrite || !selected?.id) return;
     const outbound = selectedMessages.filter((message) => message.from === "agent" && message.status !== "read");
     for (const message of outbound) {
-      if (!selected?.id || message.id.startsWith("local_")) continue;
-      updateMessageReceipt(selected.id, message.id, "read").catch(() => undefined);
+      if (message.id.startsWith("local_") || sentReceiptIds.current.has(message.id)) continue;
+      // selectedMessages is a new array reference on every store update (including unrelated ones,
+      // like a realtime typing/presence tick touching the same conversations map), not just when a
+      // message's own status changes - without this guard, this effect re-fires on every such tick
+      // and resends the identical PATCH for the same still-unread message every time. Confirmed live
+      // in production: hundreds of duplicate receipt requests flooding the network tab, eventually
+      // tripping the server's rate limiter and blocking real message sends too.
+      sentReceiptIds.current.add(message.id);
+      updateMessageReceipt(selected.id, message.id, "read").catch(() => {
+        sentReceiptIds.current.delete(message.id);
+      });
     }
   }, [selected?.id, selectedMessages, canWrite]);
 

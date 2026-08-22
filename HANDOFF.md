@@ -11,6 +11,34 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## RESOLVED 2026-08-23 — runaway read-receipt polling loop, real pre-existing bug (not the VPS issue)
+
+**Found while retesting Instagram after the VPS crisis above was mitigated** - a reply sent through
+the Inbox got stuck (no checkmark), and DevTools Network showed **~600 requests, almost all to the
+same `.../messages/:id/receipt` endpoint, all stuck `(pending)`**, plus the actual message-send request
+itself coming back `429 Too Many Requests`. This is a real, separate bug from the VPS crisis above -
+this app's own rate limiter blocking its own legitimate traffic because of its own runaway client code.
+
+**Root cause**: the `useEffect` in `useWhatsAppEngine.ts` that marks outbound messages as "read" (line
+~147) had no guard against re-sending the identical PATCH for a message that's already been marked -
+it just re-fires whenever `selectedMessages` gets a new array reference, which happens on far more
+store updates than just "this conversation's messages actually changed" (any store update touching
+`messagesByConversationId`, including from unrelated realtime events, can produce a fresh reference
+for an unchanged array). This is the exact "pre-existing, unrelated read-receipt polling loop" noted
+in passing back in the validation-backfill section further below in this file, dated 2026-08-16 -
+flagged as noise at the time, never actually root-caused or fixed until now. It had clearly been
+running for a while - worth remembering next time this codebase's network log looks unusually busy
+with `receipt` calls, don't dismiss it as cosmetic again.
+
+**Fixed**: a `useRef<Set<string>>` tracks which message IDs have already had a receipt update attempt
+sent, guarding the loop so each message ID only ever fires once (removed from the set on failure, to
+still allow a genuine retry). **Verified live**, not just read for plausibility - seeded a real
+unread outbound message locally, confirmed exactly one `PATCH` fired on load, then forced 65 rapid
+re-renders (typing in the composer, dispatched via `javascript_tool` since simulated clicks are
+unreliable in this sandbox - see "Environment gotchas" further below) and confirmed the request count
+stayed at exactly one the whole time. `npx tsc --noEmit` clean. All test scaffolding (seed/cleanup
+scripts, a locally-started `mongod` needed since it wasn't already running) removed/stopped after.
+
 ## RESOLVED 2026-08-22/23 — VPS-wide CPU crisis root cause found and mitigated (not a Dashboard-WhatsApp bug)
 
 **Real production impact on this app, worth recording here even though the root cause lives in a
