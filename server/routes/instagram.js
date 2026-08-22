@@ -9,6 +9,7 @@ import { trimmedString } from "../utils/zodHelpers.js";
 import { config } from "../config.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
+import { logger } from "../services/logger.js";
 import {
   buildInstagramAuthorizeUrl,
   decodeInstagramCredentials,
@@ -158,7 +159,15 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
   if (normalized.type !== "message") return res.sendStatus(200);
 
   const account = await InstagramAccount.findOne({ instagramUserId: normalized.instagramUserId });
-  if (!account) return res.sendStatus(200);
+  if (!account) {
+    // Diagnostic only, temporary: two different ID namespaces exist across Meta's Instagram APIs
+    // (confirmed for real in production - the account stored via OAuth's graph.instagram.com/me
+    // doesn't match what the webhook's entry[].id actually sends), and written docs on which is
+    // which have been unreliable twice already today. Logging the real payload here to get ground
+    // truth from an actual live delivery instead of guessing a third time.
+    logger.warn({ webhookInstagramUserId: normalized.instagramUserId, rawEntryId: req.body?.entry?.[0]?.id, storedAccounts: (await InstagramAccount.find({}).select("instagramUserId username")).map((a) => ({ id: a.instagramUserId, username: a.username })) }, "Instagram webhook: no matching account found");
+    return res.sendStatus(200);
+  }
 
   const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");
   if (existingMessage) return res.sendStatus(200);
