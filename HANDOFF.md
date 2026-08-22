@@ -52,6 +52,61 @@ privileges (PM2 logs, `.env`) still needs the user's own interactive terminal se
 `samvid`-level reads (git, the public health endpoint, `dashboard`-group-readable log files like
 `deploy-cron.log`) work through this non-interactive route.
 
+**Confirmed, not assumed: the pre-fix diagnostic test DM (the one that produced the
+`webhookInstagramUserId` log line above) was not recoverable.** It hit the webhook before `73b5152`
+deployed, got logged as a miss, and got a real `200 OK` back to Meta - which means Meta considers it
+delivered and will not retry it. User checked the real conversation thread in the Inbox after the fix
+deployed: only one message present, matching the DM sent after deploy. Expected behavior, not a
+residual gap - self-heal only ever applies to webhooks arriving after the fix went live.
+
+## Instagram non-text messages (image/video/audio/document) - closed 2026-08-22
+
+Closes the gap flagged in the Instagram DM omnichannel section below ("non-text message types...
+silently dropped rather than sent"), found while reviewing that section fresh after the ID-mismatch
+fix above. Confirmed in code before touching anything, not assumed from the earlier note alone: both
+directions were actually broken, not just the outbound one the original note described.
+
+- **Outbound** (`conversations.js`'s `POST /:id/messages`): called `sendInstagramMessage({account,
+  to, body})` with no attachments parameter at all - an agent attaching a file to an Instagram reply
+  saw it save locally and render in the chat (the `Message` document always stored
+  `attachments: mediaAttachments` regardless of channel), but the attachment silently never reached
+  Meta. If the reply also had text, the text sent fine and the whole thing got marked `sent` - no
+  error surfaced anywhere, and the Composer has zero Instagram-specific gating to warn an agent this
+  wouldn't work.
+- **Inbound** (`instagramProvider.js`'s `normalizeInstagramWebhookPayload`) - not flagged in the
+  original note, but the same root gap runs both directions: only `message.text` was ever read from
+  a real webhook payload. A real inbound Instagram image carries `message.attachments: [{type,
+  payload: {url}}]` - completely unparsed, so a customer sending an image produced an inbound message
+  with an empty body and no attachment recorded at all, not a graceful "unsupported" state.
+- **Fix**: `sendInstagramMessage` now accepts `attachments`, mapping this codebase's own
+  image/video/audio/document vocabulary onto Instagram's attachment-type enum (`document` -> `file`,
+  Instagram's own name for it). **Real Meta API constraint confirmed via docs before writing this**:
+  Instagram/Messenger Platform's message object is text OR attachment, never both in one call, unlike
+  WhatsApp's media message which carries a caption alongside media in a single payload - so an
+  attachment is sent as the primary call (what the outbound `Message.type` reflects), and any
+  accompanying text is sent as a best-effort separate follow-up call, not blocking the whole send if
+  it fails. `normalizeInstagramWebhookPayload` now also parses `message.attachments` into the same
+  attachment shape `conversations.js`'s `cleanAttachments` already produces, and `instagram.js`'s
+  webhook handler stores them on the inbound `Message` with the type set from the attachment
+  (`image`/`video`/`audio`/`document`) instead of hardcoded `"text"`.
+- **Verified via a throwaway script** (real code paths, not reimplemented logic, deleted immediately
+  after) - inbound: a realistic webhook payload with an image attachment and no text parses to
+  `body: ""` plus a correctly-typed/URLed attachment without crashing; text-only payloads still parse
+  unchanged; an unrecognized inbound attachment type (`ig_reel`) falls back to `document` instead of
+  being dropped. Outbound: mocked `fetch` to inspect the real request bodies `sendInstagramMessage`
+  builds - confirmed the attachment call sends `message.attachment` (not `message.text`) with the
+  right Instagram type and URL, and that accompanying body text triggers a genuinely separate,
+  second `fetch` call carrying `message.text`, proving the mutual-exclusivity constraint is honored
+  rather than assumed. `npm run check` (154 files) clean.
+- **Not yet verified against the real Graph API** - needs a real image/media URL and a live send
+  through the actual Composer against the connected `@nemnidhi.official` account, the natural next
+  real-world test whenever an agent replies to an Instagram conversation with an attachment.
+- **Deliberately not built further**: only the first attachment in a reply is sent (matches this
+  codebase's existing WhatsApp precedent - `sendWhatsAppText` also only ever sends
+  `firstAttachment(attachments)`, not a real multi-attachment batch), and Instagram-specific
+  attachment types this API doesn't support at all (story replies, reactions) are still out of
+  scope, same as before this fix.
+
 ## READ THIS FIRST — session boundary 2026-08-22, mid-diagnosis on one specific Instagram bug
 
 **Kept for the full diagnostic record - see the RESOLVED section immediately above for how this
@@ -346,10 +401,12 @@ today, so it's not a new inconsistency, but it does mean there's currently no wa
 Instagram-only" or "a WhatsApp-only" automation flow. A real follow-up if that distinction ever
 matters, not attempted here.
 
-**Still not built, deliberately, real scoped follow-ups**: Instagram in Campaigns audience
-targeting; non-text message types (image/story-reply/reactions) - `sendInstagramMessage` and the
-Composer only handle plain text today, an attachment added to an Instagram reply is currently
-silently dropped rather than sent, since `sendInstagramMessage` has no attachment parameter yet.
+~~**Still not built, deliberately, real scoped follow-ups**: ... non-text message types
+(image/story-reply/reactions) - `sendInstagramMessage` and the Composer only handle plain text
+today, an attachment added to an Instagram reply is currently silently dropped rather than sent,
+since `sendInstagramMessage` has no attachment parameter yet.~~ **Closed 2026-08-22** - see
+"Instagram non-text messages (image/video/audio/document) - closed" below. Instagram in Campaigns
+audience targeting is still not built, deliberately, real scoped follow-up.
 
 **Manual setup required before any of this can be tested for real - not something this app can
 provision, same category as `META_EMBEDDED_SIGNUP_CONFIG_ID` earlier:**

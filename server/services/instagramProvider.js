@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { config } from "../config.js";
 import { decodeCredentials, encodeCredentials } from "./whatsappProvider.js";
+import { logger } from "./logger.js";
 
 // "Instagram API with Instagram Login" is a genuinely separate system from the Facebook Login flow
 // WhatsApp/Ads use - its own OAuth hosts, its own Graph host (graph.instagram.com), and its own
@@ -76,16 +77,48 @@ export async function fetchInstagramAccountInfo(accessToken) {
   return parseOrThrow(response, "INSTAGRAM_ACCOUNT_INFO_FAILED");
 }
 
-export async function sendInstagramMessage({ account, to, body }) {
+// The Messenger-Platform-derived message object Instagram messaging reuses is text OR attachment,
+// never both in one call - unlike WhatsApp's media message, which carries a caption alongside the
+// media in a single payload. Our own attachment `type` values (image/video/audio/document, set by
+// conversations.js's cleanAttachments) map onto Instagram's attachment type enum; "document" has no
+// direct match there, Instagram's equivalent is "file".
+const INSTAGRAM_ATTACHMENT_TYPE = { image: "image", video: "video", audio: "audio", document: "file" };
+
+export async function sendInstagramMessage({ account, to, body, attachments = [] }) {
   const credentials = decodeCredentials(account);
   const url = `${GRAPH_BASE}/${account.instagramUserId}/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient: { id: to }, message: { text: body } }),
-  });
-  const payload = await parseOrThrow(response, "INSTAGRAM_SEND_FAILED");
-  return { providerMessageId: payload.message_id || `ig_${Date.now()}`, status: "sent" };
+  const attachment = attachments[0];
+
+  async function post(message) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient: { id: to }, message }),
+    });
+    return parseOrThrow(response, "INSTAGRAM_SEND_FAILED");
+  }
+
+  let primaryPayload;
+  if (attachment?.url) {
+    primaryPayload = await post({
+      attachment: {
+        type: INSTAGRAM_ATTACHMENT_TYPE[attachment.type] || "file",
+        payload: { url: attachment.url, is_reusable: true },
+      },
+    });
+    // Best-effort only: the attachment is the primary content this call represents (it's what the
+    // caller's Message.type reflects), and a real recipient having already gotten the attachment
+    // is worth more than failing the whole send over a follow-up text call.
+    if (body) {
+      await post({ text: body }).catch((error) => {
+        logger.warn({ err: error, instagramAccountId: account._id }, "Instagram: attachment sent, follow-up text message failed");
+      });
+    }
+  } else {
+    primaryPayload = await post({ text: body });
+  }
+
+  return { providerMessageId: primaryPayload.message_id || `ig_${Date.now()}`, status: "sent" };
 }
 
 export function hasValidInstagramSignature(req) {
@@ -101,10 +134,27 @@ export function hasValidInstagramSignature(req) {
   return headerBuffer.length === digestBuffer.length && crypto.timingSafeEqual(headerBuffer, digestBuffer);
 }
 
+// Reverse of INSTAGRAM_ATTACHMENT_TYPE above - Instagram's inbound attachment.type enum mapped back
+// onto our own image/video/audio/document vocabulary. "file"/"story_mention"/anything else unknown
+// falls back to "document" rather than being dropped.
+const INBOUND_ATTACHMENT_TYPE = { image: "image", video: "video", audio: "audio" };
+
+function normalizeInboundAttachments(attachments) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .filter((attachment) => attachment?.payload?.url)
+    .map((attachment) => ({
+      name: "Attachment",
+      url: attachment.payload.url,
+      type: INBOUND_ATTACHMENT_TYPE[attachment.type] || "document",
+    }));
+}
+
 // Real webhook shape confirmed via Meta's current docs: {object:"instagram", entry:[{id, time,
-// messaging:[{sender:{id}, recipient:{id}, timestamp, message:{mid, text}}]}]}. Deliberately
-// ignores messaging_postbacks/reactions/optins/referrals/seen for this first pass - only real
-// text messages, same "minimum genuine feature" scope as everything else built today.
+// messaging:[{sender:{id}, recipient:{id}, timestamp, message:{mid, text, attachments}}]}]}.
+// Deliberately ignores messaging_postbacks/reactions/optins/referrals/seen for this first pass -
+// only real text/attachment messages, same "minimum genuine feature" scope as everything else
+// built today.
 export function normalizeInstagramWebhookPayload(payload) {
   const entry = payload?.entry?.[0];
   const messaging = entry?.messaging?.[0];
@@ -117,6 +167,7 @@ export function normalizeInstagramWebhookPayload(payload) {
       instagramUserId: messaging.recipient?.id,
       from: messaging.sender?.id,
       body: message.text || "",
+      attachments: normalizeInboundAttachments(message.attachments),
       providerMessageId: message.mid,
       raw: payload,
     };

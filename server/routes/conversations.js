@@ -786,7 +786,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
           error.status = 400;
           throw error;
         }
-        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody });
+        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments });
         providerResult.mode = "instagram";
       } else {
         providerResult = await sendWhatsAppText({
