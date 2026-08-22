@@ -11,6 +11,36 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## READ THIS FIRST — Instagram account vanished from production, root cause NOT YET confirmed - 2026-08-22
+
+**Reconnected and working again as of this note, but the "why" is still open.** Sometime after the
+Instagram DM bug fix and non-text-message fix were both verified live earlier the same day (see
+"RESOLVED 2026-08-22" and "Instagram non-text messages... closed 2026-08-22" below), Settings ->
+Instagram started showing "No Instagram account connected." Confirmed for real, not assumed - a
+direct browser DevTools check of `GET /api/instagram/accounts` (the real authenticated request, not
+a bare address-bar visit which just 400s on missing auth) returned `{"data":[],"total":0}`: the
+`InstagramAccount` document genuinely no longer existed in production, not a client-side display bug.
+
+**Ruled out**: none of this session's own work could have caused it - every throwaway verification
+script used today connected explicitly to `mongodb://127.0.0.1:27017/whatscrm` (this local dev
+machine's own Mongo, confirmed in each script), never production; the self-heal fix only ever calls
+`findByIdAndUpdate` (an update) on a lookup miss, never a delete; and no `DELETE /accounts/:id` call
+was made from this session's own SSH/API access at any point.
+
+**Not yet confirmed**: whether `Admin -> Logs` (the audit trail - every mutating API call gets logged
+via `auditMiddleware`, including actor/timestamp/IP for a `DELETE /api/instagram/accounts/:id` if that's
+what happened) actually shows a delete entry. The user reconnected the account via the normal
+"Connect Instagram" flow before this was checked, and deliberately deferred checking the audit log to
+a later session. **Whoever picks this up next: check `Admin -> Logs` for a
+`DELETE /api/instagram/accounts/...` entry around the time it went missing** - if one exists, this was
+a human accidentally clicking disconnect during the same session's heavy UI testing (multiple tabs open
+throughout), not a code bug, and this note can be closed out. If the audit log is empty/inconclusive,
+that's a real unexplained data-loss gap worth investigating for real, not closing as "probably fine."
+
+**Before recording the Instagram App Review screencast** (`docs/META_APP_REVIEW_INSTAGRAM.md`) -
+confirm the account has stayed connected for a while first, given this same-day disconnect. Recording
+a demo against a connection that then vanishes again mid-review would be a bad look with Meta.
+
 ## Media upload hang on large files - client fix done, nginx config still needed - 2026-08-22
 
 Found while asking the user to real-world test the video/audio Instagram attachment fix above: the
