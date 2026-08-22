@@ -151,6 +151,11 @@ instagramPublicRouter.get("/webhook", async (req, res) => {
 });
 
 instagramPublicRouter.post("/webhook", async (req, res) => {
+  // TEMP diagnostic, single unmistakable marker line - remove once the glam-account delivery
+  // question is answered. Logs unconditionally, before any validation, so it's present regardless
+  // of whether the signature check or account lookup below succeeds or fails.
+  logger.warn({ rawEntryId: req.body?.entry?.[0]?.id, hasSignatureHeader: Boolean(req.headers["x-hub-signature-256"]) }, "IG_WEBHOOK_HIT_MARKER");
+
   if (!hasValidInstagramSignature(req)) {
     return res.status(403).json({ error: "INVALID_SIGNATURE", message: "Instagram webhook signature verification failed." });
   }
