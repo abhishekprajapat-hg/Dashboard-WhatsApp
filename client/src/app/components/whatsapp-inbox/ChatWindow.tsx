@@ -3,7 +3,7 @@ import { AnimatePresence } from "framer-motion";
 import { ArrowLeft, CheckCircle2, Info, Instagram, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
 import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
-import type { Conversation, PendingMedia, WhatsAppMessage } from "./types";
+import type { Conversation, PendingMedia, UploadState, WhatsAppMessage } from "./types";
 import { cn, initials, messageTimestamp } from "./utils";
 
 interface ChatWindowProps {
@@ -15,6 +15,8 @@ interface ChatWindowProps {
   replyTo: WhatsAppMessage | null;
   pendingMedia: PendingMedia[];
   uploading: boolean;
+  sendError?: string | null;
+  uploadById: Record<string, UploadState>;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
@@ -69,6 +71,8 @@ export function ChatWindow({
   replyTo,
   pendingMedia,
   uploading,
+  sendError,
+  uploadById,
   recording,
   quickReplies = [],
   suggestingReply,
@@ -246,6 +250,8 @@ export function ChatWindow({
         replyTo={replyTo}
         pendingMedia={pendingMedia}
         uploading={uploading}
+        sendError={sendError}
+        uploadById={uploadById}
         recording={recording}
         quickReplies={quickReplies}
         suggestingReply={suggestingReply}

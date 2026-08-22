@@ -53,6 +53,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   const [replyTo, setReplyTo] = useState<WhatsAppMessage | null>(null);
   const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [crmSaving, setCrmSaving] = useState(false);
   const [assigning, setAssigning] = useState(false);
@@ -186,6 +187,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
 
   const removePendingMedia = useCallback((index: number) => {
     setPendingMedia((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setSendError(null);
   }, []);
 
   const clearDraftContext = useCallback(() => {
@@ -224,6 +226,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
 
     const content = inputText.trim();
     setUploading(true);
+    setSendError(null);
     try {
       const attachments = await uploadPendingMedia();
       const id = clientMessageId();
@@ -274,6 +277,14 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
           }
         );
       }
+    } catch (error) {
+      // uploadPendingMedia throwing (a real upload failure, e.g. a file too large) previously
+      // propagated out of this function uncaught - setUploading(false) still ran via finally, so
+      // the button stopped spinning, but nothing ever told the user it failed. pendingMedia is
+      // deliberately left as-is (not cleared) so the failed attachment stays visible for the user
+      // to see (via the per-item "failed" state uploadById already tracked but nothing rendered)
+      // and remove or retry.
+      setSendError(error instanceof Error ? error.message : "Failed to send. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -360,6 +371,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     replyTo,
     pendingMedia,
     uploading,
+    sendError,
     recording,
     crmSaving,
     assigning,

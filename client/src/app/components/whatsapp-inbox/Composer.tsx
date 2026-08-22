@@ -1,5 +1,6 @@
-import { FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, Smile, Sparkles, Video, X } from "lucide-react";
-import type { PendingMedia, WhatsAppMessage } from "./types";
+import { AlertTriangle, FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, Smile, Sparkles, Video, X } from "lucide-react";
+import { mediaCache } from "./services/mediaCache";
+import type { PendingMedia, UploadState, WhatsAppMessage } from "./types";
 import { cn, formatBytes } from "./utils";
 
 interface ComposerProps {
@@ -8,6 +9,8 @@ interface ComposerProps {
   replyTo: WhatsAppMessage | null;
   pendingMedia: PendingMedia[];
   uploading: boolean;
+  sendError?: string | null;
+  uploadById: Record<string, UploadState>;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
@@ -29,6 +32,8 @@ export function Composer({
   replyTo,
   pendingMedia,
   uploading,
+  sendError,
+  uploadById,
   recording,
   quickReplies = [],
   suggestingReply = false,
@@ -63,26 +68,56 @@ export function Composer({
           </div>
           {pendingMedia.length > 0 ? (
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {pendingMedia.map((item, index) => (
-                <div key={`${item.file.name}-${item.previewUrl}`} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border/80 bg-secondary">
-                  {item.kind === "image" && <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />}
-                  {item.kind === "video" && <video src={item.previewUrl} className="h-full w-full object-cover" />}
-                  {item.kind === "audio" && <div className="flex h-full w-full items-center justify-center text-warning"><FileAudio size={18} /></div>}
-                  {item.kind === "document" && (
-                    <div className="flex h-full w-full flex-col items-center justify-center px-1 text-center text-info">
-                      <FileText size={17} />
-                      <span className="mt-0.5 max-w-full truncate text-[9px] text-muted-foreground">{formatBytes(item.file.size)}</span>
-                    </div>
-                  )}
-                  <button className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white" onClick={() => onRemoveMedia(index)}>
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
+              {pendingMedia.map((item, index) => {
+                const upload = uploadById[mediaCache.fingerprint(item.file)];
+                const failed = upload?.status === "failed";
+                const inProgress = upload?.status === "uploading";
+                return (
+                  <div
+                    key={`${item.file.name}-${item.previewUrl}`}
+                    title={failed ? upload?.error || "Upload failed" : undefined}
+                    className={cn(
+                      "relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border bg-secondary",
+                      failed ? "border-destructive" : "border-border/80"
+                    )}
+                  >
+                    {item.kind === "image" && <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />}
+                    {item.kind === "video" && <video src={item.previewUrl} className="h-full w-full object-cover" />}
+                    {item.kind === "audio" && <div className="flex h-full w-full items-center justify-center text-warning"><FileAudio size={18} /></div>}
+                    {item.kind === "document" && (
+                      <div className="flex h-full w-full flex-col items-center justify-center px-1 text-center text-info">
+                        <FileText size={17} />
+                        <span className="mt-0.5 max-w-full truncate text-[9px] text-muted-foreground">{formatBytes(item.file.size)}</span>
+                      </div>
+                    )}
+                    {inProgress && (
+                      <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5">
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-white/20">
+                          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${upload.progress}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    {failed && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-destructive/70">
+                        <AlertTriangle size={18} className="text-white" />
+                      </div>
+                    )}
+                    <button className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white" onClick={() => onRemoveMedia(index)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>
       )}
+
+      {sendError ? (
+        <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+          {sendError}
+        </div>
+      ) : null}
 
       <div className="mb-2 flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-surface-subtle/50 p-1">
         {(["reply", "note"] as const).map((item) => (

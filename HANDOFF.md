@@ -44,19 +44,47 @@ test scaffolding (a throwaway server route, a commented-out `REDIS_URL` needed t
 dev machine's now-familiar Upstash quota gotcha) removed immediately after, confirmed via `git diff`
 showing zero leftover changes to `server/index.js`.
 
-**Not fixed here, needs the user's own VPS access (root/sudo, not available from this session)**:
-nginx's `client_max_body_size` itself. The client fix stops the *hang* - a large file now fails
-cleanly with a clear error instead of hanging forever - but it will still legitimately fail until
-nginx's limit is raised to comfortably fit a base64-encoded 10MB file (roughly 13.3MB after encoding,
-plus JSON overhead). Exact commands, run as a user with sudo on the VPS:
-```bash
-sudo sed -i 's/client_max_body_size 10m;/client_max_body_size 15m;/' /etc/nginx/sites-available/dashboard-nemnidhi
-sudo nginx -t
-sudo systemctl reload nginx
-```
-`nginx -t` validates the config before reloading - don't skip it. After this, retry the same real
-video-attachment send that originally hung; it should now either succeed or fail with the client's
-new clear error message, never hang silently again either way.
+**nginx `client_max_body_size` - done, same day.** Raised `dashboard-nemnidhi`'s config from `10m` to
+`15m` (`sudo sed`/`nginx -t`/`systemctl reload nginx`, run by the user directly - this session's SSH
+access has no passwordless sudo). Verified: `grep client_max_body_size` on the live config confirms
+`15m`, and `/health` still returned `200` after the reload. Real access hiccup along the way, not a
+technical one: the user's first attempt was in the same VPS Linux account (`dashboard`) that doesn't
+know its own sudo password (only `samvid`, a separate account in the `sudo` group, does) - resolved
+by resetting `dashboard`'s password via `sudo passwd dashboard` while authenticated as `samvid`.
+
+**Real-world retest surfaced the actual remaining gap, same day: a 23MB video reproduced the same
+"stuck, no feedback" symptom the user had already reported once.** Root cause, found by re-reading
+the code rather than assumed: `uploadById` (`store.ts`) - the store that already tracks per-file
+`progress`/`status`/`error` - was written to on every upload but **read by zero components**, and
+`useWhatsAppEngine.ts`'s `handleSend` had a `try { ... } finally { setUploading(false) }` with **no
+`catch`** - so when `uploadPendingMedia()` threw (the exact rejection the fix above produces), the
+error vanished as an unhandled promise rejection. The spinner stopped, but nothing ever told the user
+it failed and the "N attachment(s) ready" panel just sat there forever - functionally
+indistinguishable from a real hang even though the network request itself was already failing fast.
+A 23MB file (well over the 10MB app limit either way) was always going to be rejected; the real
+defect was that rejection being invisible.
+
+**Fixed, same discipline as the fix above**: `handleSend` now has a real `catch` that surfaces a new
+`sendError` state (rendered as an inline banner, matching the existing `suggestReplyError` pattern -
+no toast library is actually wired up anywhere in this app despite `ui/sonner.tsx` existing, same
+"present but unused" precedent as the other shadcn scaffolding). `uploadById` is now threaded through
+`InboxView -> WhatsAppBusinessInbox -> ChatWindow -> Composer` (mirroring exactly how `pendingMedia`/
+`uploading` already flow) and rendered per-attachment: a live progress bar while `status ===
+"uploading"`, a red overlay + tooltip with the real error while `status === "failed"`. Removing a
+failed attachment also clears `sendError`.
+
+**Verified live against the real app, not assumed** - seeded a throwaway local contact/conversation
+(deleted after), dispatched a real synthetic 23MB `File` through the actual hidden file input (no
+real 23MB video was available in this environment, so a `DataTransfer` + `change` event was used to
+drive the exact same code path a real file picker would), and clicked the real Send button:
+confirmed the attachment panel showed a failed/red state, the new error banner read "Upload failed."
+(this environment's local dev server has no nginx in front, so the request failed at
+`xhr.onerror`/connection-abort rather than nginx's HTML-413 path verified above - a different failure
+mode, same clean-rejection code path), and it resolved in about a second, not hanging. Also confirmed
+removing the failed attachment cleared both the panel and the error banner. `npx tsc --noEmit` clean
+across all 5 touched files. All test scaffolding (a throwaway seed script, a temporary contact/
+conversation, the commented-out `REDIS_URL`) removed and confirmed via `git diff` showing zero
+leftover changes outside the 5 intended files.
 
 ## RESOLVED 2026-08-22 — the Instagram DM inbound bug, self-healed and confirmed live
 

@@ -1,4 +1,4 @@
-import type { Conversation, InboxFilter, PendingMedia, TeamMember, WhatsAppMessage } from "./types";
+import type { Conversation, InboxFilter, PendingMedia, TeamMember, UploadState, WhatsAppMessage } from "./types";
 import { ChatWindow } from "./ChatWindow";
 import { ConversationList } from "./ConversationList";
 import { CustomerProfileSidebar } from "./CustomerProfileSidebar";
@@ -18,6 +18,8 @@ interface WhatsAppBusinessInboxProps {
   replyTo: WhatsAppMessage | null;
   pendingMedia: PendingMedia[];
   uploading: boolean;
+  sendError?: string | null;
+  uploadById: Record<string, UploadState>;
   recording: boolean;
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
@@ -64,6 +66,8 @@ export function WhatsAppBusinessInbox({
   replyTo,
   pendingMedia,
   uploading,
+  sendError,
+  uploadById,
   recording,
   quickReplies = [],
   suggestingReply,
@@ -125,6 +129,8 @@ export function WhatsAppBusinessInbox({
           replyTo={replyTo}
           pendingMedia={pendingMedia}
           uploading={uploading}
+          sendError={sendError}
+          uploadById={uploadById}
           recording={recording}
           quickReplies={quickReplies}
           suggestingReply={suggestingReply}
