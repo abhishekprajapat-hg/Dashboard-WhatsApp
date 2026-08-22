@@ -124,14 +124,40 @@ flow/template ID (`node.config`); confirmed correct behavior for all three cases
 Instagram-scoped ID (skipped), empty body (skipped), no Instagram account connected (failed with a
 clear error)).
 
-**Still not built, deliberately, real scoped follow-ups**: **Instagram-triggered automations** (the
-gap that made the node above look up its own account rather than use trigger context - wiring the
-Instagram webhook handler to call `runInboundAutomations` the way `whatsapp.js` already does is the
-natural next step, and would make both this node and cross-channel flows actually reachable from a
-real Instagram DM); Instagram in Campaigns audience targeting; non-text message types (image/
-story-reply/reactions) - `sendInstagramMessage` and the Composer only handle plain text today, an
-attachment added to an Instagram reply is currently silently dropped rather than sent, since
-`sendInstagramMessage` has no attachment parameter yet.
+**Closed the same day: Instagram-triggered automations.** The gap flagged immediately above (an
+Instagram DM could be replied to by a flow but couldn't start one) - `instagram.js`'s webhook
+handler now calls `runInboundAutomations` right after creating the inbound `Message`, the exact same
+call `whatsapp.js` already makes. Deliberately reuses the mechanism as-is rather than adding a
+channel concept to it: `runInboundAutomations`/`trigger.accountId` only ever needed
+`account.workspaceId`/`.organizationId`/`._id`, never cared which collection the account document
+came from, so passing an `InstagramAccount` through works with zero changes to
+`automationRunner.js`/`automationEngine.js`. One real, worth-knowing consequence: `env.account`
+inside a resulting run resolves to `null` for an Instagram-triggered flow (`loadRunEnv` looks up
+`WhatsAppAccount` specifically) - harmless by design, since `send_instagram` was already built
+earlier today to look up its own account rather than rely on `env.account`, and WhatsApp-only nodes
+(`send_message`, etc.) already have a "missing account -> skip" path from before any of this existed.
+Also added the same unread-count-bump-per-membership step `whatsapp.js` does, for Inbox parity.
+
+**Verified end to end with a real automation, not just a webhook 200** - created and published a
+real flow (`keyword_match` trigger, keyword "igtrigger", an `add_tag` node), seeded a fake local
+`InstagramAccount`, POSTed a webhook with a message body containing that keyword, and confirmed: a
+real `AutomationRun` was created (`status: "completed"`, `trigger.accountId` correctly set to the
+Instagram account, `isNewConversation: true` correctly detected for a first-time contact), and the
+tag was genuinely applied to the contact - the actual node executor ran, not just trigger-matching.
+All test data (account, flow, run, contact/conversation/message, tag) deleted afterward.
+
+**Real, currently-unsolved gap this surfaces, worth flagging explicitly**: trigger matching has no
+channel awareness at all - a flow with a `keyword_match`/`new_message` trigger now fires for *both*
+WhatsApp and Instagram inbound messages, since `triggerMatches()` never looks at channel. This is
+consistent with how the system already treats every WhatsApp provider (Meta/Twilio/Wati) identically
+today, so it's not a new inconsistency, but it does mean there's currently no way to build "an
+Instagram-only" or "a WhatsApp-only" automation flow. A real follow-up if that distinction ever
+matters, not attempted here.
+
+**Still not built, deliberately, real scoped follow-ups**: Instagram in Campaigns audience
+targeting; non-text message types (image/story-reply/reactions) - `sendInstagramMessage` and the
+Composer only handle plain text today, an attachment added to an Instagram reply is currently
+silently dropped rather than sent, since `sendInstagramMessage` has no attachment parameter yet.
 
 **Manual setup required before any of this can be tested for real - not something this app can
 provision, same category as `META_EMBEDDED_SIGNUP_CONFIG_ID` earlier:**

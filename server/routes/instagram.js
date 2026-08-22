@@ -1,12 +1,14 @@
 import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
-import { Contact, Conversation, InstagramAccount, Message } from "../models/index.js";
+import { Contact, Conversation, InstagramAccount, Membership, Message } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { validateBody } from "../middleware/validate.js";
 import { trimmedString } from "../utils/zodHelpers.js";
 import { config } from "../config.js";
+import { publishConversationChanged } from "../realtime/events.js";
+import { runInboundAutomations } from "../services/automationRunner.js";
 import {
   buildInstagramAuthorizeUrl,
   decodeInstagramCredentials,
@@ -160,9 +162,10 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
     await Contact.updateOne({ _id: contact._id }, { $set: { lastMessageAt: new Date() } });
   }
 
-  let conversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "instagram" });
-  conversation = conversation
-    ? await Conversation.findByIdAndUpdate(conversation._id, { instagramAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
+  const existingConversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "instagram" });
+  const isNewConversation = !existingConversation;
+  const conversation = existingConversation
+    ? await Conversation.findByIdAndUpdate(existingConversation._id, { instagramAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
     : await Conversation.create({
       organizationId: account.organizationId,
       workspaceId: account.workspaceId,
@@ -188,7 +191,31 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
     receivedAt: new Date(),
   });
 
-  await Conversation.updateOne({ _id: conversation._id }, { $set: { lastMessageId: message._id } });
+  const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
+  for (const membership of memberships) {
+    const key = membership.userId.toString();
+    const current = Number(conversation.unreadCountByUser?.get?.(key) || 0);
+    conversation.unreadCountByUser.set(key, current + 1);
+  }
+  conversation.markModified("unreadCountByUser");
+  conversation.lastMessageId = message._id;
+  await conversation.save();
+  await publishConversationChanged(conversation._id);
+
+  // Same trigger.accountId/env.account mechanism whatsapp.js already uses - runInboundAutomations
+  // only needs workspaceId/organizationId/_id off "account", it doesn't care which collection it
+  // came from. env.account (automationEngine.js's loadRunEnv) will resolve to null for these runs
+  // since it looks up WhatsAppAccount specifically - harmless, since send_instagram (unlike
+  // send_message) deliberately doesn't depend on env.account, it looks up the Instagram account
+  // itself. WhatsApp-only nodes (send_message, etc.) correctly no-op via their own
+  // missing-account-skip path, same as any other flow with no connected account.
+  await runInboundAutomations({
+    account,
+    contact,
+    conversation,
+    inboundMessage: message,
+    isNewConversation,
+  });
 
   res.sendStatus(200);
 });
