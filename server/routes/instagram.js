@@ -17,6 +17,7 @@ import {
   exchangeForLongLivedToken,
   exchangeInstagramCode,
   fetchInstagramAccountInfo,
+  fetchInstagramInsights,
   hasValidInstagramSignature,
   normalizeInstagramWebhookPayload,
   sendInstagramMessage,
@@ -106,6 +107,17 @@ instagramRouter.post("/accounts/:id/send", requirePermission("templates:write"),
   }
 });
 
+instagramRouter.get("/accounts/:id/insights", requirePermission("settings:read"), async (req, res) => {
+  const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+  try {
+    const data = await fetchInstagramInsights(account);
+    res.json({ data });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_INSIGHTS_FAILED", message: error.message });
+  }
+});
+
 // Minimal static popup page - Instagram's classic OAuth is a plain redirect, not a JS-SDK popup
 // like WhatsApp Embedded Signup.
 //
@@ -151,11 +163,6 @@ instagramPublicRouter.get("/webhook", async (req, res) => {
 });
 
 instagramPublicRouter.post("/webhook", async (req, res) => {
-  // TEMP diagnostic, single unmistakable marker line - remove once the glam-account delivery
-  // question is answered. Logs unconditionally, before any validation, so it's present regardless
-  // of whether the signature check or account lookup below succeeds or fails.
-  logger.warn({ rawEntryId: req.body?.entry?.[0]?.id, hasSignatureHeader: Boolean(req.headers["x-hub-signature-256"]) }, "IG_WEBHOOK_HIT_MARKER");
-
   if (!hasValidInstagramSignature(req)) {
     return res.status(403).json({ error: "INVALID_SIGNATURE", message: "Instagram webhook signature verification failed." });
   }

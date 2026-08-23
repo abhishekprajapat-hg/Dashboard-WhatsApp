@@ -11,6 +11,46 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram Insights (instagram_business_manage_insights) — built 2026-08-23, part of a broader review push
+
+User decided to request a wider set of Instagram permissions in one go rather than just the two
+already scoped (`instagram_business_basic`/`instagram_business_manage_messages` - see the RESOLVED
+section further below) - Meta's own "Request advanced access" dialog pre-checks
+`instagram_business_manage_comments`/`instagram_business_content_publish`/
+`instagram_business_manage_insights`/"Human Agent" as "Recommended" alongside the two actually built.
+**Same discipline as every other permission this project has ever requested**: build a genuine
+minimal feature first, not just check the box - confirmed with the user before starting (comments,
+content-publish, and insights each got scoped down to their smallest honest version; Human Agent
+deferred, see below). Insights is done first, smallest lift.
+
+**Real research before writing code, not assumed** - live docs lookup confirmed `impressions` and
+`profile_views` (the metrics most blog posts/older guides still show as the canonical example) were
+**deprecated in Meta's v22.0**, replaced by `views`/`reach`/`follower_count`/`reposts`. Also confirmed
+the insights endpoint lives at `graph.instagram.com` (matching this app's existing
+`GRAPH_BASE`/`graph.instagram.com` pattern for the "Instagram API with Instagram Login" flow already
+used for OAuth/send/webhook), not a different host.
+
+**Built**: `fetchInstagramInsights(account)` in `instagramProvider.js` -
+`GET /{instagramUserId}/insights?metric=reach,follower_count,accounts_engaged,total_interactions&period=day&metric_type=total_value`
+(`metric_type=total_value` requests one aggregate number per metric over the period, not a daily
+time-series breakdown - the right shape for an at-a-glance summary). `GET /api/instagram/accounts/:id/insights`
+route (`instagram.js`, `settings:read`). Client: a "View Insights" button on the connected account
+card in `InstagramSettingsPanel.tsx`, showing the four metrics as a small stat grid on click.
+
+**Not yet verified against the real Graph API** - unlike every other Instagram feature in this file,
+this one couldn't be tested with a real access token from this session (encrypted at rest, no way to
+extract it without the app itself). `npx tsc --noEmit` and `npm run check` (154 files) both clean, but
+the real proof is clicking "View Insights" in the live Settings → Instagram panel against the actual
+connected account - that's the next real step, and may reveal a metric name Meta rejects even after
+this research (this project's own history - MM Lite, the Ads payload bugs - shows Meta's Graph API
+often adds requirements docs don't mention).
+
+**Also cleaned up while in this file**: removed the temporary `IG_WEBHOOK_HIT_MARKER` diagnostic
+(commit `aec577c`) - its question (does Meta deliver webhooks for business-to-business Instagram DMs)
+was answered live: no, confirmed via a live test where nothing logged despite the app's own logging
+being unconditional. Not a bug in this codebase - Instagram's Messaging API webhook is scoped to
+customer-to-business conversations, business-to-business DMs simply aren't delivered the same way.
+
 ## RESOLVED 2026-08-23 — runaway read-receipt polling loop, real pre-existing bug (not the VPS issue)
 
 **Found while retesting Instagram after the VPS crisis above was mitigated** - a reply sent through

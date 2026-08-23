@@ -868,6 +868,10 @@ export function sendInstagramTestMessage<T>(id: string, payload: { to: string; b
   });
 }
 
+export function getInstagramInsights<T>(id: string) {
+  return request<T>(`/instagram/accounts/${id}/insights`);
+}
+
 export function getAutomationFlows<T>() {
   return request<T>("/automation");
 }

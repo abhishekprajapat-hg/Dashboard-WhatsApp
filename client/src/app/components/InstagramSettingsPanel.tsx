@@ -3,8 +3,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
-import { Instagram, Send, Trash2 } from "lucide-react";
-import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, sendInstagramTestMessage } from "../lib/api";
+import { BarChart2, Instagram, Send, Trash2 } from "lucide-react";
+import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramInsights, sendInstagramTestMessage } from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
@@ -15,6 +15,13 @@ interface InstagramAccount {
   username: string;
   status: string;
   lastError: string;
+}
+
+interface InsightMetric {
+  name: string;
+  title: string;
+  description: string;
+  value: number | null;
 }
 
 function statusVariant(status: string): "default" | "outline" | "destructive" | "warning" {
@@ -30,6 +37,8 @@ export function InstagramSettingsPanel() {
   const [notice, setNotice] = useState("");
   const [sendTargets, setSendTargets] = useState<Record<string, { to: string; body: string }>>({});
   const [busyId, setBusyId] = useState("");
+  const [insightsByAccountId, setInsightsByAccountId] = useState<Record<string, InsightMetric[]>>({});
+  const [insightsLoadingId, setInsightsLoadingId] = useState("");
   const popupRef = useRef<Window | null>(null);
 
   async function loadAccounts() {
@@ -130,6 +139,19 @@ export function InstagramSettingsPanel() {
     }
   }
 
+  async function handleViewInsights(id: string) {
+    setInsightsLoadingId(id);
+    setNotice("");
+    try {
+      const response = await getInstagramInsights<{ data: InsightMetric[] }>(id);
+      setInsightsByAccountId((current) => ({ ...current, [id]: response.data }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not load insights.");
+    } finally {
+      setInsightsLoadingId("");
+    }
+  }
+
   async function handleSend(id: string) {
     const target = sendTargets[id];
     if (!target?.to || !target?.body) {
@@ -208,6 +230,30 @@ export function InstagramSettingsPanel() {
                   Only delivers if this IGSID has messaged your account within the last 24 hours - same session-window
                   rule as WhatsApp.
                 </p>
+
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs border-border"
+                    onClick={() => handleViewInsights(account.id)}
+                    disabled={insightsLoadingId === account.id}
+                  >
+                    <BarChart2 size={12} className="mr-1" />
+                    {insightsLoadingId === account.id ? "Loading..." : "View Insights"}
+                  </Button>
+                  {insightsByAccountId[account.id] && (
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {insightsByAccountId[account.id].map((metric) => (
+                        <div key={metric.name} className="rounded-md border border-border/80 bg-background/60 p-2" title={metric.description}>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{metric.title || metric.name}</p>
+                          <p className="text-sm font-medium text-foreground">{metric.value ?? "—"}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <Button type="button" size="icon-sm" variant="outline" className="border-border" title="Disconnect" onClick={() => handleDelete(account.id)} disabled={busyId === account.id}>
                 <Trash2 size={14} />

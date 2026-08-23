@@ -77,6 +77,27 @@ export async function fetchInstagramAccountInfo(accessToken) {
   return parseOrThrow(response, "INSTAGRAM_ACCOUNT_INFO_FAILED");
 }
 
+// reach/follower_count/accounts_engaged/total_interactions - NOT impressions/profile_views, which
+// Meta deprecated in v22.0 (confirmed via current docs before writing this, not assumed - several
+// older guides/blog posts still reference the deprecated names). metric_type=total_value requests a
+// single aggregate number per metric over the period rather than a daily time-series breakdown,
+// which is what an at-a-glance account summary needs.
+export async function fetchInstagramInsights(account) {
+  const credentials = decodeCredentials(account);
+  const url = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
+  url.searchParams.set("metric", "reach,follower_count,accounts_engaged,total_interactions");
+  url.searchParams.set("period", "day");
+  url.searchParams.set("metric_type", "total_value");
+  const response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${credentials.accessToken}` } });
+  const payload = await parseOrThrow(response, "INSTAGRAM_INSIGHTS_FAILED");
+  return (payload.data || []).map((metric) => ({
+    name: metric.name,
+    title: metric.title,
+    description: metric.description,
+    value: metric.total_value?.value ?? null,
+  }));
+}
+
 // The Messenger-Platform-derived message object Instagram messaging reuses is text OR attachment,
 // never both in one call - unlike WhatsApp's media message, which carries a caption alongside the
 // media in a single payload. Our own attachment `type` values (image/video/audio/document, set by
