@@ -3,13 +3,52 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `757da3c`** — three commits on top of `f7f4e25` (`0eab0fd` the
-ads+conversions feature build, `611fe90` a real bug fix to it, `757da3c` handoff notes). All
-deployed and confirmed live via the 5-minute cron. **Deploy note: this repo's cron auto-deploys
+**HEAD as of this handoff: `d7cf650`** — deployed and confirmed live via the 5-minute cron (health
+`200`, ~0.03-0.15s response times as of last check). **Deploy note: this repo's cron auto-deploys
 `main`** — confirm the live commit actually matches after pushing, same "don't trust it silently"
 discipline as Vega's manual deploy. Client and server can end up on different effective versions if
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
+
+## READ THIS FIRST — session paused here 2026-08-23, exact next steps below
+
+**Everything below in this note is done, deployed, and confirmed live** - this is a clean stopping
+point, not an interrupted one. Full detail for each item is in its own dated section further down.
+
+**Done this session, in order**:
+1. Instagram DM inbound bug (account-ID mismatch) - self-healed, verified live with a real DM.
+2. Instagram non-text messages (image/video/audio/document) - verified live with a real photo.
+3. Media upload hanging forever on large files - fixed, verified live (a stuck upload now fails
+   cleanly with a visible error in ~1s instead of hanging indefinitely).
+4. Runaway read-receipt polling bug - found (~600 duplicate requests tripping this app's own rate
+   limiter, blocking real sends) and fixed, verified live.
+5. A VPS-wide CPU crisis (unrelated app's crash loop starving this single-core VPS) - diagnosed,
+   mitigated (`pm2 stop` on the offending process), root-cause write-up sent to that app's owner
+   (Abhishek) - **not this app's bug, but was intermittently breaking this app's webhook delivery**.
+6. All 5 Instagram permissions now have genuine minimal features built:
+   `instagram_business_basic`/`instagram_business_manage_messages` (verified live with real API
+   calls), `instagram_business_manage_insights`, `instagram_business_manage_comments`,
+   `instagram_business_content_publish`, and the `HUMAN_AGENT` message tag (these last four
+   verified only via mocked throwaway scripts, NOT yet against the real Graph API - see each one's
+   own section below for exactly what's unverified and why).
+
+**Exact next steps, in order, for whoever picks this up**:
+1. **Subscribe the webhook to the `comments` field** in App Dashboard → Instagram product → webhook
+   config (currently only `messages` is subscribed) - Comments is code-complete but will receive
+   nothing real without this.
+2. **Test Insights, Comments, and Publish live** against the real connected `@nemnidhi.official`
+   account via the actual Settings → Instagram panel - click "View Insights," post a real comment
+   and reply to it, publish a real photo. This is where any real Meta API surprises will show up
+   (this project's own history - MM Lite, the Ads payload bugs - shows Meta's Graph API often adds
+   requirements docs don't mention).
+3. **Record the App Review screencast** (~3-4 min, script ready in
+   `docs/META_APP_REVIEW_INSTAGRAM.md`) covering all 5 permissions - explicitly include the
+   reply-from-Inbox step, which the first recording attempt was missing.
+4. **Submit via Meta's App Dashboard** (App Review → Requests) - justification text for all 5
+   permissions is ready to paste in the same doc.
+5. Separately, not blocking the above: check whether Abhishek has addressed the `nemnidhi.com`/
+   `glam.nemnidhi.com` port-conflict crash loop (see "RESOLVED 2026-08-22/23 — VPS-wide CPU crisis"
+   below) - it was only mitigated, not actually fixed, and could start starving this app's CPU again.
 
 ## Instagram Human Agent tag — built 2026-08-23, closes the full 5-permission push
 
