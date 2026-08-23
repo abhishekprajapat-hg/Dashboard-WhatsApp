@@ -77,11 +77,17 @@ export async function fetchInstagramAccountInfo(accessToken) {
   return parseOrThrow(response, "INSTAGRAM_ACCOUNT_INFO_FAILED");
 }
 
-// reach/follower_count/accounts_engaged/total_interactions - NOT impressions/profile_views, which
-// Meta deprecated in v22.0 (confirmed via current docs before writing this, not assumed - several
-// older guides/blog posts still reference the deprecated names). metric_type=total_value requests a
-// single aggregate number per metric over the period rather than a daily time-series breakdown,
-// which is what an at-a-glance account summary needs.
+// reach/accounts_engaged/total_interactions - NOT impressions/profile_views, which Meta deprecated
+// in v22.0 (confirmed via current docs before writing this, not assumed - several older guides/blog
+// posts still reference the deprecated names). metric_type=total_value requests a single aggregate
+// number per metric over the period rather than a daily time-series breakdown, which is what an
+// at-a-glance account summary needs.
+//
+// follower_count is deliberately NOT requested from this endpoint - confirmed live (real account,
+// real token) that Meta silently omits it from the response with no error, and confirmed via docs
+// why: the Insights follower_count metric (like online_followers/audience_*) is withheld for any
+// account under 100 followers. The plain `followers_count` FIELD on the IG User node (a different,
+// unrelated API - not an Insights metric) has no such gate and is fetched separately below.
 //
 // Meta's own metric.title/description come back localized server-side (observed live: Russian, for
 // an account/token with no language preference set on our side) - not something a request param
@@ -96,17 +102,38 @@ const INSTAGRAM_METRIC_LABELS = {
 
 export async function fetchInstagramInsights(account) {
   const credentials = decodeCredentials(account);
-  const url = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
-  url.searchParams.set("metric", "reach,follower_count,accounts_engaged,total_interactions");
-  url.searchParams.set("period", "day");
-  url.searchParams.set("metric_type", "total_value");
-  const response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${credentials.accessToken}` } });
-  const payload = await parseOrThrow(response, "INSTAGRAM_INSIGHTS_FAILED");
-  return (payload.data || []).map((metric) => ({
+  const authHeader = { Authorization: `Bearer ${credentials.accessToken}` };
+
+  const insightsUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
+  insightsUrl.searchParams.set("metric", "reach,accounts_engaged,total_interactions");
+  insightsUrl.searchParams.set("period", "day");
+  insightsUrl.searchParams.set("metric_type", "total_value");
+
+  const profileUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}`);
+  profileUrl.searchParams.set("fields", "followers_count");
+
+  const [insightsResponse, profileResponse] = await Promise.all([
+    fetch(insightsUrl.toString(), { headers: authHeader }),
+    fetch(profileUrl.toString(), { headers: authHeader }),
+  ]);
+  const [payload, profile] = await Promise.all([
+    parseOrThrow(insightsResponse, "INSTAGRAM_INSIGHTS_FAILED"),
+    parseOrThrow(profileResponse, "INSTAGRAM_INSIGHTS_FAILED"),
+  ]);
+
+  const metrics = (payload.data || []).map((metric) => ({
     name: metric.name,
     title: INSTAGRAM_METRIC_LABELS[metric.name] || metric.name,
     value: metric.total_value?.value ?? null,
   }));
+
+  metrics.unshift({
+    name: "follower_count",
+    title: INSTAGRAM_METRIC_LABELS.follower_count,
+    value: profile.followers_count ?? null,
+  });
+
+  return metrics;
 }
 
 // The Messenger-Platform-derived message object Instagram messaging reuses is text OR attachment,
