@@ -1,11 +1,13 @@
 import { Router } from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { z } from "zod";
 import { Contact, Conversation, InstagramAccount, InstagramComment, Membership, Message } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { validateBody } from "../middleware/validate.js";
 import { trimmedString } from "../utils/zodHelpers.js";
+import { serializeInstagramComment } from "../utils/serializers.js";
 import { config } from "../config.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
@@ -122,10 +124,13 @@ instagramRouter.get("/accounts/:id/insights", requirePermission("settings:read")
 
 instagramRouter.get("/comments", requirePermission("settings:read"), async (req, res) => {
   const comments = await InstagramComment.find({ workspaceId: req.user.workspaceId }).sort({ createdAt: -1 }).limit(50);
-  res.json({ data: comments, total: comments.length });
+  res.json({ data: comments.map(serializeInstagramComment), total: comments.length });
 });
 
 instagramRouter.post("/comments/:id/reply", requirePermission("templates:write"), validateBody(z.object({ message: trimmedString("A reply message is required.") })), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Comment not found." });
+  }
   const comment = await InstagramComment.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!comment) return res.status(404).json({ error: "NOT_FOUND", message: "Comment not found." });
   const account = await InstagramAccount.findOne({ _id: comment.instagramAccountId, workspaceId: req.user.workspaceId });
@@ -135,7 +140,7 @@ instagramRouter.post("/comments/:id/reply", requirePermission("templates:write")
     comment.repliedAt = new Date();
     comment.replyText = req.body.message;
     await comment.save();
-    res.json({ data: comment });
+    res.json({ data: serializeInstagramComment(comment) });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_COMMENT_REPLY_FAILED", message: error.message });
   }

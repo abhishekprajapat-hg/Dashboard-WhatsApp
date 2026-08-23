@@ -18,6 +18,18 @@ export function shortTime(date) {
   return new Date(date).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
+export function serializeInstagramComment(comment) {
+  return {
+    id: comment._id.toString(),
+    mediaId: comment.mediaId || "",
+    fromUsername: comment.fromUsername || "",
+    text: comment.text || "",
+    repliedAt: comment.repliedAt || null,
+    replyText: comment.replyText || "",
+    createdAt: comment.createdAt,
+  };
+}
+
 export function serializeContact(contact, { conversationCount = 0 } = {}) {
   const tags = Array.isArray(contact.tagIds)
     ? contact.tagIds.map((tag) => tag?.name).filter(Boolean)
