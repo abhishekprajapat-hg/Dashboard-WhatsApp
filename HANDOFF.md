@@ -3,14 +3,13 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `156426c`** — deployed and confirmed live via the 5-minute cron (health
-`200`, ~0.004s response times as of last check). **Deploy note: this repo's cron auto-deploys
-`main`** — confirm the live commit actually matches after pushing, same "don't trust it silently"
-discipline as Vega's manual deploy. Client and server can end up on different effective versions if
-only one side's cache/process picks up a push — see the settings.js bug below for a real example of
-what that desync can hide.
+**HEAD as of this handoff: `cb3ab5a`** — deployed and confirmed live via the 5-minute cron. **Deploy
+note: this repo's cron auto-deploys `main`** — confirm the live commit actually matches after pushing,
+same "don't trust it silently" discipline as Vega's manual deploy. Client and server can end up on
+different effective versions if only one side's cache/process picks up a push — see the settings.js
+bug below for a real example of what that desync can hide.
 
-## WhatsApp Catalog/Commerce (Single Product messages) — built 2026-08-23 evening, UNCOMMITTED
+## WhatsApp Catalog/Commerce (Single Product messages) — built 2026-08-23 evening, live-verified & pushed
 
 Closes the "WhatsApp Catalog/commerce" gap flagged in the 2026-08-15 strategy review (see that section
 further down) as the top missing feature versus competitors. **Deliberately narrow v1 scope**,
@@ -89,20 +88,40 @@ both clean throughout. A throwaway mocked script (real functions, deleted after)
 `sendWhatsAppProductMessage`'s exact request shape and the order-webhook normalization end to end,
 including the regression check. A full local dev pass (mongod started fresh, `seed.js` run, both
 servers driven via the browser preview tools) verified: the Catalog ID Settings field round-trips
-through the real API, the Composer's Product picker opens and correctly shows a clear "no catalog
-configured"/real-error state (no real catalog exists yet to test a genuine product search), and the
-automation node's inspector renders. **Not yet done**: an actual real product send or a real inbound
-order webhook - this needs a real Meta-connected product catalog, which doesn't exist for this app yet
-(confirmed with the user before building - this ships code-complete + mock/local-verified only, same
-honest caveat this session already applied to Insights/Comments/Publish before their real API access
-existed). `.env`'s `REDIS_URL` was temporarily commented out and restored, and the locally-started
-`mongod` was shut down, after verification - zero leftover environment changes.
+through the real API, the Composer's Product picker opens, and the automation node's inspector
+renders. `.env`'s `REDIS_URL` was temporarily commented out and restored, and the locally-started
+`mongod` was shut down, after each verification pass - zero leftover environment changes.
 
-**Not committed or pushed** - this repo auto-deploys `main` within 5 minutes of any push, and this
-feature hasn't been exercised against a real catalog yet. Whoever picks this up next should decide
-whether to commit/push now (ships a real, working, but real-API-unverified feature - same tier of
-"done" as Insights/Comments/Publish were before their own live verification) or hold until a real test
-catalog is available.
+**Real permission gap found and fixed the same evening, once a real catalog got connected**: the user
+connected a real catalog ("Nemnidhi Glam Products AD", 14→23 products) to the WhatsApp number via
+WhatsApp Manager, and the Composer's product picker immediately hit a real Meta error: `(#100) This
+application has not been approved to use this api`. Root cause, confirmed live via Graph API
+Explorer against the real catalog: **reading a catalog's products (`GET /{catalog-id}/products`)
+needs the `catalog_management` permission - a genuinely separate scope from
+`whatsapp_business_messaging`/`whatsapp_business_management`**, even though *sending* a product
+message doesn't need it (that's a normal messaging action on the existing WhatsApp token). This app's
+Meta App Dashboard had never added the **"Manage products with Catalog API"** use case at all (visible
+under Use Cases, alongside Ads/WhatsApp/Instagram, un-customized) - adding it and generating a token
+for it via a System User unlocked Standard Access immediately, no new App Review submission needed
+(same "your own tester/connected account works pre-review" pattern as the Instagram permissions).
+Fixed by adding a separate `WhatsAppAccount.credentials.catalogAccessToken` (same encrypted blob,
+Settings field, and status badge as the other secrets) and having `fetchCatalogProducts` use it
+instead of the main access token. **Confirmed live**: Graph API Explorer with the new token against
+the real catalog returned all 23 real products with images/prices.
+
+**Real caveat this session's own diagnosis surfaced repeatedly and is worth remembering generally**:
+a live access token got exposed in this chat session multiple times (once via a raw paste, twice via
+screenshots of Meta's own UI/example code/API responses that embedded it) - **the user should
+regenerate that System User's `catalog_management` token** before considering this fully closed out,
+since it's been visible outside Meta's own systems. Screenshots of Meta's Graph API Explorer and
+its own quickstart code examples are a real, easy-to-miss leak vector - the token isn't something
+*you* type, Meta's own UI embeds it in visible example code.
+
+**Committed and pushed** across three commits (`bd20aae` feature, `df54087` Edit-account-form fix,
+`cb3ab5a` catalog access token) - all deployed and confirmed live. **Not yet done**: an actual real
+product send to a customer, or a real inbound order webhook - the picker and catalog read are now
+proven live, but the send path itself (and the whole order-capture side) is still only
+mock-verified, not yet exercised against the real Graph API.
 
 ## READ THIS FIRST — live App Review testing found and fixed 3 real bugs, 2026-08-23 afternoon
 
