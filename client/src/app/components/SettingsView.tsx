@@ -61,6 +61,7 @@ interface WhatsAppAccount {
   phoneNumberId: string;
   businessAccountId: string;
   conversionsDatasetId?: string;
+  catalogId?: string;
   providerConfig?: { webhookPath?: string; tenantId?: string; apiBaseUrl?: string };
   status: "connected" | "disconnected" | "needs_attention";
   webhookStatus: string;
@@ -289,6 +290,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     appSecret: "",
     conversionsDatasetId: "",
     conversionsTestEventCode: "",
+    catalogId: "",
   });
   const [templateForm, setTemplateForm] = useState({
     accountId: "",
@@ -381,6 +383,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         appSecret: "",
         conversionsDatasetId: "",
         conversionsTestEventCode: "",
+        catalogId: "",
       });
       setShowAccountForm(false);
       await loadSettings();
@@ -846,6 +849,15 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             value={form.conversionsTestEventCode}
                             onChange={(e) => setForm((current) => ({ ...current, conversionsTestEventCode: e.target.value }))}
                             placeholder="Optional - from the dataset's Test Events tab"
+                            className={fieldClass}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Catalog ID</Label>
+                          <Input
+                            value={form.catalogId}
+                            onChange={(e) => setForm((current) => ({ ...current, catalogId: e.target.value }))}
+                            placeholder="Optional - from Meta Commerce Manager, needed to send products"
                             className={fieldClass}
                           />
                         </div>

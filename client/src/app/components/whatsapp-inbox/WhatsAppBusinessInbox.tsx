@@ -39,6 +39,7 @@ interface WhatsAppBusinessInboxProps {
   onComposerModeChange: (mode: "reply" | "note") => void;
   onSend: () => void;
   onPickFiles: (kind: "media" | "document" | "audio") => void;
+  onPickProduct?: () => void;
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
@@ -86,6 +87,7 @@ export function WhatsAppBusinessInbox({
   onComposerModeChange,
   onSend,
   onPickFiles,
+  onPickProduct,
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
@@ -144,6 +146,7 @@ export function WhatsAppBusinessInbox({
           onComposerModeChange={onComposerModeChange}
           onSend={onSend}
           onPickFiles={onPickFiles}
+          onPickProduct={onPickProduct}
           onRemoveMedia={onRemoveMedia}
           onClearContext={onClearContext}
           onToggleRecording={onToggleRecording}

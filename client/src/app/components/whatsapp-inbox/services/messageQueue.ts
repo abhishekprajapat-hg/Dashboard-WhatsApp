@@ -22,6 +22,7 @@ class MessageQueue {
     replyToMessageId?: string;
     attachments: Attachment[];
     clientMessageId: string;
+    productMessage?: { catalogId: string; productRetailerId: string };
   }, handlers: QueueHandlers) {
     const queued: QueuedMessage = {
       id: input.clientMessageId,
@@ -29,6 +30,7 @@ class MessageQueue {
       content: input.content,
       replyToMessageId: input.replyToMessageId,
       attachments: input.attachments,
+      productMessage: input.productMessage,
       attempts: 0,
       status: "queued",
     };
@@ -56,6 +58,7 @@ class MessageQueue {
           attachments: message.attachments,
           replyToMessageId: message.replyToMessageId,
           clientMessageId: message.id,
+          productMessage: message.productMessage,
         });
         handlers.onSent(sending, response.data);
       } catch (error) {

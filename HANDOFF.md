@@ -10,6 +10,100 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## WhatsApp Catalog/Commerce (Single Product messages) — built 2026-08-23 evening, UNCOMMITTED
+
+Closes the "WhatsApp Catalog/commerce" gap flagged in the 2026-08-15 strategy review (see that section
+further down) as the top missing feature versus competitors. **Deliberately narrow v1 scope**,
+matching this project's "minimum genuine feature" discipline: Single Product messages only (one
+product referenced by its existing catalog SKU) - Multi-Product List, the full Catalog-browse message,
+and any order-fulfillment workflow are explicit follow-ups, not built here. Reference-only
+architecture: the business's product catalog stays in Meta Commerce Manager/Shopify (already free,
+already familiar to sellers) - this app only adds the messaging layer on top. Full plan at
+`C:\Users\HP\.claude\plans\fizzy-nibbling-iverson.md` if picking this up again.
+
+**A real, non-obvious India availability question got raised before building this** - some sources
+claim WhatsApp "Catalog Messages" (the full-catalog-browse type specifically) isn't available in
+India, though tracing those claims back to their actual cited sources (Meta's own docs, respond.io)
+found no such restriction stated - only "Indian businesses must comply with online selling laws," a
+compliance obligation, not a feature ban. The real reason something like this *could* be gated for
+India: India's FDI e-commerce rules bar foreign-owned platforms from an inventory-model marketplace or
+influencing pricing (why Amazon/Flipkart had to restructure their India operations) - if Meta gates
+anything, it's most likely their own hosted "Shop" tab/full-catalog-browse UI (which looks like Meta
+running a storefront), not the underlying Cloud API message-send primitives this build uses. Single
+Product messages + an order webhook (business's own catalog, no Meta-processed payment) is the "conduit,
+not marketplace" pattern that sidesteps that exact issue. **Not conclusively resolved** - the only way
+to know for certain is trying it against a real India-registered WABA's connected catalog, which
+doesn't exist yet (see below).
+
+**Built:**
+- `server/services/whatsappCommerce.js` (new file, sibling to `whatsappFlows.js`) -
+  `sendWhatsAppProductMessage({account, to, catalogId, productRetailerId, bodyText, footerText})` (Meta
+  `interactive`/`type:"product"` message, shape confirmed against Meta's current Cloud API reference)
+  and `fetchCatalogProducts({account, catalogId, search})` (`GET /{catalogId}/products`, standard
+  Product Catalog "products" edge fields). **The `filter` param's exact operator shape
+  (`{name:{i_contains:search}}`) is confirmed as the right param NAME via docs but NOT verified against
+  a real catalog** - flagged in a code comment as the first thing to check if search behaves oddly once
+  a real catalog exists.
+- `WhatsAppAccount.catalogId` (new field, same free-text-ID pattern as `conversionsDatasetId`) -
+  settable via Settings → WhatsApp, verified live end-to-end in a local dev pass (saved via the form,
+  round-tripped back through `GET /whatsapp/accounts` correctly).
+- `Message.type` gained `"product"` (outbound) and `"order"` (inbound) values. No separate `Order`
+  model - an inbound order lives as `metadata.order` on a `Message`, exactly following the existing
+  `flowResponse` precedent, not a new collection. **Deliberate decision, not an oversight**: if a
+  business later wants an Orders list/dashboard with fulfillment tracking, that's a clean additive
+  follow-up, not something to build speculatively now.
+- `normalizeWebhookPayload` (`whatsappProvider.js`) gained an order-detection branch (`message.type ===
+  "order"` → `normalized.order`), confirmed against Meta's real webhook payload shape via docs, verified
+  via a throwaway mocked script including a regression check that a plain text webhook is unaffected.
+  `whatsapp.js`'s webhook handler stores it as `metadata.order` / `Message.type: "order"`, same
+  insertion point as `flowResponse` today - runs through the same Contact/Conversation resolution and
+  `runInboundAutomations` trigger every inbound message already gets.
+- `conversations.js`'s existing `POST /:id/messages` extended with an optional `productMessage` field
+  (not a new endpoint) - WhatsApp-only, rejected for Instagram conversations.
+- New `GET /whatsapp/accounts/:id/catalog/products` route for the client-side product picker.
+- `automationExecutors.js` gained `execSendProductMessage`/`send_product_message`, modeled on
+  `execSendFlow` (synchronous, no queue, explicit testMode skip) - **verified live in the browser**:
+  seeded a flow with a `send_product_message` node directly in Mongo, opened it in the visual builder,
+  confirmed the node inspector renders the Product retailer ID/Message text fields correctly.
+- Client: a "Product" item in the Composer's attachment menu opening `ProductPickerModal.tsx` (new,
+  modeled on the existing hand-rolled modal pattern used by `ContactsView.tsx` etc., not the unused
+  shadcn `Dialog` primitive), a matching "Send Product" automation node in the palette + inspector, and
+  the `catalogId` Settings field.
+
+**Real bug found and fixed during this session's own live verification** (not a pre-existing one -
+introduced today, caught before it shipped): the new `GET /catalog/products` route initially forwarded
+a caught Graph API error's raw HTTP status straight to the client. Confirmed live: a fake local dev
+token produced a genuine Meta 401 ("Invalid OAuth access token"), and the client's shared `request()`
+helper (`api.ts`) treats **any** 401 from **any** endpoint as "this admin's own login session is
+invalid" and force-logs them out - so a business's stale/invalid catalog token would have logged the
+*agent* out of the entire CRM, not just shown an error on that one action. Fixed by remapping any
+401/403 from this specific downstream Graph API call to 502 before responding, preserving the real
+error message/code in the body. **This same flaw very likely still exists in other routes** that
+forward `error.status` from a provider call (e.g. `conversations.js`'s WhatsApp/Instagram send catch
+block) - flagged as a separate follow-up task (not fixed here, out of scope for this feature), since a
+real production WhatsApp/Instagram token expiring could already be triggering this same bogus logout
+today.
+
+**Verification approach, same discipline as this whole session**: `npm run check:server`/`check:client`
+both clean throughout. A throwaway mocked script (real functions, deleted after) verified
+`sendWhatsAppProductMessage`'s exact request shape and the order-webhook normalization end to end,
+including the regression check. A full local dev pass (mongod started fresh, `seed.js` run, both
+servers driven via the browser preview tools) verified: the Catalog ID Settings field round-trips
+through the real API, the Composer's Product picker opens and correctly shows a clear "no catalog
+configured"/real-error state (no real catalog exists yet to test a genuine product search), and the
+automation node's inspector renders. **Not yet done**: an actual real product send or a real inbound
+order webhook - this needs a real Meta-connected product catalog, which doesn't exist for this app yet
+(confirmed with the user before building - this ships code-complete + mock/local-verified only, same
+honest caveat this session already applied to Insights/Comments/Publish before their real API access
+existed). `.env`'s `REDIS_URL` was temporarily commented out and restored, and the locally-started
+`mongod` was shut down, after verification - zero leftover environment changes.
+
+**Not committed or pushed** - this repo auto-deploys `main` within 5 minutes of any push, and this
+feature hasn't been exercised against a real catalog yet. Whoever picks this up next should decide
+whether to commit/push now (ships a real, working, but real-API-unverified feature - same tier of
+"done" as Insights/Comments/Publish were before their own live verification) or hold until a real test
+catalog is available.
+
 ## READ THIS FIRST — live App Review testing found and fixed 3 real bugs, 2026-08-23 afternoon
 
 **Picks up right where the previous session left off** (see the next section down for that full

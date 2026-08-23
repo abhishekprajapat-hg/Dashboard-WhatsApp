@@ -306,7 +306,11 @@ export function getConversationMessages<T>(conversationId: string, params: { bef
 export function sendConversationMessage<T>(
   conversationId: string,
   content: string,
-  options: { attachments?: { name: string; url: string; path?: string; storage?: string; providerMediaId?: string; metaMediaId?: string; type?: string; mimeType?: string; size?: number }[]; replyToMessageId?: string } = {}
+  options: {
+    attachments?: { name: string; url: string; path?: string; storage?: string; providerMediaId?: string; metaMediaId?: string; type?: string; mimeType?: string; size?: number }[];
+    replyToMessageId?: string;
+    productMessage?: { catalogId: string; productRetailerId: string };
+  } = {}
 ) {
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -321,12 +325,22 @@ export function sendConversationMessageQueued<T>(
     attachments?: { name: string; url: string; path?: string; storage?: string; providerMediaId?: string; metaMediaId?: string; type?: string; mimeType?: string; size?: number }[];
     replyToMessageId?: string;
     clientMessageId?: string;
+    productMessage?: { catalogId: string; productRetailerId: string };
   } = {}
 ) {
   return request<T>(`/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content, ...options }),
   });
+}
+
+export function getWhatsAppAccounts<T>() {
+  return request<T>("/whatsapp/accounts");
+}
+
+export function getCatalogProducts<T>(accountId: string, search = "") {
+  const suffix = search ? `?search=${encodeURIComponent(search)}` : "";
+  return request<T>(`/whatsapp/accounts/${accountId}/catalog/products${suffix}`);
 }
 
 export async function uploadMedia<T>(file: File) {
@@ -529,6 +543,7 @@ export function createWhatsAppAccount<T>(account: {
   appSecret?: string;
   conversionsDatasetId?: string;
   conversionsTestEventCode?: string;
+  catalogId?: string;
 }) {
   return request<T>("/whatsapp/accounts", {
     method: "POST",

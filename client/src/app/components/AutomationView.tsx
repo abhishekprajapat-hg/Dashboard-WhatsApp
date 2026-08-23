@@ -62,6 +62,7 @@ import {
   Unlock,
   Workflow,
   Instagram,
+  ShoppingBag,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -275,6 +276,7 @@ const nodeCatalog = [
   { kind: "send_instagram", label: "Instagram DM", icon: "Instagram", color: "#e1306c", description: "Send an Instagram DM" },
   { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
   { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
+  { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "#0ea5e9", description: "Send a catalog product" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
   { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
   { kind: "lead_stage", label: "Lead Stage", icon: "Activity", color: "#06b6d4", description: "Move CRM stage" },
@@ -322,6 +324,7 @@ function iconFor(name: string, size = 15) {
     Webhook: <Webhook size={size} />,
     Workflow: <Workflow size={size} />,
     Instagram: <Instagram size={size} />,
+    ShoppingBag: <ShoppingBag size={size} />,
     Zap: <Zap size={size} />,
   };
   return icons[name] || <Zap size={size} />;
@@ -795,6 +798,33 @@ function BuilderCanvas({
           <p className="text-[10px] text-muted-foreground">
             Only published WhatsApp Flows can be sent (Settings &gt; Flows). Sent to the current contact&apos;s phone number -
             skipped if the contact has none.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "send_product_message") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Product retailer ID (SKU)</label>
+          <input
+            value={String(cfg.productRetailerId ?? "")}
+            onChange={(event) => updateSelectedConfig("productRetailerId", event.target.value)}
+            disabled={!canWrite}
+            placeholder="e.g. SKU-001"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Message text (optional)</label>
+          <input
+            value={String(cfg.bodyText ?? "")}
+            onChange={(event) => updateSelectedConfig("bodyText", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Accompanying text, supports {{variables}}"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Sent from the triggering WhatsApp account&apos;s connected catalog (Settings &gt; WhatsApp &gt; Catalog ID) to
+            the current contact&apos;s phone number - skipped if either is missing.
           </p>
         </>
       );

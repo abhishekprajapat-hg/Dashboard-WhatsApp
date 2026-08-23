@@ -12,6 +12,7 @@ import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { logger } from "../services/logger.js";
 import { sendInstagramMessage } from "../services/instagramProvider.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
+import { sendWhatsAppProductMessage } from "../services/whatsappCommerce.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 import { objectIdString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
@@ -124,6 +125,10 @@ export const sendMessageSchema = z.object({
   attachments: z.array(attachmentSchema).optional(),
   replyToMessageId: z.string().optional(),
   clientMessageId: z.string().optional(),
+  // WhatsApp-only, single-product interactive message (v1 scope - no multi-product/catalog-browse
+  // yet). productRetailerId is the SKU already registered in the business's own Meta Commerce
+  // Manager catalog; catalogId comes from the connected WhatsAppAccount's Settings field.
+  productMessage: z.object({ catalogId: z.string().trim().min(1), productRetailerId: z.string().trim().min(1) }).optional(),
 });
 
 // .trim().min(1) matches the handler's actual rejection of whitespace-only notes - a bare
@@ -726,12 +731,15 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
     }
 
-    const { content, attachments = [], replyToMessageId = "", clientMessageId = "" } = req.body;
+    const { content, attachments = [], replyToMessageId = "", clientMessageId = "", productMessage } = req.body;
     const mediaAttachments = cleanAttachments(attachments);
     const messageBody = content.trim();
 
-    if (!messageBody && mediaAttachments.length === 0) {
+    if (!messageBody && mediaAttachments.length === 0 && !productMessage) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
+    }
+    if (productMessage && conversation.channel === "instagram") {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "Product messages are WhatsApp-only." });
     }
 
     if (clientMessageId) {
@@ -758,7 +766,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       whatsappAccountId: isInstagram ? undefined : conversation.whatsappAccountId || account?._id,
       instagramAccountId: isInstagram ? instagramAccount?._id : undefined,
       direction: "outbound",
-      type: messageTypeForAttachments(mediaAttachments),
+      type: productMessage ? "product" : messageTypeForAttachments(mediaAttachments),
       body: messageBody,
       attachments: mediaAttachments,
       clientMessageId: clientMessageId || undefined,
@@ -768,6 +776,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         providerMode: isInstagram ? "instagram" : account?.provider || "meta",
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(replyToMessageId ? { replyToMessageId } : {}),
+        ...(productMessage ? { product: productMessage } : {}),
       },
     });
 
@@ -797,6 +806,14 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         // bot-initiated sends.
         providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments, humanAgent: false });
         providerResult.mode = "instagram";
+      } else if (productMessage) {
+        providerResult = await sendWhatsAppProductMessage({
+          account,
+          to: contact?.phone,
+          catalogId: productMessage.catalogId,
+          productRetailerId: productMessage.productRetailerId,
+          bodyText: messageBody || undefined,
+        });
       } else {
         providerResult = await sendWhatsAppText({
           account,

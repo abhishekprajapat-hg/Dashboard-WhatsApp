@@ -7,6 +7,7 @@ import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
 import { sendEmail, sendSms } from "./notificationChannels.js";
 import { sendFlowMessage } from "./whatsappFlows.js";
+import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
@@ -777,6 +778,56 @@ async function execSendFlow({ node, env, run, testMode }) {
   }
 }
 
+// Single Product messages only (v1 scope, matching whatsappCommerce.js) - synchronous, no queue,
+// same shape as execSendFlow above since both are Meta-only interactive-message sends outside the
+// bulk-campaign system. catalogId comes from the triggering WhatsAppAccount (a business connects
+// one catalog per account via Settings, not per-automation-step), so unlike flowId this isn't a
+// node.config selection - only productRetailerId (a fixed SKU pick, not templated, so read from
+// raw node.config like flowId) and the optional bodyText (user-facing, so read from the
+// interpolated config so {{contact.name}}-style tokens resolve) come from the node itself.
+async function execSendProductMessage({ node, config: cfg, env, testMode }) {
+  const { account, contact } = env;
+  if (!account || !contact?.phone) {
+    return { status: "skipped", logMessage: "Skipped send_product_message: missing account/contact phone", logLevel: "warn" };
+  }
+
+  if (!account.catalogId) {
+    return { status: "skipped", logMessage: "Skipped send_product_message: account has no Catalog ID configured", logLevel: "warn" };
+  }
+
+  const productRetailerId = String(node.config?.productRetailerId || "").trim();
+  if (!productRetailerId) {
+    return { status: "skipped", logMessage: "Skipped send_product_message: no product selected", logLevel: "warn" };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "send_product_message", status: "skipped", skipped: true, productRetailerId }, logMessage: "Product message send skipped in test mode" };
+  }
+
+  try {
+    const result = await sendWhatsAppProductMessage({
+      account,
+      to: contact.phone,
+      catalogId: account.catalogId,
+      productRetailerId,
+      bodyText: cfg?.bodyText || undefined,
+    });
+    return {
+      status: "ok",
+      action: { type: "send_product_message", status: "sent", productRetailerId, providerMessageId: result.providerMessageId },
+      logMessage: `Product "${productRetailerId}" sent`,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error.message,
+      action: { type: "send_product_message", status: "failed", error: error.message },
+      logMessage: "Product message send failed",
+      logLevel: "error",
+    };
+  }
+}
+
 async function execSubWorkflow({ node, config: cfg, run, testMode }) {
   const targetFlowId = String(node.config?.flowId || "").trim();
   if (!targetFlowId || !mongoose.Types.ObjectId.isValid(targetFlowId)) {
@@ -852,6 +903,7 @@ const executors = {
   gemini: makeAiExecutor("gemini"),
   email: execEmail,
   send_flow: execSendFlow,
+  send_product_message: execSendProductMessage,
   send_instagram: execSendInstagram,
   sms: execSms,
   loop: execLoop,

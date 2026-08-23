@@ -300,6 +300,60 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     }
   }, [clearDraftContext, composerMode, inputText, pendingMedia.length, replyTo?.id, selected, uploadPendingMedia, uploading]);
 
+  // Single Product messages only (v1 scope) - WhatsApp-only, so no composerMode ("note") branch
+  // and no attachment upload step, unlike handleSend above. Reuses the same optimistic-message +
+  // messageQueue pipeline so retries/status tracking behave identically to a normal text send.
+  const sendProductMessage = useCallback(async (product: { catalogId: string; productRetailerId: string; name: string }) => {
+    if (!selected || uploading) return;
+
+    const content = inputText.trim();
+    setUploading(true);
+    setSendError(null);
+    try {
+      const id = clientMessageId();
+      const optimistic: WhatsAppMessage = {
+        id: `local_${id}`,
+        clientMessageId: id,
+        content: content || product.name,
+        from: "agent",
+        type: "product",
+        time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        status: "sent",
+        attachments: [],
+      };
+      store.appendOptimisticMessage(selected.id, optimistic);
+      store.updateConversation(selected.id, { preview: product.name, unread: 0, lastMessageAt: new Date().toISOString() });
+      setInputText("");
+      clearDraftContext();
+
+      messageQueue.enqueue(
+        {
+          conversationId: selected.id,
+          content,
+          attachments: [],
+          clientMessageId: id,
+          productMessage: { catalogId: product.catalogId, productRetailerId: product.productRetailerId },
+        },
+        {
+          onQueued: store.upsertQueuedMessage,
+          onSending: store.upsertQueuedMessage,
+          onSent: (queued, response) => {
+            store.replaceMessage(selected.id, `local_${queued.id}`, response);
+            store.removeQueuedMessage(queued.id);
+          },
+          onFailed: (queued) => {
+            store.upsertQueuedMessage(queued);
+            store.replaceMessage(selected.id, `local_${queued.id}`, { ...optimistic, status: "failed" });
+          },
+        }
+      );
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Failed to send the product message.");
+    } finally {
+      setUploading(false);
+    }
+  }, [clearDraftContext, inputText, selected, uploading]);
+
   const handleTyping = useCallback((value: string) => {
     setInputText(value);
     if (!selected?.id) return;
@@ -391,6 +445,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     removePendingMedia,
     clearDraftContext,
     handleSend,
+    sendProductMessage,
     handleTyping,
     setComposerMode,
     setMessageSearch,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { WhatsAppBusinessInbox } from "./whatsapp-inbox/WhatsAppBusinessInbox";
+import { ProductPickerModal } from "./whatsapp-inbox/ProductPickerModal";
 import { useWhatsAppEngine } from "./whatsapp-inbox/hooks/useWhatsAppEngine";
 import { analyzeAssistantConversation, getTemplates, markTemplateUsed } from "../lib/api";
 import { isPlanLimitError } from "./PlanLockedState";
@@ -25,6 +26,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
   const [quickReplies, setQuickReplies] = useState<QuickReplyTemplate[]>([]);
   const [suggestingReply, setSuggestingReply] = useState(false);
   const [suggestReplyError, setSuggestReplyError] = useState("");
+  const [showProductPicker, setShowProductPicker] = useState(false);
 
   useEffect(() => {
     getTemplates<{ data: QuickReplyTemplate[] }>({ type: "quick_reply", status: "active" })
@@ -144,6 +146,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         onComposerModeChange={engine.setComposerMode}
         onSend={engine.handleSend}
         onPickFiles={pickFiles}
+        onPickProduct={engine.selected ? () => setShowProductPicker(true) : undefined}
         onRemoveMedia={engine.removePendingMedia}
         onClearContext={engine.clearDraftContext}
         onToggleRecording={() => engine.setRecording((value) => !value)}
@@ -156,6 +159,16 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         onLoadOlderMessages={engine.loadOlderMessages}
         onAddToCrm={engine.handleAddToCrm}
       />
+
+      {showProductPicker && (
+        <ProductPickerModal
+          onClose={() => setShowProductPicker(false)}
+          onSelect={(product) => {
+            setShowProductPicker(false);
+            engine.sendProductMessage(product);
+          }}
+        />
+      )}
     </>
   );
 }

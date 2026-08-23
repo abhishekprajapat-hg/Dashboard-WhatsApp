@@ -11,7 +11,9 @@ export type MessageKind =
   | "gif"
   | "location"
   | "contact"
-  | "system";
+  | "system"
+  | "product"
+  | "order";
 
 export type MessageStatus = "queued" | "sent" | "delivered" | "read" | "failed";
 
@@ -121,6 +123,7 @@ export interface QueuedMessage {
   content: string;
   replyToMessageId?: string;
   attachments: Attachment[];
+  productMessage?: { catalogId: string; productRetailerId: string };
   attempts: number;
   status: "queued" | "sending" | "failed";
 }

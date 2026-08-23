@@ -27,6 +27,7 @@ import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
 import { absoluteBaseUrl, mediaTypeFor } from "../services/mediaStorage.js";
 import { sendConversionEvent } from "../services/metaConversionsApi.js";
+import { fetchCatalogProducts } from "../services/whatsappCommerce.js";
 import {
   credentialSummary,
   decodeCredentials,
@@ -51,6 +52,7 @@ function serializeAccount(account) {
     phoneNumberId: account.phoneNumberId,
     businessAccountId: account.businessAccountId,
     conversionsDatasetId: account.conversionsDatasetId || "",
+    catalogId: account.catalogId || "",
     provider: account.provider,
     providerConfig: account.providerConfig || {},
     webhookStatus: account.webhookStatus,
@@ -303,6 +305,7 @@ export const connectAccountSchema = z.object({
   appSecret: z.string().optional().default(""),
   conversionsDatasetId: z.string().optional().default(""),
   conversionsTestEventCode: z.string().optional().default(""),
+  catalogId: z.string().optional().default(""),
 });
 
 export const embeddedSignupSchema = z.object({
@@ -330,6 +333,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     appSecret,
     conversionsDatasetId,
     conversionsTestEventCode,
+    catalogId,
   } = req.body;
 
   const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
@@ -362,6 +366,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
       encryptedCredentials: encodeCredentials(credentials),
       conversionsDatasetId: cleanString(conversionsDatasetId) || existingAccount?.conversionsDatasetId || "",
       conversionsTestEventCode: cleanString(conversionsTestEventCode) || existingAccount?.conversionsTestEventCode || "",
+      catalogId: cleanString(catalogId) || existingAccount?.catalogId || "",
       provider: providerKey,
       providerConfig: {
         tenantId: tenantId || businessAccountId,
@@ -623,6 +628,35 @@ whatsappRouter.post("/accounts/:id/test-conversion-event", requirePermission("se
   }
 });
 
+whatsappRouter.get("/accounts/:id/catalog/products", requirePermission("settings:read"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  if (!account.catalogId) {
+    return res.status(400).json({ error: "CATALOG_NOT_CONFIGURED", message: "Set a Catalog ID on this account first." });
+  }
+
+  try {
+    const products = await fetchCatalogProducts({ account, catalogId: account.catalogId, search: req.query.search || "" });
+    res.json({ data: products });
+  } catch (error) {
+    // Never forward Meta's own 401/403 as this response's status - the client's shared request()
+    // helper treats ANY 401 as "this admin's own login session is invalid" and force-logs them out
+    // (confirmed live: a fake local dev token's real Meta 401 here triggered a full app logout,
+    // not just an error on this one action). A downstream Graph API auth failure is a completely
+    // different thing from this app's own session expiring - always answer with 502 instead,
+    // preserving the real Meta error code/message in the body for debugging.
+    const status = error.status === 401 || error.status === 403 ? 502 : error.status || 502;
+    res.status(status).json({ error: error.code || "WHATSAPP_CATALOG_FETCH_FAILED", message: error.message });
+  }
+});
+
 whatsappWebhookRouter.get("/", async (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -697,7 +731,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           .map(([key, value]) => `${key}: ${value}`)
           .join(", ")
         : "";
-      const messageBody = normalized.body || attachments[0]?.caption || flowResponseSummary;
+      const messageBody = normalized.body || attachments[0]?.caption || flowResponseSummary || normalized.order?.text || "";
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const found = await findReusableContactAndConversation({ account, phone: normalized.from });
       const waName = normalized.profile?.waName || found.contact?.waName || found.contact?.name || normalized.from;
@@ -760,7 +794,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           contactId: contact._id,
           whatsappAccountId: account._id,
           direction: "inbound",
-          type: normalized.flowResponse ? "flow_response" : attachments.length ? messageType : "text",
+          type: normalized.order ? "order" : normalized.flowResponse ? "flow_response" : attachments.length ? messageType : "text",
           body: messageBody,
           attachments,
           providerMessageId: normalized.providerMessageId,
@@ -772,6 +806,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
             ...(normalized.profile ? { profile: normalized.profile } : {}),
             ...(campaign ? { campaign } : {}),
             ...(normalized.flowResponse ? { flowResponse: normalized.flowResponse } : {}),
+            ...(normalized.order ? { order: normalized.order } : {}),
           },
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }

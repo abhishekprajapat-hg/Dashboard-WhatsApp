@@ -10,7 +10,7 @@ const messageSchema = new mongoose.Schema(
     instagramAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "InstagramAccount", index: true },
     channel: { type: String, enum: ["whatsapp", "instagram"], default: "whatsapp", index: true },
     direction: { type: String, enum: ["inbound", "outbound"], required: true },
-    type: { type: String, enum: ["text", "template", "image", "document", "audio", "video", "location", "system", "note", "flow", "flow_response"], default: "text" },
+    type: { type: String, enum: ["text", "template", "image", "document", "audio", "video", "location", "system", "note", "flow", "flow_response", "product", "order"], default: "text" },
     body: String,
     attachments: { type: [mongoose.Schema.Types.Mixed], default: [] },
     providerMessageId: { type: String, sparse: true },

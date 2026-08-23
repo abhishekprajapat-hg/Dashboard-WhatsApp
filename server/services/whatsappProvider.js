@@ -713,6 +713,22 @@ export function normalizeWebhookPayload(payload) {
         flowResponse = { name: nfmReply.name || "", body: nfmReply.body || "", data: {} };
       }
     }
+    // Cart checkout inside a catalog conversation - message.type === "order", a structurally
+    // separate shape from text/media (confirmed via Meta's real webhook payload docs), same
+    // piggyback-on-the-generic-inbound-message approach as flowResponse above rather than a
+    // separate code path.
+    const order = message.type === "order" && message.order
+      ? {
+          catalogId: message.order.catalog_id || "",
+          items: (message.order.product_items || []).map((item) => ({
+            productRetailerId: item.product_retailer_id || "",
+            quantity: item.quantity,
+            itemPrice: item.item_price,
+            currency: item.currency || "",
+          })),
+          text: message.order.text || "",
+        }
+      : null;
     return {
       type: "message",
       idempotencyKey: message.id,
@@ -723,6 +739,7 @@ export function normalizeWebhookPayload(payload) {
       providerMessageId: message.id,
       referral: message.referral || null,
       flowResponse,
+      order,
       profile: {
         waName: contact.profile?.name || "",
         waId: contact.wa_id || message.from,

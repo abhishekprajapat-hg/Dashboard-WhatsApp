@@ -1,4 +1,4 @@
-import { AlertTriangle, FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, Smile, Sparkles, Video, X } from "lucide-react";
+import { AlertTriangle, FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, ShoppingBag, Smile, Sparkles, Video, X } from "lucide-react";
 import { mediaCache } from "./services/mediaCache";
 import type { PendingMedia, UploadState, WhatsAppMessage } from "./types";
 import { cn, formatBytes } from "./utils";
@@ -19,6 +19,7 @@ interface ComposerProps {
   onModeChange: (mode: "reply" | "note") => void;
   onSend: () => void;
   onPickFiles: (kind: "media" | "document" | "audio") => void;
+  onPickProduct?: () => void;
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
@@ -42,6 +43,7 @@ export function Composer({
   onModeChange,
   onSend,
   onPickFiles,
+  onPickProduct,
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
@@ -181,6 +183,7 @@ export function Composer({
               { label: "Document / PDF", icon: FileText, action: () => onPickFiles("document") },
               { label: "Audio", icon: FileAudio, action: () => onPickFiles("audio") },
               { label: "GIF / Sticker", icon: Video, action: () => onPickFiles("media") },
+              ...(onPickProduct ? [{ label: "Product", icon: ShoppingBag, action: onPickProduct }] : []),
             ].map((item) => {
               const Icon = item.icon;
               return (

@@ -13,6 +13,7 @@ const whatsAppAccountSchema = new mongoose.Schema(
     encryptedCredentials: { type: String, required: true },
     conversionsDatasetId: { type: String, trim: true, default: "" },
     conversionsTestEventCode: { type: String, trim: true, default: "" },
+    catalogId: { type: String, trim: true, default: "" },
     webhookStatus: { type: String, default: "pending" },
     templateSyncStatus: { type: String, default: "pending" },
     status: { type: String, enum: ["connected", "disconnected", "needs_attention"], default: "disconnected" },
