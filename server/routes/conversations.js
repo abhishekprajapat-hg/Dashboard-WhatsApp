@@ -786,11 +786,16 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
           error.status = 400;
           throw error;
         }
-        // humanAgent: true is safe here specifically - this route only ever runs from a real
-        // authenticated agent's own Inbox reply (requireAuth above), never from an automated
-        // trigger. Do NOT add this to automationExecutors.js's send_instagram node - Meta's policy
-        // explicitly bans the HUMAN_AGENT tag on bot-initiated sends.
-        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments, humanAgent: true });
+        // humanAgent stays false until Meta approves the HUMAN_AGENT tag in App Review - confirmed
+        // live in production that Meta rejects the tag outright pre-approval ("To use 'Human Agent',
+        // your use of this endpoint must be reviewed..."), unlike the other four Instagram
+        // permissions which keep working pre-review for this app's own tester account. Forcing it
+        // true unconditionally here (the previous code) broke every real Inbox reply, not just ones
+        // outside the 24h window - the vast majority of real replies happen inside the window and
+        // never needed this tag at all. Do NOT add this to automationExecutors.js's send_instagram
+        // node even after approval - Meta's policy explicitly bans the HUMAN_AGENT tag on
+        // bot-initiated sends.
+        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments, humanAgent: false });
         providerResult.mode = "instagram";
       } else {
         providerResult = await sendWhatsAppText({
@@ -832,6 +837,13 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         message: error.message || "Message could not be sent.",
         accountStatus: (isInstagram ? instagramAccount?.status : account?.status) || "missing",
       });
+    }
+
+    // Self-heal: a successful send proves the account is fine, so clear a stale needs_attention
+    // (e.g. left over from the HUMAN_AGENT-tag rejection above misattributing a policy 403 to auth).
+    if (isInstagram && instagramAccount && instagramAccount.status !== "connected") {
+      instagramAccount.status = "connected";
+      await instagramAccount.save();
     }
 
     outboundMessage.whatsappAccountId = isInstagram ? undefined : conversation.whatsappAccountId || account?._id;
