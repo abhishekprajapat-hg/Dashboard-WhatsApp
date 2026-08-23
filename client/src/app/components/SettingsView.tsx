@@ -392,6 +392,35 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     }
   }
 
+  // "Add account" always opened a blank form, even for an existing account - every edit (e.g.
+  // just adding a Catalog ID) meant blindly retyping Phone number/Phone number ID/Business account
+  // ID from scratch, risky since the server upserts on phoneNumberId: get it wrong and it creates a
+  // second account instead of updating the real one. Secrets (access token, verify token, app
+  // secret) are never returned by the API (only a boolean "configured" flag), so those stay blank
+  // here - the existing merge-on-blank logic on save already keeps whatever was stored before.
+  function handleEditAccount(account: WhatsAppAccount) {
+    if (!canWrite) return;
+    setForm({
+      provider: account.provider,
+      displayName: account.displayName,
+      phoneNumber: account.phoneNumber,
+      phoneNumberId: account.phoneNumberId,
+      businessAccountId: account.businessAccountId,
+      accessToken: "",
+      accountSid: "",
+      authToken: "",
+      apiKey: "",
+      apiBaseUrl: account.providerConfig?.apiBaseUrl || "",
+      tenantId: account.providerConfig?.tenantId || "",
+      verifyToken: "",
+      appSecret: "",
+      conversionsDatasetId: account.conversionsDatasetId || "",
+      conversionsTestEventCode: "",
+      catalogId: account.catalogId || "",
+    });
+    setShowAccountForm(true);
+  }
+
   async function handleDeleteAccount(id: string) {
     if (!canWrite) return;
     setSettings((current) => ({
@@ -604,7 +633,34 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                 <h2 className="text-foreground">WhatsApp Console</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Monitor account health, delivery, templates, and webhook traffic.</p>
               </div>
-              {canWrite && <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground" onClick={() => setShowAccountForm((value) => !value)}>
+              {canWrite && <Button
+                size="sm"
+                className="h-8 text-xs bg-primary text-primary-foreground"
+                onClick={() => {
+                  // Reset to a blank form explicitly - otherwise leftover values from an "Edit"
+                  // (or a cancelled partial entry) would bleed into what looks like a fresh
+                  // "Add account" flow, risking an accidental overwrite of the wrong account.
+                  setForm({
+                    provider: "meta",
+                    displayName: "",
+                    phoneNumber: "",
+                    phoneNumberId: "",
+                    businessAccountId: "",
+                    accessToken: "",
+                    accountSid: "",
+                    authToken: "",
+                    apiKey: "",
+                    apiBaseUrl: "",
+                    tenantId: "",
+                    verifyToken: "",
+                    appSecret: "",
+                    conversionsDatasetId: "",
+                    conversionsTestEventCode: "",
+                    catalogId: "",
+                  });
+                  setShowAccountForm(true);
+                }}
+              >
                 <Plus size={13} className="mr-1.5" />
                 Add account
               </Button>}
@@ -954,6 +1010,9 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                       )}
                     </div>
                     {canWrite && <div className="flex gap-1">
+                      <Button variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => handleEditAccount(account)}>
+                        Edit
+                      </Button>
                       <Button variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => handleAccountTest(account.id)} disabled={accountTesting === account.id}>
                         {accountTesting === account.id ? "Testing" : "Test"}
                       </Button>
