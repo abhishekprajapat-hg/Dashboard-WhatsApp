@@ -9,6 +9,54 @@ same "don't trust it silently" discipline as Vega's manual deploy. Client and se
 different effective versions if only one side's cache/process picks up a push — see the settings.js
 bug below for a real example of what that desync can hide.
 
+## READ THIS FIRST — session paused here 2026-08-23 night, mid-diagnosis on the real product SEND
+
+**Everything below through "Committed and pushed"** is done, deployed, and confirmed live - the
+picker genuinely lists real products now. **The one open thread**: the actual send of a product
+message fails with a real Meta error, not yet root-caused.
+
+**What happened, in order**: picked a real product ("Textured Plaid Shacket") from the now-working
+picker, sent it to a real contact (917000445463) from the real Inbox. The message appeared in our own
+UI, but the real send failed - confirmed via DevTools Network tab, not just assumed:
+
+```
+POST /api/conversations/{id}/messages → 400
+{"error":"WHATSAPP_SEND_FAILED","accountStatus":"connected",
+ "message":"Unsupported post request. Object with ID '1016928568166058' does not exist, cannot be
+ loaded due to missing permission, or does not support this operation. [truncated in DevTools -
+ full text not yet captured]"}
+```
+
+The outbound request payload (confirmed via DevTools Payload tab) correctly had
+`productMessage: {catalogId: "867405579008769", productRetailerId: "69..."}` - so the client → our
+backend leg looks right. The `1016928568166058` ID doesn't match the catalog ID, and doesn't match
+the alphanumeric `retailer_id` pattern real products actually have (e.g.
+`694ebf56a68da06eca805406_NB`) - it looks like a plain numeric Graph API object ID, which is the
+shape a `phoneNumberId` or a Graph node's own `id` takes, not a retailer_id.
+
+**Exact next steps, in order, for whoever picks this up**:
+1. **Get the full, untruncated error message** - click into the truncated string in DevTools (or
+   re-check server logs, since `error.meta` on the thrown error already carries Meta's complete raw
+   payload - `conversations.js`'s catch block just doesn't include `error.meta` in the client
+   response). Consider temporarily logging `error.meta` server-side for this one route if DevTools
+   truncation is unavoidable.
+2. **Check whether `1016928568166058` matches the account's real `phoneNumberId`** (visible on the
+   account card in Settings → WhatsApp) - if it matches, the phone number itself may not be
+   commerce-enabled yet (separate from just connecting a catalog via WhatsApp Manager - possibly
+   needs its own "Show catalog icon in chat header" toggle turned on, or a propagation delay, or
+   something else not yet identified). If it does NOT match, the wrong `WhatsAppAccount` may be
+   getting resolved for this send - worth checking `conversations.js`'s account lookup (it currently
+   grabs "the most recently created connected WhatsApp account for the workspace" rather than the one
+   specifically tied to `conversation.whatsappAccountId` - a pre-existing design choice, not
+   something built this session, but worth ruling in/out here if there's more than one WhatsApp
+   account on this workspace).
+3. Once root-caused, re-verify with the same discipline as everything else this session: a real send,
+   confirmed on the real recipient's actual WhatsApp app, not just a clean HTTP response.
+
+**Also still true from the original build, unaffected by this**: no real inbound order webhook has
+been exercised yet either (needs a real customer to actually complete a WhatsApp cart checkout against
+this catalog, once sending itself works).
+
 ## WhatsApp Catalog/Commerce (Single Product messages) — built 2026-08-23 evening, live-verified & pushed
 
 Closes the "WhatsApp Catalog/commerce" gap flagged in the 2026-08-15 strategy review (see that section
