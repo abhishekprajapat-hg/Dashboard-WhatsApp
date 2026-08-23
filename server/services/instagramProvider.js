@@ -105,7 +105,16 @@ export async function fetchInstagramInsights(account) {
 // direct match there, Instagram's equivalent is "file".
 const INSTAGRAM_ATTACHMENT_TYPE = { image: "image", video: "video", audio: "audio", document: "file" };
 
-export async function sendInstagramMessage({ account, to, body, attachments = [] }) {
+// humanAgent (the HUMAN_AGENT message tag) extends the normal 24-hour messaging window to 7 days -
+// but Meta explicitly prohibits it for automated/bot messages and detects misuse (penalty: that
+// account's messaging capability gets suspended). Callers MUST only pass humanAgent: true from a
+// real authenticated agent's own Inbox reply, never from an automation-triggered send - this is
+// the actual safety-critical part of this feature, not the request shape. Confirmed via docs the
+// tag exists and what it does; the exact request-body placement (a top-level field alongside
+// recipient/message, matching the long-established Messenger Platform convention Instagram
+// messaging is documented everywhere as reusing) was NOT confirmed via a literal example in current
+// docs - if Meta rejects this shape, that rejection is the real answer, not another docs guess.
+export async function sendInstagramMessage({ account, to, body, attachments = [], humanAgent = false }) {
   const credentials = decodeCredentials(account);
   const url = `${GRAPH_BASE}/${account.instagramUserId}/messages`;
   const attachment = attachments[0];
@@ -114,7 +123,7 @@ export async function sendInstagramMessage({ account, to, body, attachments = []
     const response = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ recipient: { id: to }, message }),
+      body: JSON.stringify({ recipient: { id: to }, message, ...(humanAgent ? { tag: "HUMAN_AGENT" } : {}) }),
     });
     return parseOrThrow(response, "INSTAGRAM_SEND_FAILED");
   }

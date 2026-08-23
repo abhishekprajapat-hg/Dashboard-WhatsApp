@@ -11,6 +11,49 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram Human Agent tag — built 2026-08-23, closes the full 5-permission push
+
+Last of the newly-scoped permissions from Meta's "Request advanced access" dialog (see Insights,
+Comments, Content Publishing sections below for the other three, and the RESOLVED section further
+below for the two originally-scoped permissions this whole push started from). Genuinely the smallest
+of the five - not a new capability, a tag on an existing one.
+
+**What it does**: the `HUMAN_AGENT` message tag extends Instagram's normal 24-hour messaging window
+to 7 days when a real human agent is responding, not a bot. **The real risk here isn't the code, it's
+the policy**: Meta explicitly bans this tag on automated/bot-initiated messages and detects misuse -
+penalty is suspension of that account's messaging capability. This app has exactly two call sites for
+`sendInstagramMessage` and they are meaningfully different: `conversations.js`'s `POST /:id/messages`
+(the real Inbox reply route, only ever runs from an authenticated agent's own action) and
+`automationExecutors.js`'s `send_instagram` node (bot-triggered). Getting this wrong wouldn't just be
+a code bug, it'd be a real Meta policy violation risking this account's ability to message on
+Instagram at all - worth being exact about.
+
+**Built**: `sendInstagramMessage` gained an optional `humanAgent` parameter (default `false`), only
+adding `tag: "HUMAN_AGENT"` to the request when explicitly `true`. Wired to `true` **only** at
+`conversations.js`'s Inbox reply call site, with an explicit comment there and at the
+`automationExecutors.js` call site (which deliberately does *not* pass it) cross-referencing each
+other so a future change doesn't accidentally add it to the automation path.
+
+**Real research gap, flagged honestly rather than papered over**: confirmed via docs that the
+`HUMAN_AGENT` tag exists and what it does (extends the window, human-only), but multiple lookups
+(including Meta's own docs page and a linked Postman collection) never produced a literal example of
+the request body's exact shape. Implemented as a top-level `tag` field alongside `recipient`/
+`message` - the long-established Messenger Platform convention Instagram messaging is documented
+everywhere as reusing - but this specific placement is **not confirmed**, unlike every other API
+shape built today. If Meta rejects it, that rejection is the real answer, not another docs guess -
+`parseOrThrow`'s existing error surfacing will show exactly what's wrong.
+
+**Verified locally via a throwaway script** (real function, mocked `fetch`, deleted after) - no
+`humanAgent` param (the automation node's real call shape) sends no `tag` field at all; explicit
+`humanAgent: false` also sends no tag; `humanAgent: true` (the real Inbox reply's call shape)
+includes `tag: "HUMAN_AGENT"` alongside an unchanged `recipient`/`message`. `npx tsc --noEmit` and
+`npm run check` (155 files) both clean.
+
+**Not yet verified against the real Graph API** - same caveat as the other three. Real verification
+needs a real Instagram conversation that's been quiet for over 24 hours, replying to it from the
+Inbox, and confirming it actually delivers (versus the existing, already-proven-live 24-hour-window
+failure this app already exhibits without the tag).
+
 ## Instagram Content Publishing (instagram_business_content_publish) — built 2026-08-23
 
 Third of the newly-scoped permissions. Real research finding worth remembering: several sources

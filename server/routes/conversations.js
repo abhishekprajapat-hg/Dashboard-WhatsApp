@@ -786,7 +786,11 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
           error.status = 400;
           throw error;
         }
-        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments });
+        // humanAgent: true is safe here specifically - this route only ever runs from a real
+        // authenticated agent's own Inbox reply (requireAuth above), never from an automated
+        // trigger. Do NOT add this to automationExecutors.js's send_instagram node - Meta's policy
+        // explicitly bans the HUMAN_AGENT tag on bot-initiated sends.
+        providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments, humanAgent: true });
         providerResult.mode = "instagram";
       } else {
         providerResult = await sendWhatsAppText({

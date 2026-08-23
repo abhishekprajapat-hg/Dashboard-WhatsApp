@@ -630,6 +630,10 @@ async function execSendInstagram({ config: cfg, env, run, testMode }) {
   }
 
   try {
+    // Deliberately no humanAgent: true here - this is a bot-triggered automation send, and Meta
+    // explicitly bans the HUMAN_AGENT message tag on automated/bot messages (penalty: that
+    // account's messaging capability gets suspended). Only conversations.js's real Inbox reply
+    // route, which only ever runs from an authenticated agent's own action, should ever pass it.
     const result = await sendInstagramMessage({ account, to, body });
     return { status: "ok", action: { type: "send_instagram", status: result.status, to }, logMessage: "Instagram DM sent" };
   } catch (error) {
