@@ -3,8 +3,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
-import { BarChart2, Instagram, MessageCircle, Send, Trash2 } from "lucide-react";
-import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramComments, getInstagramInsights, replyToInstagramComment, sendInstagramTestMessage } from "../lib/api";
+import { BarChart2, ImagePlus, Instagram, MessageCircle, Send, Trash2 } from "lucide-react";
+import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramComments, getInstagramInsights, publishInstagramPost, replyToInstagramComment, sendInstagramTestMessage, uploadMediaWithProgress } from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
@@ -53,6 +53,9 @@ export function InstagramSettingsPanel() {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [replyBusyId, setReplyBusyId] = useState("");
+  const [publishFiles, setPublishFiles] = useState<Record<string, File | null>>({});
+  const [publishCaptions, setPublishCaptions] = useState<Record<string, string>>({});
+  const [publishBusyId, setPublishBusyId] = useState("");
   const popupRef = useRef<Window | null>(null);
 
   async function loadComments() {
@@ -201,6 +204,27 @@ export function InstagramSettingsPanel() {
     }
   }
 
+  async function handlePublish(id: string) {
+    const file = publishFiles[id];
+    if (!file) {
+      setNotice("Choose an image first.");
+      return;
+    }
+    setPublishBusyId(id);
+    setNotice("");
+    try {
+      const upload = await uploadMediaWithProgress<{ data: { url: string } }>(file);
+      await publishInstagramPost(id, { imageUrl: upload.data.url, caption: publishCaptions[id] || undefined });
+      setNotice("Post published.");
+      setPublishFiles((current) => ({ ...current, [id]: null }));
+      setPublishCaptions((current) => ({ ...current, [id]: "" }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not publish the post.");
+    } finally {
+      setPublishBusyId("");
+    }
+  }
+
   async function handleSend(id: string) {
     const target = sendTargets[id];
     if (!target?.to || !target?.body) {
@@ -302,6 +326,29 @@ export function InstagramSettingsPanel() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="mt-3 border-t border-border/60 pt-3">
+                  <p className="mb-1 text-xs font-medium text-foreground">Publish Post</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg"
+                      onChange={(event) => setPublishFiles((current) => ({ ...current, [account.id]: event.target.files?.[0] || null }))}
+                      className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-border file:bg-background/80 file:px-2 file:py-1 file:text-xs"
+                    />
+                    <Input
+                      value={publishCaptions[account.id] || ""}
+                      onChange={(event) => setPublishCaptions((current) => ({ ...current, [account.id]: event.target.value }))}
+                      placeholder="Caption (optional)"
+                      className={`h-8 w-56 text-xs ${fieldClass}`}
+                    />
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs border-border" onClick={() => handlePublish(account.id)} disabled={publishBusyId === account.id}>
+                      <ImagePlus size={12} className="mr-1" />
+                      {publishBusyId === account.id ? "Publishing..." : "Publish"}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">JPEG only - Meta requires the image be fetchable from a public URL.</p>
                 </div>
               </div>
               <Button type="button" size="icon-sm" variant="outline" className="border-border" title="Disconnect" onClick={() => handleDelete(account.id)} disabled={busyId === account.id}>

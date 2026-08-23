@@ -11,6 +11,49 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram Content Publishing (instagram_business_content_publish) — built 2026-08-23
+
+Third of the newly-scoped permissions. Real research finding worth remembering: several sources
+claim content publishing requires `graph.facebook.com` (the *other* OAuth flow's host), which would
+have been a real architectural blocker if true - this app's stored access tokens are scoped to the
+"Instagram API with Instagram Login" flow (`graph.instagram.com`), not Facebook Login. **Confirmed
+before writing any code, not assumed**: publishing genuinely works via `graph.instagram.com` under
+Instagram Login too - Meta's own docs explicitly say "Pick Instagram Login if you only publish and
+moderate comments," describing this app's exact use case.
+
+**Real three-call flow, confirmed via current docs**: `POST /{ig-id}/media` (creates a container,
+`image_url` must be a real publicly-reachable JPEG - Meta curls it themselves) → poll
+`GET /{container-id}?fields=status_code` until `FINISHED` → `POST /{ig-id}/media_publish` with
+`creation_id`. Deliberately reuses this app's own `mediaStorage.js` upload flow (the same mechanism
+WhatsApp/Instagram DM attachments already use) to get a real public URL for `image_url`, rather than
+inventing a separate upload path.
+
+**Built**: `publishInstagramPost(account, {imageUrl, caption})` in `instagramProvider.js` - polls
+every 2s up to 20s (Meta's own guidance is "once per minute for up to 5 minutes," aimed at video;
+images finish far faster in practice, and a tight synchronous poll keeps this a normal
+request/response suitable for a settings-panel button rather than needing a background job for a
+"minimum genuine feature" demo). A container stuck `IN_PROGRESS` past the timeout throws a clear
+error rather than hanging or silently publishing anyway. New `POST /instagram/accounts/:id/publish`
+route. Client: a "Publish Post" mini-form on each connected account's card (JPEG file picker + an
+optional caption), reusing the existing `uploadMediaWithProgress` client helper.
+
+**Verified locally via a throwaway script** (real function, mocked `fetch`, deleted after) - the
+happy path hits exactly 3 calls in the right order with the right params (image_url/caption on the
+container call, the real container id as creation_id on publish); caption is omitted entirely when
+not provided, not sent as an empty string; a polling scenario (`IN_PROGRESS` twice before `FINISHED`)
+publishes correctly after exactly 3 status checks; a container stuck `IN_PROGRESS` forever throws
+`INSTAGRAM_PUBLISH_TIMEOUT` and never calls `media_publish`. **Real bug caught by the test script
+itself, not the source** - the first draft of the mock matched `/IGID/media_publish` against the
+`.includes("/IGID/media")` check meant for the container-creation call (a substring match, not a bug
+in the actual code), silently reusing the wrong mocked response; reordering the mock's checks fixed
+the test, not `instagramProvider.js`. `npx tsc --noEmit` and `npm run check` (155 files) both clean.
+
+**Not yet verified against the real Graph API** - same caveat as Insights and Comments. Also
+**can't be tested from local dev at all**, unlike some other features - `image_url` must be a real
+publicly-reachable URL for Meta's servers to fetch, and this local dev machine's uploads endpoint
+isn't publicly reachable. Real verification needs the live production Settings → Instagram panel,
+uploading a real JPEG, and checking the actual Instagram profile for the new post afterward.
+
 ## Instagram Comments (instagram_business_manage_comments) — built 2026-08-23
 
 Second of the newly-scoped permissions (see the Insights section below for the "why request these at

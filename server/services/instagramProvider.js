@@ -228,3 +228,54 @@ export async function replyToInstagramComment(account, commentId, message) {
   });
   return parseOrThrow(response, "INSTAGRAM_COMMENT_REPLY_FAILED");
 }
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Real three-call flow confirmed via Meta's current docs before writing this, not assumed: create a
+// media container (image_url must be a real publicly-reachable JPEG - reuses this app's own
+// mediaStorage.js upload URLs, the same mechanism WhatsApp/Instagram DM attachments already use),
+// poll its status_code until FINISHED (Meta's own guidance: check once per minute for up to 5
+// minutes for video; images finish far faster in practice, so this polls more tightly - every 2s,
+// giving up after 20s - to keep this a synchronous request/response suitable for a settings-panel
+// button rather than needing a background job for what's a "minimum genuine feature" demo, not a
+// full scheduling/queue system), then publish the container.
+export async function publishInstagramPost(account, { imageUrl, caption }) {
+  const credentials = decodeCredentials(account);
+  const authHeader = { Authorization: `Bearer ${credentials.accessToken}` };
+
+  const containerUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/media`);
+  const containerResponse = await fetch(containerUrl.toString(), {
+    method: "POST",
+    headers: { ...authHeader, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ image_url: imageUrl, ...(caption ? { caption } : {}) }),
+  });
+  const container = await parseOrThrow(containerResponse, "INSTAGRAM_PUBLISH_CONTAINER_FAILED");
+  const containerId = container.id;
+
+  let statusCode = "IN_PROGRESS";
+  for (let attempt = 0; attempt < 10 && statusCode === "IN_PROGRESS"; attempt += 1) {
+    if (attempt > 0) await sleep(2000);
+    const statusUrl = new URL(`${GRAPH_BASE}/${containerId}`);
+    statusUrl.searchParams.set("fields", "status_code");
+    const statusResponse = await fetch(statusUrl.toString(), { headers: authHeader });
+    const status = await parseOrThrow(statusResponse, "INSTAGRAM_PUBLISH_STATUS_FAILED");
+    statusCode = status.status_code;
+  }
+
+  if (statusCode !== "FINISHED") {
+    const error = new Error(`Instagram media container did not finish processing in time (status: ${statusCode}).`);
+    error.code = "INSTAGRAM_PUBLISH_TIMEOUT";
+    error.status = 502;
+    throw error;
+  }
+
+  const publishUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/media_publish`);
+  const publishResponse = await fetch(publishUrl.toString(), {
+    method: "POST",
+    headers: { ...authHeader, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ creation_id: containerId }),
+  });
+  return parseOrThrow(publishResponse, "INSTAGRAM_PUBLISH_FAILED");
+}

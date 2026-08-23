@@ -883,6 +883,13 @@ export function replyToInstagramComment<T>(id: string, message: string) {
   });
 }
 
+export function publishInstagramPost<T>(id: string, payload: { imageUrl: string; caption?: string }) {
+  return request<T>(`/instagram/accounts/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getAutomationFlows<T>() {
   return request<T>("/automation");
 }

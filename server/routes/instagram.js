@@ -20,6 +20,7 @@ import {
   fetchInstagramInsights,
   hasValidInstagramSignature,
   normalizeInstagramWebhookPayload,
+  publishInstagramPost,
   replyToInstagramComment,
   sendInstagramMessage,
 } from "../services/instagramProvider.js";
@@ -137,6 +138,17 @@ instagramRouter.post("/comments/:id/reply", requirePermission("templates:write")
     res.json({ data: comment });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_COMMENT_REPLY_FAILED", message: error.message });
+  }
+});
+
+instagramRouter.post("/accounts/:id/publish", requirePermission("templates:write"), validateBody(z.object({ imageUrl: trimmedString("An image URL is required."), caption: z.string().optional() })), async (req, res) => {
+  const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+  try {
+    const result = await publishInstagramPost(account, { imageUrl: req.body.imageUrl, caption: req.body.caption });
+    res.json({ data: result });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_PUBLISH_FAILED", message: error.message });
   }
 });
 
