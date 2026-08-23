@@ -3,8 +3,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
-import { BarChart2, Instagram, Send, Trash2 } from "lucide-react";
-import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramInsights, sendInstagramTestMessage } from "../lib/api";
+import { BarChart2, Instagram, MessageCircle, Send, Trash2 } from "lucide-react";
+import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramComments, getInstagramInsights, replyToInstagramComment, sendInstagramTestMessage } from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
@@ -24,6 +24,16 @@ interface InsightMetric {
   value: number | null;
 }
 
+interface InstagramCommentItem {
+  id: string;
+  mediaId: string;
+  fromUsername: string;
+  text: string;
+  repliedAt: string | null;
+  replyText: string;
+  createdAt: string;
+}
+
 function statusVariant(status: string): "default" | "outline" | "destructive" | "warning" {
   if (status === "connected") return "default";
   if (status === "needs_attention") return "destructive";
@@ -39,7 +49,46 @@ export function InstagramSettingsPanel() {
   const [busyId, setBusyId] = useState("");
   const [insightsByAccountId, setInsightsByAccountId] = useState<Record<string, InsightMetric[]>>({});
   const [insightsLoadingId, setInsightsLoadingId] = useState("");
+  const [comments, setComments] = useState<InstagramCommentItem[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replyBusyId, setReplyBusyId] = useState("");
   const popupRef = useRef<Window | null>(null);
+
+  async function loadComments() {
+    setCommentsLoading(true);
+    try {
+      const response = await getInstagramComments<{ data: InstagramCommentItem[] }>();
+      setComments(response.data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not load comments.");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadComments().catch(() => undefined);
+  }, []);
+
+  async function handleReplyToComment(id: string) {
+    const message = replyDrafts[id];
+    if (!message) {
+      setNotice("Enter a reply first.");
+      return;
+    }
+    setReplyBusyId(id);
+    setNotice("");
+    try {
+      await replyToInstagramComment(id, message);
+      setReplyDrafts((current) => ({ ...current, [id]: "" }));
+      await loadComments();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not send the reply.");
+    } finally {
+      setReplyBusyId("");
+    }
+  }
 
   async function loadAccounts() {
     setLoading(true);
@@ -262,6 +311,45 @@ export function InstagramSettingsPanel() {
           </Card>
         ))}
       </div>
+
+      <Card className={`p-4 ${cardClass}`}>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={16} className="text-primary" />
+            <h3 className="text-sm font-medium text-foreground">Recent Comments</h3>
+          </div>
+          <Button type="button" size="sm" variant="outline" className="h-8 text-xs border-border" onClick={loadComments} disabled={commentsLoading}>
+            {commentsLoading ? "Loading..." : "Refresh"}
+          </Button>
+        </div>
+        {comments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No comments yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {comments.map((comment) => (
+              <div key={comment.id} className="rounded-md border border-border/80 bg-background/60 p-3">
+                <p className="text-xs text-muted-foreground">@{comment.fromUsername || "unknown"}</p>
+                <p className="text-sm text-foreground">{comment.text}</p>
+                {comment.repliedAt ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Replied: {comment.replyText}</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Input
+                      value={replyDrafts[comment.id] || ""}
+                      onChange={(event) => setReplyDrafts((current) => ({ ...current, [comment.id]: event.target.value }))}
+                      placeholder="Reply"
+                      className={`h-8 w-56 text-xs ${fieldClass}`}
+                    />
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-xs border-border" onClick={() => handleReplyToComment(comment.id)} disabled={replyBusyId === comment.id}>
+                      <Send size={12} className="mr-1" /> Reply
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

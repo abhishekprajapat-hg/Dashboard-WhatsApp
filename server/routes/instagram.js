@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
-import { Contact, Conversation, InstagramAccount, Membership, Message } from "../models/index.js";
+import { Contact, Conversation, InstagramAccount, InstagramComment, Membership, Message } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { validateBody } from "../middleware/validate.js";
@@ -20,6 +20,7 @@ import {
   fetchInstagramInsights,
   hasValidInstagramSignature,
   normalizeInstagramWebhookPayload,
+  replyToInstagramComment,
   sendInstagramMessage,
 } from "../services/instagramProvider.js";
 
@@ -118,6 +119,27 @@ instagramRouter.get("/accounts/:id/insights", requirePermission("settings:read")
   }
 });
 
+instagramRouter.get("/comments", requirePermission("settings:read"), async (req, res) => {
+  const comments = await InstagramComment.find({ workspaceId: req.user.workspaceId }).sort({ createdAt: -1 }).limit(50);
+  res.json({ data: comments, total: comments.length });
+});
+
+instagramRouter.post("/comments/:id/reply", requirePermission("templates:write"), validateBody(z.object({ message: trimmedString("A reply message is required.") })), async (req, res) => {
+  const comment = await InstagramComment.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!comment) return res.status(404).json({ error: "NOT_FOUND", message: "Comment not found." });
+  const account = await InstagramAccount.findOne({ _id: comment.instagramAccountId, workspaceId: req.user.workspaceId });
+  if (!account) return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+  try {
+    await replyToInstagramComment(account, comment.commentId, req.body.message);
+    comment.repliedAt = new Date();
+    comment.replyText = req.body.message;
+    await comment.save();
+    res.json({ data: comment });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_COMMENT_REPLY_FAILED", message: error.message });
+  }
+});
+
 // Minimal static popup page - Instagram's classic OAuth is a plain redirect, not a JS-SDK popup
 // like WhatsApp Embedded Signup.
 //
@@ -168,7 +190,7 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
   }
 
   const normalized = normalizeInstagramWebhookPayload(req.body);
-  if (normalized.type !== "message") return res.sendStatus(200);
+  if (normalized.type !== "message" && normalized.type !== "comment") return res.sendStatus(200);
 
   let account = await InstagramAccount.findOne({ instagramUserId: normalized.instagramUserId });
   if (!account) {
@@ -191,6 +213,30 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
       logger.warn({ webhookInstagramUserId: normalized.instagramUserId, rawEntryId: req.body?.entry?.[0]?.id, storedAccounts: candidates.map((a) => ({ id: a.instagramUserId, username: a.username })) }, "Instagram webhook: no matching account found, and self-heal skipped (more than one account on file)");
       return res.sendStatus(200);
     }
+  }
+
+  if (normalized.type === "comment") {
+    // Comments are stored separately from Message/Conversation - a comment on a post isn't a DM,
+    // shoehorning it into the same model the Inbox is built around would misrepresent what it is.
+    // Idempotent the same way inbound messages are, just keyed on commentId instead of
+    // providerMessageId (the unique index on {workspaceId, commentId} enforces this at the DB level
+    // too, so a duplicate webhook delivery can't create a second row even under a race).
+    await InstagramComment.findOneAndUpdate(
+      { workspaceId: account.workspaceId, commentId: normalized.commentId },
+      {
+        organizationId: account.organizationId,
+        workspaceId: account.workspaceId,
+        instagramAccountId: account._id,
+        commentId: normalized.commentId,
+        mediaId: normalized.mediaId,
+        parentId: normalized.parentId,
+        fromId: normalized.fromId,
+        fromUsername: normalized.fromUsername,
+        text: normalized.text,
+      },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+    return res.sendStatus(200);
   }
 
   const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");

@@ -11,6 +11,56 @@ discipline as Vega's manual deploy. Client and server can end up on different ef
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
+## Instagram Comments (instagram_business_manage_comments) — built 2026-08-23
+
+Second of the newly-scoped permissions (see the Insights section below for the "why request these at
+all" context). Research first, same discipline as Insights: comment webhooks use a structurally
+different shape from messaging - `entry[].changes[]` with `field:"comments"`, not `entry[].messaging[]`
+- confirmed via Meta's webhook reference docs before writing anything. The owning account's ID lives
+at the entry level (`entry.id`) for this shape, since there's no separate "recipient" object like
+messaging has.
+
+**Built**:
+- `server/models/InstagramComment.js` (new) - deliberately **not** shoehorned into the existing
+  `Message`/`Conversation` models. A comment on a post isn't a DM; the whole Inbox/Contact/Conversation
+  data model is built around conversational messaging, and forcing a comment into that shape would
+  misrepresent what it actually is. Unique index on `{workspaceId, commentId}` makes the webhook
+  handler's upsert idempotent at the DB level, matching the existing message-idempotency pattern.
+- `normalizeInstagramWebhookPayload` (`instagramProvider.js`) gained a second branch after the
+  existing messaging one, returning `type: "comment"` with `commentId`/`mediaId`/`parentId`/`fromId`/
+  `fromUsername`/`text`. The messaging branch is untouched; a regression check confirmed a real
+  messaging payload still classifies as `"message"`, not accidentally caught by the new branch.
+- `replyToInstagramComment(account, commentId, message)` - `POST /{comment-id}/replies` on
+  `graph.instagram.com` (matching this app's existing host, confirmed via docs - most example code
+  online shows `graph.facebook.com`, which is the *other* OAuth flow's host, not this app's).
+- `instagram.js`: the webhook POST handler's early-return now accepts both `"message"` and
+  `"comment"` types (was message-only), sharing the existing account-resolution/self-heal logic
+  before branching - a comment webhook needs the exact same "which connected account does this
+  belong to" resolution a message webhook does. New `GET /instagram/comments` (workspace-scoped,
+  latest 50) and `POST /instagram/comments/:id/reply` routes.
+- **Client**: a "Recent Comments" section in `InstagramSettingsPanel.tsx` - lists comments with an
+  inline reply box per unreplied one, a manual Refresh button (comments arrive via webhook, not
+  polled automatically - matches this panel's existing "everything here is manually triggered, no
+  background polling" precedent).
+
+**Verified locally via a throwaway script** (real functions, not reimplemented logic, deleted
+after) - a realistic comments webhook payload classifies correctly and every field extracts
+correctly; a nested reply's `parent_id` extracts correctly; a real messaging payload still classifies
+as `"message"` (regression check that the new branch didn't break the existing one); mocked `fetch`
+confirms the outbound reply hits `POST /{comment-id}/replies` with the message correctly
+form-encoded. `npx tsc --noEmit` and `npm run check` (155 files) both clean.
+
+**Manual setup still needed, same category as every other Instagram permission's setup steps
+further below**: the webhook is currently only subscribed to the `messages` field in App Dashboard.
+**Subscribe to `comments` too** (App Dashboard → Instagram product → webhook config) before any real
+comment will actually reach this endpoint - without that, this feature is code-complete but will
+never receive a real webhook no matter how correct the code is.
+
+**Not yet verified against the real Graph API** - same caveat as Insights, no way to test with a
+real access token from this session. Real verification needs: subscribe the webhook to `comments`
+(above), post a real comment on a real post from the connected account, confirm it appears in
+"Recent Comments," reply from the panel, confirm the reply appears on the real Instagram post.
+
 ## Instagram Insights (instagram_business_manage_insights) — built 2026-08-23, part of a broader review push
 
 User decided to request a wider set of Instagram permissions in one go rather than just the two

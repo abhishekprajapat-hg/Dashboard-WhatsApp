@@ -9,6 +9,7 @@ export * from "./Contact.js";
 export * from "./Conversation.js";
 export * from "./FeatureFlag.js";
 export * from "./InstagramAccount.js";
+export * from "./InstagramComment.js";
 export * from "./Lead.js";
 export * from "./Membership.js";
 export * from "./Message.js";

@@ -194,5 +194,37 @@ export function normalizeInstagramWebhookPayload(payload) {
     };
   }
 
+  // Comments use a structurally different shape from messaging - entry[].changes[] with
+  // field:"comments", not entry[].messaging[] - confirmed via Meta's webhook reference docs before
+  // writing this, not assumed from the messaging shape above. The owning account's ID lives at
+  // entry.id here (there's no separate "recipient" object like messaging has).
+  const change = entry?.changes?.find((item) => item.field === "comments");
+  if (change?.value) {
+    const value = change.value;
+    return {
+      type: "comment",
+      idempotencyKey: value.id,
+      instagramUserId: entry.id,
+      commentId: value.id,
+      mediaId: value.media?.id || "",
+      parentId: value.parent_id || "",
+      fromId: value.from?.id || "",
+      fromUsername: value.from?.username || "",
+      text: value.text || "",
+      raw: payload,
+    };
+  }
+
   return { type: "unknown", idempotencyKey: `ig_unknown:${Date.now()}`, raw: payload };
+}
+
+export async function replyToInstagramComment(account, commentId, message) {
+  const credentials = decodeCredentials(account);
+  const url = new URL(`${GRAPH_BASE}/${commentId}/replies`);
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ message }),
+  });
+  return parseOrThrow(response, "INSTAGRAM_COMMENT_REPLY_FAILED");
 }

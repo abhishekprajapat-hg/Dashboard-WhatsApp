@@ -872,6 +872,17 @@ export function getInstagramInsights<T>(id: string) {
   return request<T>(`/instagram/accounts/${id}/insights`);
 }
 
+export function getInstagramComments<T>() {
+  return request<T>("/instagram/comments");
+}
+
+export function replyToInstagramComment<T>(id: string, message: string) {
+  return request<T>(`/instagram/comments/${id}/reply`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
 export function getAutomationFlows<T>() {
   return request<T>("/automation");
 }
