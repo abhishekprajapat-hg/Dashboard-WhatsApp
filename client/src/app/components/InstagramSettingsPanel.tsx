@@ -20,7 +20,6 @@ interface InstagramAccount {
 interface InsightMetric {
   name: string;
   title: string;
-  description: string;
   value: number | null;
 }
 
@@ -319,7 +318,7 @@ export function InstagramSettingsPanel() {
                   {insightsByAccountId[account.id] && (
                     <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       {insightsByAccountId[account.id].map((metric) => (
-                        <div key={metric.name} className="rounded-md border border-border/80 bg-background/60 p-2" title={metric.description}>
+                        <div key={metric.name} className="rounded-md border border-border/80 bg-background/60 p-2">
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{metric.title || metric.name}</p>
                           <p className="text-sm font-medium text-foreground">{metric.value ?? "—"}</p>
                         </div>

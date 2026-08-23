@@ -82,6 +82,18 @@ export async function fetchInstagramAccountInfo(accessToken) {
 // older guides/blog posts still reference the deprecated names). metric_type=total_value requests a
 // single aggregate number per metric over the period rather than a daily time-series breakdown,
 // which is what an at-a-glance account summary needs.
+//
+// Meta's own metric.title/description come back localized server-side (observed live: Russian, for
+// an account/token with no language preference set on our side) - not something a request param
+// here controls, so we supply our own fixed English labels rather than displaying whatever locale
+// Meta happens to pick.
+const INSTAGRAM_METRIC_LABELS = {
+  reach: "Reach",
+  follower_count: "Follower count",
+  accounts_engaged: "Accounts engaged",
+  total_interactions: "Total interactions",
+};
+
 export async function fetchInstagramInsights(account) {
   const credentials = decodeCredentials(account);
   const url = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
@@ -92,8 +104,7 @@ export async function fetchInstagramInsights(account) {
   const payload = await parseOrThrow(response, "INSTAGRAM_INSIGHTS_FAILED");
   return (payload.data || []).map((metric) => ({
     name: metric.name,
-    title: metric.title,
-    description: metric.description,
+    title: INSTAGRAM_METRIC_LABELS[metric.name] || metric.name,
     value: metric.total_value?.value ?? null,
   }));
 }
