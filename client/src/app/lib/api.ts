@@ -544,6 +544,7 @@ export function createWhatsAppAccount<T>(account: {
   conversionsDatasetId?: string;
   conversionsTestEventCode?: string;
   catalogId?: string;
+  catalogAccessToken?: string;
 }) {
   return request<T>("/whatsapp/accounts", {
     method: "POST",

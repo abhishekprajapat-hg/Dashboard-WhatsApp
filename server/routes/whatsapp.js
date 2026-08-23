@@ -306,6 +306,7 @@ export const connectAccountSchema = z.object({
   conversionsDatasetId: z.string().optional().default(""),
   conversionsTestEventCode: z.string().optional().default(""),
   catalogId: z.string().optional().default(""),
+  catalogAccessToken: z.string().optional().default(""),
 });
 
 export const embeddedSignupSchema = z.object({
@@ -334,6 +335,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     conversionsDatasetId,
     conversionsTestEventCode,
     catalogId,
+    catalogAccessToken,
   } = req.body;
 
   const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
@@ -341,6 +343,12 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
   const tokenValue = cleanString(accessToken) || existingCredentials.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "local-placeholder-token";
   const verifyTokenValue = cleanString(verifyToken) || existingCredentials.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN || config.whatsappVerifyToken;
   const appSecretValue = cleanString(appSecret) || existingCredentials.appSecret || process.env.WHATSAPP_APP_SECRET || "";
+  // Reading a catalog's products needs the catalog_management permission - a genuinely different
+  // scope from whatsapp_business_messaging/management (confirmed live: the main WhatsApp token got
+  // a real "(#100) not been approved" error on the products endpoint until a separate token was
+  // generated for the app's "Manage products with Catalog API" use case). Stored alongside the
+  // other credentials, same encrypted blob, same "blank keeps the existing value" convention.
+  const catalogAccessTokenValue = cleanString(catalogAccessToken) || existingCredentials.catalogAccessToken || "";
 
   const credentials = {
     ...existingCredentials,
@@ -352,6 +360,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     apiBaseUrl: cleanString(apiBaseUrl) || existingCredentials.apiBaseUrl || "",
     verifyToken: verifyTokenValue,
     appSecret: appSecretValue,
+    catalogAccessToken: catalogAccessTokenValue,
   };
 
   const account = await WhatsAppAccount.findOneAndUpdate(

@@ -70,6 +70,7 @@ interface WhatsAppAccount {
     accessTokenConfigured?: boolean;
     verifyTokenConfigured?: boolean;
     appSecretConfigured?: boolean;
+    catalogAccessTokenConfigured?: boolean;
     credentialsUpdatedAt?: string | null;
     lastTestedAt?: string | null;
     lastError?: string;
@@ -291,6 +292,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     conversionsDatasetId: "",
     conversionsTestEventCode: "",
     catalogId: "",
+    catalogAccessToken: "",
   });
   const [templateForm, setTemplateForm] = useState({
     accountId: "",
@@ -384,6 +386,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         conversionsDatasetId: "",
         conversionsTestEventCode: "",
         catalogId: "",
+        catalogAccessToken: "",
       });
       setShowAccountForm(false);
       await loadSettings();
@@ -417,6 +420,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       conversionsDatasetId: account.conversionsDatasetId || "",
       conversionsTestEventCode: "",
       catalogId: account.catalogId || "",
+      catalogAccessToken: "",
     });
     setShowAccountForm(true);
   }
@@ -657,6 +661,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     conversionsDatasetId: "",
                     conversionsTestEventCode: "",
                     catalogId: "",
+                    catalogAccessToken: "",
                   });
                   setShowAccountForm(true);
                 }}
@@ -917,6 +922,16 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             className={fieldClass}
                           />
                         </div>
+                        <div className="space-y-1.5">
+                          <Label>Catalog access token</Label>
+                          <Input
+                            type="password"
+                            value={form.catalogAccessToken}
+                            onChange={(e) => setForm((current) => ({ ...current, catalogAccessToken: e.target.value }))}
+                            placeholder="From App Dashboard's 'Manage products with Catalog API' use case - a different token/permission from the main access token above"
+                            className={fieldClass}
+                          />
+                        </div>
                       </>
                     )}
                     {form.provider === "wati" && (
@@ -993,6 +1008,11 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             <Badge variant="outline" className={`text-[10px] ${account.credentials?.appSecretConfigured ? "border-primary/30 text-primary" : "border-border text-muted-foreground"}`}>
                               signature {account.credentials?.appSecretConfigured ? "on" : "off"}
                             </Badge>
+                            {account.catalogId && (
+                              <Badge variant="outline" className={`text-[10px] ${account.credentials?.catalogAccessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                                catalog token {account.credentials?.catalogAccessTokenConfigured ? "saved" : "missing"}
+                              </Badge>
+                            )}
                           </>
                         )}
                       </div>

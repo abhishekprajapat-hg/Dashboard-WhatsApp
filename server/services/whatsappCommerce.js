@@ -41,19 +41,24 @@ export async function sendWhatsAppProductMessage({ account, to, catalogId, produ
 }
 
 // retailer_id/name/image_url/price/availability - the standard Product Catalog "products" edge
-// fields (confirmed via Meta's current Marketing API docs) needed for a simple search-and-pick UI;
-// not every field the edge supports, just what a picker needs to show. The products edge takes a
-// JSON-encoded `filter` param (Marketing API's general list-filter syntax), not a plain `q` string -
-// confirmed the param name via docs, but the exact operator shape is NOT verified against a real
-// catalog (none exists yet to test against - see HANDOFF.md). If `i_contains` turns out wrong,
-// this is the first place to check once a real catalog is connected.
+// fields, confirmed live against a real catalog (2026-08-23). This edge needs the `catalog_management`
+// permission - a genuinely different scope from `whatsapp_business_messaging`/`whatsapp_business_management`
+// (confirmed live: the main WhatsApp access token got a real "(#100) not been approved" error here
+// until a separate token was generated for the app's "Manage products with Catalog API" use case).
+// credentials.catalogAccessToken is that separate token; falls back to the main accessToken only for
+// a setup where a single token happens to carry both scopes.
+//
+// The products edge takes a JSON-encoded `filter` param (Marketing API's general list-filter syntax),
+// not a plain `q` string - confirmed the param name via docs, but the exact operator shape
+// (`i_contains`) is NOT yet verified against a real catalog (the live test that confirmed this whole
+// endpoint works used no search term). If search behaves oddly, this is the first place to check.
 export async function fetchCatalogProducts({ account, catalogId, search = "" }) {
   const credentials = decodeCredentials(account);
   const url = new URL(`https://graph.facebook.com/${config.metaGraphApiVersion}/${catalogId}/products`);
   url.searchParams.set("fields", "retailer_id,name,image_url,price,availability");
   if (search) url.searchParams.set("filter", JSON.stringify({ name: { i_contains: search } }));
 
-  const response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${credentials.accessToken}` } });
+  const response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${credentials.catalogAccessToken || credentials.accessToken}` } });
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {

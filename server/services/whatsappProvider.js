@@ -87,6 +87,7 @@ export function credentialSummary(account) {
     accessTokenConfigured: Boolean(primaryCredential(credentials)),
     verifyTokenConfigured: Boolean(credentials.verifyToken),
     appSecretConfigured: Boolean(credentials.appSecret),
+    catalogAccessTokenConfigured: Boolean(credentials.catalogAccessToken),
     credentialsUpdatedAt: account.credentialsUpdatedAt || account.updatedAt || null,
     lastTestedAt: account.lastTestedAt || null,
     lastError: account.lastError || "",
