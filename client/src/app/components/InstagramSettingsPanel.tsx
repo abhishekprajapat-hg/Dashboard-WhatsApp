@@ -260,8 +260,14 @@ export function InstagramSettingsPanel() {
       </Card>
 
       {notice && (
-        <Card className={`p-3 border-destructive/40 bg-destructive/5 ${cardClass}`}>
-          <p className="text-xs text-destructive">{notice}</p>
+        <Card
+          className={
+            notice === "Post published." || notice === "Message sent."
+              ? `p-3 border-emerald-500/25 bg-emerald-500/10 ${cardClass}`
+              : `p-3 border-destructive/40 bg-destructive/5 ${cardClass}`
+          }
+        >
+          <p className={notice === "Post published." || notice === "Message sent." ? "text-xs text-emerald-300" : "text-xs text-destructive"}>{notice}</p>
         </Card>
       )}
 
