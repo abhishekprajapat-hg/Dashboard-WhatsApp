@@ -3,14 +3,70 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `d7cf650`** — deployed and confirmed live via the 5-minute cron (health
-`200`, ~0.03-0.15s response times as of last check). **Deploy note: this repo's cron auto-deploys
+**HEAD as of this handoff: `156426c`** — deployed and confirmed live via the 5-minute cron (health
+`200`, ~0.004s response times as of last check). **Deploy note: this repo's cron auto-deploys
 `main`** — confirm the live commit actually matches after pushing, same "don't trust it silently"
 discipline as Vega's manual deploy. Client and server can end up on different effective versions if
 only one side's cache/process picks up a push — see the settings.js bug below for a real example of
 what that desync can hide.
 
-## READ THIS FIRST — session paused here 2026-08-23, exact next steps below
+## READ THIS FIRST — live App Review testing found and fixed 3 real bugs, 2026-08-23 afternoon
+
+**Picks up right where the previous session left off** (see the next section down for that full
+context) - the exact next steps it listed ("test Insights/Comments/Publish live, record the
+screencast") were actually attempted, via a real recorded walkthrough against production. That
+recording surfaced three real, previously-unknown bugs - all found, root-caused, fixed, and
+confirmed redeployed the same session:
+
+1. **Insights labels came back in Russian.** Meta localizes `metric.title`/`description`
+   server-side; fixed by supplying our own fixed English labels instead of trusting Meta's locale
+   choice. Commit `5f7346c`.
+2. **The `HUMAN_AGENT` tag broke every real Instagram reply, not just the rare case it was built
+   for.** `conversations.js`'s Inbox-reply route forced the tag on every single send; Meta rejects
+   that tag outright until App Review approves it (a real 403: "your use of this endpoint must be
+   reviewed..."), unlike the other four Instagram permissions which keep working pre-review for this
+   app's own tester account. This meant **no real Instagram reply from the Inbox had actually
+   delivered since the tag feature was added** - it just showed a false "sent" checkmark. Fixed by
+   defaulting `humanAgent` to `false` on that route; re-enable only after Meta approves this specific
+   feature. Commit `6ab3c89`. **Full detail**: [[dashboard-whatsapp-instagram-app-review-expansion]]
+   memory, or ask whoever ran this session.
+3. **Comment reply hit a generic 500.** `GET /instagram/comments` returned raw Mongoose docs, which
+   only carry `_id`, never the `id` the client's type expects - every comment's `id` was `undefined`,
+   so the Reply button called `POST /instagram/comments/undefined/reply`, which crashed on an
+   uncaught Mongoose `CastError` before reaching any error handling. Fixed by adding
+   `serializeInstagramComment` and using it for both the list and reply responses. Commit `8511e4c`.
+4. **Insights was missing Follower count entirely** (not a display bug - Meta's Insights
+   `follower_count` metric is withheld for any account under 100 followers, confirmed via current
+   docs, and this account has fewer). Fixed by fetching the real count from the plain
+   `followers_count` **field** on the IG User node instead (a different, ungated API), merged into
+   the same metrics array. Commit `156426c`.
+
+**Confirmed via that same recording, now all genuinely proven live** (frame-by-frame reviewed, not
+just skimmed): Instagram connect (`instagram_business_basic`), a real Inbox reply actually delivering
+to the real `somil64` personal account thread (`instagram_business_manage_messages`, post-tag-fix),
+real Insights numbers (`instagram_business_manage_insights`), and a real comment reply landing on the
+actual Instagram post (`instagram_business_manage_comments`, post-serialization-fix).
+
+**NOT yet confirmed**: `instagram_business_content_publish`. The recording cut off with the cursor
+hovering over the Publish button, file selected (`samvid os real estate ad 1 (1).png`) - never
+showing whether it actually succeeded. **Also flag before retrying**: that file is a `.png`, but the
+form's own client-side `accept="image/jpeg,image/jpg"` filter should normally prevent that (the OS
+file picker must have been switched to "All Files") - Meta's photo-publish endpoint generally expects
+JPEG specifically, so retry with an actual `.jpg`.
+
+**Exact next steps, in order, for whoever picks this up**:
+1. Re-record the App Review screencast now that all 4 found bugs are fixed and deployed (`156426c`)
+   - script in `docs/META_APP_REVIEW_INSTAGRAM.md`. Trim the WhatsApp product intro and the repeated
+   manual test-send fiddling from the last recording; keep it tight per the script's ~3-4 min target.
+2. **This time, get Publish to a confirmed result** - real `.jpg`, watch it actually post to the real
+   `@nemnidhi.official` profile before ending the recording.
+3. Submit via Meta's App Dashboard (App Review → Requests) - justification text for all 5 permissions
+   is ready to paste in the same doc.
+4. Separately, not blocking the above: check whether Abhishek has addressed the `nemnidhi.com`/
+   `glam.nemnidhi.com` port-conflict crash loop (see "RESOLVED 2026-08-22/23 — VPS-wide CPU crisis"
+   below) - it was only mitigated, not actually fixed, and could start starving this app's CPU again.
+
+## READ THIS FIRST — session paused here 2026-08-23, exact next steps below (superseded above)
 
 **Everything below in this note is done, deployed, and confirmed live** - this is a clean stopping
 point, not an interrupted one. Full detail for each item is in its own dated section further down.
@@ -31,24 +87,6 @@ point, not an interrupted one. Full detail for each item is in its own dated sec
    `instagram_business_content_publish`, and the `HUMAN_AGENT` message tag (these last four
    verified only via mocked throwaway scripts, NOT yet against the real Graph API - see each one's
    own section below for exactly what's unverified and why).
-
-**Exact next steps, in order, for whoever picks this up**:
-1. **Subscribe the webhook to the `comments` field** in App Dashboard → Instagram product → webhook
-   config (currently only `messages` is subscribed) - Comments is code-complete but will receive
-   nothing real without this.
-2. **Test Insights, Comments, and Publish live** against the real connected `@nemnidhi.official`
-   account via the actual Settings → Instagram panel - click "View Insights," post a real comment
-   and reply to it, publish a real photo. This is where any real Meta API surprises will show up
-   (this project's own history - MM Lite, the Ads payload bugs - shows Meta's Graph API often adds
-   requirements docs don't mention).
-3. **Record the App Review screencast** (~3-4 min, script ready in
-   `docs/META_APP_REVIEW_INSTAGRAM.md`) covering all 5 permissions - explicitly include the
-   reply-from-Inbox step, which the first recording attempt was missing.
-4. **Submit via Meta's App Dashboard** (App Review → Requests) - justification text for all 5
-   permissions is ready to paste in the same doc.
-5. Separately, not blocking the above: check whether Abhishek has addressed the `nemnidhi.com`/
-   `glam.nemnidhi.com` port-conflict crash loop (see "RESOLVED 2026-08-22/23 — VPS-wide CPU crisis"
-   below) - it was only mitigated, not actually fixed, and could start starving this app's CPU again.
 
 ## Instagram Human Agent tag — built 2026-08-23, closes the full 5-permission push
 
