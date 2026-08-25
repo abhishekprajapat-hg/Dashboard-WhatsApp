@@ -145,6 +145,7 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
         webhookStatus: account.webhookStatus,
         templateSyncStatus: account.templateSyncStatus,
         lastSyncedAt: account.lastSyncedAt,
+        isSystemAccount: Boolean(account.isSystemAccount),
         credentials: credentialSummary(account),
       })),
       templates: templates.map((template) => ({

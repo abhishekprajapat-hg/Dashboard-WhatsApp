@@ -9,6 +9,153 @@ same "don't trust it silently" discipline as Vega's manual deploy. Client and se
 different effective versions if only one side's cache/process picks up a push — see the settings.js
 bug below for a real example of what that desync can hide.
 
+## READ THIS FIRST — public signup/onboarding + social login built 2026-08-25, NOT yet committed/pushed
+
+**Same discipline as the Billing section below**: local, uncommitted, un-pushed - check `git status`
+before assuming anything here is live. Built the same session, right after Billing.
+
+**What/why**: this app had no public signup at all - only a seeded dev user and admin-invited
+teammates (who need an already-logged-in admin to hand them a password directly). User asked for a
+real public sign-up page - later linked from the marketing website - supporting email/password plus
+Google/Facebook/Instagram OAuth and WhatsApp OTP, all built together rather than phased. Bundled in:
+finally exercising WhatsApp Embedded Signup's real success path (built 2026-08-19, never actually
+proven - every past test hit a number already claimed by the existing manual WABA) by surfacing it as
+a skippable first-run prompt right after signup, since a brand-new client is the first genuine chance
+to test it against a truly unclaimed number.
+
+**Built**: `POST /api/auth/register` (email/password), `GET/POST /api/auth/oauth/:provider/*`
+(google/facebook/instagram - popup + `localStorage`/`storage`-event mechanic, same proven pattern as
+Instagram's existing business-connect OAuth, generalized into a new `usePopupOAuth` hook),
+`POST /api/auth/whatsapp-otp/{send,verify}` (new `server/services/otpService.js`, new
+`VerificationCode` model, sends via WhatsApp using a real approved Authentication-category template
+through a designated `WhatsAppAccount.isSystemAccount` - toggle added to Settings → WhatsApp's account
+form, not hardcoded). Client: new `SignupPage.tsx`, wired the previously-dead "Request access" button
+in `LoginPage.tsx`, and a one-time skippable "connect your WhatsApp number" prompt in `App.tsx` after
+a genuinely new signup (not a plain login) that renders the existing `EmbeddedSignupButton`.
+
+**Real product research done before writing code, not guessed** (see the approved plan,
+`C:\Users\HP\.claude\plans\linked-hatching-goblet.md`, for full detail): confirmed Instagram's OAuth
+has no email scope at all (handled with a one-field follow-up instead of a fake email); confirmed a
+WhatsApp OTP send needs a pre-approved Authentication-category template (freeform text can't reach a
+brand-new number outside any 24h session) - `WHATSAPP_OTP_TEMPLATE_NAME` (default `signup_otp`) must
+actually exist and be approved in WhatsApp Manager before this works live, same "manual Meta setup"
+category as every other gap already in this file. WhatsApp-OTP-only accounts get a deliberate
+`.local`-domain placeholder email (reserved, non-routable TLD, never a real/deliverable address) since
+requiring an extra email field would defeat the point of OTP being the lightest-friction path -
+different call from the Instagram case, made deliberately, not an inconsistency.
+
+**Verified**: `npm run check:server` (163 files)/`check:client` both clean. A throwaway script (real
+functions, deleted after) proved the OTP hash/expiry/attempts/reuse logic end-to-end against real
+local Mongo (including a full send→verify→reject-on-reuse round trip using a local-credential
+WhatsApp account so no real Meta call happened), plus the three OAuth providers' authorize-URL
+construction (right host, right client id, right *separate* redirect URI per provider - confirmed
+Facebook/Instagram login use their own redirect URIs, not the existing business-connect ones).
+**Also did a real local dev browser pass, not just the mocked script**: registered a real account
+through the actual UI end to end - workspace created with the right name, admin role, auto-login,
+the WhatsApp onboarding prompt appeared (showing EmbeddedSignupButton's correct "not configured"
+state since no local Meta creds exist), Skip worked, landed in a fully working dashboard for the new
+workspace with zero errors. The new "system account" checkbox confirmed present in Settings →
+WhatsApp's form. Test account cleaned up after (org/workspace/user removed, nothing left behind).
+
+**NOT verified live - real external credentials don't exist yet, same tier as every other
+not-yet-live-tested integration in this file**: Google needs a brand-new OAuth Client (nothing exists
+for Google anywhere in this repo); Facebook/Instagram Login need their own redirect URIs added in App
+Dashboard (reusing the existing app id/secret, just a new OAuth product + redirect URI); WhatsApp OTP
+needs a real `isSystemAccount`-flagged connected number and an approved `signup_otp` template. All new
+env vars are documented in `server/.env.example`'s new "Public signup / social login" section.
+
+**Exact next steps, in order, for whoever picks this up**:
+1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted, same as
+   Billing).
+2. Create the Google OAuth Client, add Facebook/Instagram Login redirect URIs in App Dashboard, set
+   the new env vars.
+3. Get a real `signup_otp` Authentication-category WhatsApp template approved, flag one connected
+   `WhatsAppAccount` as the system account in Settings → WhatsApp.
+4. One real end-to-end test per provider + the WhatsApp OTP send, same discipline as everywhere else
+   in this file - a real signup, not just a clean HTTP response.
+5. Once a client actually completes the WhatsApp onboarding prompt with a genuinely unclaimed number,
+   that's the first real proof of Embedded Signup's success path - update its own section further
+   below in this file once that happens.
+
+## READ THIS FIRST — client-facing Billing section built 2026-08-25, NOT yet committed/pushed
+
+**Different from every other entry in this file below**: this is local, uncommitted work only - not
+deployed, not even `git commit`-ed yet (per this session's own discipline: only commit when the user
+explicitly asks). Whoever picks this up next should check `git status` before assuming it's live.
+
+**What/why**: Dashboard-WhatsApp already gated capabilities by a 4-tier plan (`basic`/`medium`/`pro`/
+`custom`, `server/services/entitlements.js`) and tracked `Organization.plan`/`billingStatus`, but only
+Nemnidhi's internal super-admin panel (`AdminView.tsx`'s Billing tab) could see it - nothing let a
+client's own team see or manage their own billing, and there was no real payment collection anywhere
+in this repo. The client Settings UI already had an unwired **"Billing"** tab placeholder
+(`SettingsView.tsx:165`, clicking it rendered nothing) - this closes that gap for real.
+
+**Built, full Razorpay Subscriptions integration** (recurring/mandate-based, not one-time orders - the
+user explicitly chose the bigger option): `server/services/razorpayProvider.js` (direct-fetch REST
+calls, no SDK, same style as every other provider in this codebase), `server/models/Invoice.js` (new),
+`Organization` gained `razorpayCustomerId`/`razorpaySubscriptionId`, `server/routes/billing.js`
+(`GET /`, `POST /subscribe`, `POST /verify`, `POST /cancel`, all under new `billing:write` permission -
+`billing:read` already existed), `server/routes/billingWebhook.js` (unauthenticated, mirrors
+`instagramPublicRouter`'s split, mounted at `/webhooks/razorpay`, handles `subscription.activated/
+charged/pending/halted/cancelled`), client `BillingSettingsPanel.tsx` (modeled on
+`InstagramSettingsPanel.tsx`'s self-contained pattern - plan cards, Razorpay Checkout.js integration,
+invoice history, cancel button) wired into `SettingsView.tsx`'s existing Billing tab.
+
+**Real API shape gaps found via live docs research before writing code** (not guessed): confirmed
+Razorpay's create-subscription endpoint does **not** accept a `customer_id` - the Customer entity is
+auto-created/matched from Checkout's prefill contact only once the subscriber authorizes the mandate,
+which simplified the design (dropped an originally-planned separate "pre-create a Customer" step).
+Also confirmed the exact signature formulas from Razorpay's own docs rather than assuming: payment
+verification is `HMAC-SHA256(payment_id + "|" + subscription_id, key_secret)` (deliberately uses the
+subscription id **we stored server-side**, never the client-submitted one, per Razorpay's own warning
+that trusting the request's own subscription_id defeats the point of verifying it), webhook signature
+is `HMAC-SHA256(raw_body, webhook_secret)` in header `x-razorpay-signature` with no prefix (unlike
+Meta's `sha256=`-prefixed `x-hub-signature-256` - deliberately not a copy-paste of the existing Meta
+signature helper despite the similar shape).
+
+**Pricing is a genuine gap, not an oversight**: nothing in this repo defines real ₹ prices for any
+plan tier - confirmed via a full search before building. User chose placeholder pricing for v1
+(`PLAN_PRICES` in `entitlements.js`, clearly marked `// TODO: placeholder`) rather than blocking the
+build on getting real numbers first - swap the amounts in that one object once decided, nothing else
+needs to change. "Custom" tier deliberately has no price/Razorpay plan id at all - it's a contact-sales
+tier by design, the panel just shows a `mailto:` link, never a self-serve Subscribe button.
+
+**Verified**: `npm run check:server` (160 files)/`check:client` both clean. A throwaway mocked script
+(deleted after) proved the HMAC signature-verification math for both the payment-verify and webhook
+paths, including negative cases (tampered signature, wrong subscription id, tampered raw body all
+correctly rejected).
+
+**NOT verified live - two separate blockers, worth recording so the next session doesn't waste time
+re-hitting them**:
+1. No real Razorpay account/keys/Plan IDs exist yet - same "can't test until real credentials exist"
+   tier already hit repeatedly for Instagram Insights/Comments/Publish before this. Manual setup
+   needed before any live test is possible: a Razorpay account, 3 Plans created in Razorpay Dashboard
+   (Basic/Medium/Pro) matching or replacing the placeholder prices, a webhook pointed at
+   `https://dashboard.nemnidhi.com/webhooks/razorpay` subscribed to `subscription.*` events, and all
+   `RAZORPAY_*` env vars (see `server/.env.example`) set on the VPS - needs the `dashboard` user's own
+   access, this session's SSH is read-only to unrelated processes (see the VPS-access note further
+   down this file).
+2. **Attempted a local dev pass anyway to at least confirm the panel renders and the "not configured"
+   503 path works cleanly - blocked by something completely unrelated to this feature**: the local dev
+   server's shared Upstash Redis instance has exhausted its free-tier monthly request quota
+   (`ERR max requests limit exceeded. Limit: 500000, Usage: 500004`), which breaks the global rate
+   limiter middleware and makes **every** route 500, including `/health` - confirmed this isn't a
+   regression from this session's changes by seeing the exact same failure on a route that touches zero
+   billing code. Full detail + how to recognize it again in memory (`dashboard-whatsapp-local-dev-redis-
+   quota`). Either wait for the monthly quota reset or upgrade the Upstash plan before the next local
+   dev verification attempt (server or client, this feature or any other).
+
+**Exact next steps, in order, for whoever picks this up**:
+1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted this
+   session).
+2. Once the local Redis quota issue clears, do the local dev pass this session couldn't: confirm the
+   Billing tab renders (plan cards, empty invoice history) and Subscribe cleanly surfaces the 503
+   "not configured" state.
+3. Set up a real Razorpay test-mode account + the 3 Plans + webhook (see gap #1 above), then do one
+   real end-to-end subscribe -> mandate authorize -> `subscription.charged` webhook -> Invoice-row
+   cycle against test-mode, same discipline as every other provider integration in this file.
+4. Decide real ₹ pricing and swap `PLAN_PRICES` in `entitlements.js`.
+
 ## READ THIS FIRST — session paused here 2026-08-23 night, mid-diagnosis on the real product SEND
 
 **Everything below through "Committed and pushed"** is done, deployed, and confirmed live - the

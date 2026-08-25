@@ -59,6 +59,7 @@ function serializeAccount(account) {
     templateSyncStatus: account.templateSyncStatus,
     status: account.status,
     lastSyncedAt: account.lastSyncedAt,
+    isSystemAccount: Boolean(account.isSystemAccount),
     credentials,
   };
 }
@@ -307,6 +308,9 @@ export const connectAccountSchema = z.object({
   conversionsTestEventCode: z.string().optional().default(""),
   catalogId: z.string().optional().default(""),
   catalogAccessToken: z.string().optional().default(""),
+  // Marks this as Nemnidhi's own platform number (see WhatsAppAccount.js's own comment) - used to
+  // send system messages like signup OTP codes, not tied to any one client workspace's traffic.
+  isSystemAccount: z.boolean().optional().default(false),
 });
 
 export const embeddedSignupSchema = z.object({
@@ -336,6 +340,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     conversionsTestEventCode,
     catalogId,
     catalogAccessToken,
+    isSystemAccount,
   } = req.body;
 
   const existingAccount = await WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, phoneNumberId });
@@ -376,6 +381,7 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
       conversionsDatasetId: cleanString(conversionsDatasetId) || existingAccount?.conversionsDatasetId || "",
       conversionsTestEventCode: cleanString(conversionsTestEventCode) || existingAccount?.conversionsTestEventCode || "",
       catalogId: cleanString(catalogId) || existingAccount?.catalogId || "",
+      isSystemAccount: Boolean(isSystemAccount),
       provider: providerKey,
       providerConfig: {
         tenantId: tenantId || businessAccountId,

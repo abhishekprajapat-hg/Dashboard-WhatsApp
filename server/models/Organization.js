@@ -10,7 +10,13 @@ const organizationSchema = new mongoose.Schema(
     // legacy value never blocks a save; entitlements.js is the single source of truth for what's
     // valid and falls back to "basic" for anything it doesn't recognize.
     plan: { type: String, default: "basic" },
+    // "trial" | "pending" (mandate authorized, awaiting Razorpay's subscription.activated webhook) |
+    // "active" | "halted" (recurring charge failed, Razorpay is retrying) | "cancelling" (client
+    // cancelled, access continues until the current cycle ends) | "cancelled". Loose string, not a
+    // hard enum, same reasoning as `plan` above - Razorpay's own event vocabulary can grow.
     billingStatus: { type: String, default: "trial" },
+    razorpayCustomerId: { type: String, trim: true, default: "" },
+    razorpaySubscriptionId: { type: String, trim: true, default: "" },
     settings: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

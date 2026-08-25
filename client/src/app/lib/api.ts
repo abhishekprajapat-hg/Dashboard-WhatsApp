@@ -15,6 +15,7 @@ export interface AuthSession {
     timezone: string;
     whatsappHealth: string;
   };
+  isNewAccount?: boolean;
 }
 
 export type ApiError = Error & { status?: number; code?: string };
@@ -112,6 +113,44 @@ export async function login(email: string, password: string) {
 
 export async function restoreSession() {
   const session = await request<AuthSession>("/auth/me");
+  storeSession(session);
+  return session;
+}
+
+export async function register(payload: { name: string; email: string; password: string; workspaceName: string }) {
+  const session = await request<AuthSession>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  storeSession(session);
+  return session;
+}
+
+export function getOauthAuthorizeUrl(provider: "google" | "facebook" | "instagram") {
+  return request<{ url: string; state: string }>(`/auth/oauth/${provider}/authorize-url`);
+}
+
+export async function completeOauthSignup(payload: { provider: "google" | "facebook" | "instagram"; providerId: string; name: string; avatarUrl: string; email: string }) {
+  const session = await request<AuthSession>("/auth/oauth/complete", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  storeSession(session);
+  return session;
+}
+
+export function sendWhatsAppOtp(phone: string) {
+  return request<{ sent: boolean }>("/auth/whatsapp-otp/send", {
+    method: "POST",
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function verifyWhatsAppOtp(phone: string, code: string) {
+  const session = await request<AuthSession>("/auth/whatsapp-otp/verify", {
+    method: "POST",
+    body: JSON.stringify({ phone, code }),
+  });
   storeSession(session);
   return session;
 }
@@ -886,6 +925,30 @@ export function sendInstagramTestMessage<T>(id: string, payload: { to: string; b
 
 export function getInstagramInsights<T>(id: string) {
   return request<T>(`/instagram/accounts/${id}/insights`);
+}
+
+export function getBilling<T>() {
+  return request<T>("/billing");
+}
+
+export function subscribeBillingPlan<T>(plan: string) {
+  return request<T>("/billing/subscribe", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
+}
+
+export function verifyBillingPayment<T>(payload: { razorpay_payment_id: string; razorpay_signature: string }) {
+  return request<T>("/billing/verify", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelBillingSubscription<T>() {
+  return request<T>("/billing/cancel", {
+    method: "POST",
+  });
 }
 
 export function getInstagramComments<T>() {

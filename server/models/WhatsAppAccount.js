@@ -14,6 +14,12 @@ const whatsAppAccountSchema = new mongoose.Schema(
     conversionsDatasetId: { type: String, trim: true, default: "" },
     conversionsTestEventCode: { type: String, trim: true, default: "" },
     catalogId: { type: String, trim: true, default: "" },
+    // Marks this as Nemnidhi's own platform WhatsApp number, usable to send system messages (e.g.
+    // signup OTP codes) that aren't tied to any client workspace's own traffic - toggled manually
+    // in Settings -> WhatsApp rather than a hardcoded account id, matching this project's existing
+    // "no special-cased 'this is us' logic" discipline (see HANDOFF.md's Workspace #1 provisioning
+    // note).
+    isSystemAccount: { type: Boolean, default: false },
     webhookStatus: { type: String, default: "pending" },
     templateSyncStatus: { type: String, default: "pending" },
     status: { type: String, enum: ["connected", "disconnected", "needs_attention"], default: "disconnected" },

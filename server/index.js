@@ -13,6 +13,8 @@ import { adminRouter } from "./routes/admin.js";
 import { adsRouter } from "./routes/ads.js";
 import { assistantRouter } from "./routes/assistant.js";
 import { automationRouter } from "./routes/automation.js";
+import { billingRouter } from "./routes/billing.js";
+import { billingWebhookRouter } from "./routes/billingWebhook.js";
 import { calendarEventsRouter } from "./routes/calendarEvents.js";
 import { campaignsRouter } from "./routes/campaigns.js";
 import { contactsRouter } from "./routes/contacts.js";
@@ -115,6 +117,8 @@ app.use("/api/calendar-events", requireAuth, requireWorkspaceContext, calendarEv
 app.use("/api/templates", requireAuth, requireWorkspaceContext, templatesRouter);
 app.use("/api/events", eventsRouter);
 app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
+app.use("/api/billing", requireAuth, requireWorkspaceContext, billingRouter);
+app.use("/webhooks/razorpay", billingWebhookRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);
 app.use("/api/whatsapp-flows", requireAuth, requireWorkspaceContext, whatsappFlowsRouter);

@@ -1,5 +1,8 @@
 ﻿import { useEffect, useState } from "react";
 import { LoginPage } from "./components/LoginPage";
+import { SignupPage } from "./components/SignupPage";
+import { EmbeddedSignupButton } from "./components/EmbeddedSignupButton";
+import { Button } from "./components/ui/button";
 import { ActivityBar, type ViewId } from "./components/ActivityBar";
 import { DashboardView } from "./components/DashboardView";
 import { InboxView } from "./components/InboxView";
@@ -70,6 +73,8 @@ export default function App() {
   // MARKER-MAKE-KIT-INVOKED
   const [session, setSession] = useState<AuthSession | null>(null);
   const [booting, setBooting] = useState(true);
+  const [authView, setAuthView] = useState<"login" | "signup">("login");
+  const [showWhatsAppOnboarding, setShowWhatsAppOnboarding] = useState(false);
   const [activeView, setActiveView] = useState<ViewId>(getInitialView);
   const [contactChatTarget, setContactChatTarget] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -171,6 +176,10 @@ export default function App() {
   function handleLogin(nextSession: AuthSession) {
     setSession(nextSession);
     setBooting(false);
+    // Only a brand-new signup (password/OAuth/WhatsApp OTP register, never a plain returning-user
+    // login) gets the "connect your WhatsApp number" prompt - this is also the first real chance to
+    // exercise Embedded Signup's success path against a genuinely unclaimed number.
+    if (nextSession.isNewAccount) setShowWhatsAppOnboarding(true);
   }
 
   function handleLogout() {
@@ -195,7 +204,28 @@ export default function App() {
   }
 
   if (!session) {
-    return <LoginPage onLogin={handleLogin} />;
+    return authView === "signup" ? (
+      <SignupPage onSignup={handleLogin} onBackToLogin={() => setAuthView("login")} />
+    ) : (
+      <LoginPage onLogin={handleLogin} onRequestAccess={() => setAuthView("signup")} />
+    );
+  }
+
+  if (showWhatsAppOnboarding) {
+    return (
+      <div className="flex h-dvh w-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-md space-y-4">
+          <div className="text-center">
+            <h1 className="text-xl font-semibold text-foreground">Welcome to {session.workspace.name}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Connect your WhatsApp Business number to start receiving conversations.</p>
+          </div>
+          <EmbeddedSignupButton onConnected={() => setShowWhatsAppOnboarding(false)} />
+          <Button type="button" variant="outline" className="w-full border-border" onClick={() => setShowWhatsAppOnboarding(false)}>
+            Skip for now
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

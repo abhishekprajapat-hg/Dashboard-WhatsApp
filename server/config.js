@@ -39,6 +39,47 @@ export const config = {
     appSecret: process.env.META_INSTAGRAM_APP_SECRET || "",
     verifyToken: process.env.META_INSTAGRAM_VERIFY_TOKEN || "local-instagram-verify-token",
     redirectUri: process.env.META_INSTAGRAM_REDIRECT_URI || "",
+    // Separate from redirectUri above - that one is the business-account-connect callback
+    // (Settings -> Instagram), this one is the "log into Dashboard-WhatsApp itself with your
+    // Instagram account" callback. Two different server routes/scopes, so Meta needs each
+    // registered as its own valid OAuth redirect URI in App Dashboard.
+    loginRedirectUri: process.env.META_INSTAGRAM_LOGIN_REDIRECT_URI || "",
+  },
+  // Facebook Login for end-user authentication (signup/login), reusing the same Meta app id/secret
+  // as `meta` above - a different OAuth product on the same app, not a second app to manage. Its
+  // own redirect URI, same reasoning as instagram.loginRedirectUri.
+  facebookLogin: {
+    redirectUri: process.env.META_FACEBOOK_LOGIN_REDIRECT_URI || "",
+  },
+  // Genuinely new - nothing in this repo talks to Google today. A real Google Cloud OAuth Client
+  // must be created before this works; not provisionable by this app, same "manual one-time setup"
+  // category as embeddedSignupConfigId above.
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || "",
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || "",
+  },
+  // Authentication-category WhatsApp template used to send signup OTP codes - must be created and
+  // approved in WhatsApp Manager before this works live (freeform text can't reach a brand-new
+  // number with no open 24h session). Name is env-overridable so a real approved template name can
+  // differ from this default without a code change.
+  whatsappOtpTemplateName: process.env.WHATSAPP_OTP_TEMPLATE_NAME || "signup_otp",
+  // Single Nemnidhi-owned Razorpay account billing every client's subscription - a global
+  // platform secret like meta/instagram above, not a per-tenant credential, so plain env vars are
+  // the right pattern (not whatsappProvider.js's per-account AES-GCM encryption, which is for
+  // credentials each tenant brings themselves). planIds are created once in Razorpay Dashboard
+  // (Plans aren't provisionable via this app, same "manual one-time setup" category as
+  // embeddedSignupConfigId above) - "custom" deliberately has no plan id, it's a contact-sales
+  // tier, never self-serve checkout.
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || "",
+    keySecret: process.env.RAZORPAY_KEY_SECRET || "",
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || "",
+    planIds: {
+      basic: process.env.RAZORPAY_PLAN_BASIC_ID || "",
+      medium: process.env.RAZORPAY_PLAN_MEDIUM_ID || "",
+      pro: process.env.RAZORPAY_PLAN_PRO_ID || "",
+    },
   },
   demoMode: process.env.DEMO_MODE !== "false",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",

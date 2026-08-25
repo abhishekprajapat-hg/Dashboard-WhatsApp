@@ -93,6 +93,7 @@ export const permissionCatalog = [
   "settings:read",
   "settings:write",
   "billing:read",
+  "billing:write",
   "security:write",
   "reports:read",
   "assistant:read",

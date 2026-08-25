@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Card } from "./ui/card";
+import { Checkbox } from "./ui/checkbox";
 import {
   Building2,
   MessageCircle,
@@ -34,6 +35,7 @@ import {
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
 import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { InstagramSettingsPanel } from "./InstagramSettingsPanel";
+import { BillingSettingsPanel } from "./BillingSettingsPanel";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
   createWhatsAppAccount,
@@ -62,6 +64,7 @@ interface WhatsAppAccount {
   businessAccountId: string;
   conversionsDatasetId?: string;
   catalogId?: string;
+  isSystemAccount?: boolean;
   providerConfig?: { webhookPath?: string; tenantId?: string; apiBaseUrl?: string };
   status: "connected" | "disconnected" | "needs_attention";
   webhookStatus: string;
@@ -293,6 +296,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     conversionsTestEventCode: "",
     catalogId: "",
     catalogAccessToken: "",
+    isSystemAccount: false,
   });
   const [templateForm, setTemplateForm] = useState({
     accountId: "",
@@ -387,6 +391,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         conversionsTestEventCode: "",
         catalogId: "",
         catalogAccessToken: "",
+        isSystemAccount: false,
       });
       setShowAccountForm(false);
       await loadSettings();
@@ -421,6 +426,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
       conversionsTestEventCode: "",
       catalogId: account.catalogId || "",
       catalogAccessToken: "",
+      isSystemAccount: Boolean(account.isSystemAccount),
     });
     setShowAccountForm(true);
   }
@@ -662,6 +668,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     conversionsTestEventCode: "",
                     catalogId: "",
                     catalogAccessToken: "",
+                    isSystemAccount: false,
                   });
                   setShowAccountForm(true);
                 }}
@@ -932,6 +939,16 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                             className={fieldClass}
                           />
                         </div>
+                        <div className="flex items-center gap-2 md:col-span-2">
+                          <Checkbox
+                            id="isSystemAccount"
+                            checked={form.isSystemAccount}
+                            onCheckedChange={(checked) => setForm((current) => ({ ...current, isSystemAccount: checked === true }))}
+                          />
+                          <Label htmlFor="isSystemAccount" className="text-sm font-normal">
+                            Use as system account (sends signup OTP codes for the public onboarding page)
+                          </Label>
+                        </div>
                       </>
                     )}
                     {form.provider === "wati" && (
@@ -997,6 +1014,9 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.status)}`}>{account.status.replace("_", " ")}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.webhookStatus)}`}>webhook {account.webhookStatus}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.templateSyncStatus)}`}>templates {account.templateSyncStatus}</Badge>
+                        {account.isSystemAccount && (
+                          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">system account</Badge>
+                        )}
                         <Badge variant="outline" className={`text-[10px] ${account.credentials?.accessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
                           token {account.credentials?.accessTokenConfigured ? "saved" : "missing"}
                         </Badge>
@@ -1204,6 +1224,12 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
         {activeTab === "ads" && (
           <div className="max-w-4xl">
             <AdsSettingsPanel />
+          </div>
+        )}
+
+        {activeTab === "billing" && (
+          <div className="max-w-4xl">
+            <BillingSettingsPanel />
           </div>
         )}
 

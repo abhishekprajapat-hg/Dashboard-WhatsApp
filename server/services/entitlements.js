@@ -49,6 +49,15 @@ export const CAPABILITY_DEFINITIONS = [
   },
 ];
 
+// TODO: placeholder pricing (paise, INR) - nothing in this repo defines real prices yet. Swap
+// these for the real numbers whenever they're decided; the billing flow reads only from here.
+// "custom" is deliberately absent - it's a contact-sales tier, never a self-serve Subscribe button.
+export const PLAN_PRICES = {
+  basic: { amount: 99900, currency: "INR", label: "₹999/mo" },
+  medium: { amount: 299900, currency: "INR", label: "₹2,999/mo" },
+  pro: { amount: 799900, currency: "INR", label: "₹7,999/mo" },
+};
+
 const KNOWN_CAPABILITY_KEYS = new Set(CAPABILITY_DEFINITIONS.map((definition) => definition.key));
 const TIER_RANK = Object.fromEntries(PACK_TIERS.map((tier, index) => [tier, index]));
 

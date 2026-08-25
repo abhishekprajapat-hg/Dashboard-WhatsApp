@@ -19,6 +19,7 @@ import { login, type AuthSession } from "../lib/api";
 
 interface LoginPageProps {
   onLogin: (session: AuthSession) => void;
+  onRequestAccess: () => void;
 }
 
 const productPillars = [
@@ -34,7 +35,7 @@ const trustStats = [
   { label: "Workspace roles", value: "RBAC" },
 ];
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -224,7 +225,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
           <p className="mt-5 text-center text-xs text-muted-foreground">
             Don't have an account?{" "}
-            <button className="font-medium text-primary transition-colors hover:text-primary/80">Request access</button>
+            <button type="button" onClick={onRequestAccess} className="font-medium text-primary transition-colors hover:text-primary/80">
+              Create one
+            </button>
           </p>
         </div>
       </main>
