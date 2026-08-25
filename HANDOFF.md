@@ -9,7 +9,7 @@ same "don't trust it silently" discipline as Vega's manual deploy. Client and se
 different effective versions if only one side's cache/process picks up a push — see the settings.js
 bug below for a real example of what that desync can hide.
 
-## READ THIS FIRST — public signup/onboarding + social login built 2026-08-25, NOT yet committed/pushed
+## READ THIS FIRST — public signup/onboarding + social login built 2026-08-25, committed NOT pushed
 
 **Same discipline as the Billing section below**: local, uncommitted, un-pushed - check `git status`
 before assuming anything here is live. Built the same session, right after Billing.
@@ -64,9 +64,12 @@ Dashboard (reusing the existing app id/secret, just a new OAuth product + redire
 needs a real `isSystemAccount`-flagged connected number and an approved `signup_otp` template. All new
 env vars are documented in `server/.env.example`'s new "Public signup / social login" section.
 
+**Committed as `8e5ec0b`** (same commit as Billing below - both built the same session), **not pushed**
+- this repo's cron auto-deploys `main` on push, so nothing here is live until that happens.
+
 **Exact next steps, in order, for whoever picks this up**:
-1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted, same as
-   Billing).
+1. Push when ready (triggers the auto-deploy cron) - confirm the live commit actually matches after,
+   same "don't trust it silently" discipline as this file's own header.
 2. Create the Google OAuth Client, add Facebook/Instagram Login redirect URIs in App Dashboard, set
    the new env vars.
 3. Get a real `signup_otp` Authentication-category WhatsApp template approved, flag one connected
@@ -77,11 +80,12 @@ env vars are documented in `server/.env.example`'s new "Public signup / social l
    that's the first real proof of Embedded Signup's success path - update its own section further
    below in this file once that happens.
 
-## READ THIS FIRST — client-facing Billing section built 2026-08-25, NOT yet committed/pushed
+## READ THIS FIRST — client-facing Billing section built 2026-08-25, committed NOT pushed
 
-**Different from every other entry in this file below**: this is local, uncommitted work only - not
-deployed, not even `git commit`-ed yet (per this session's own discipline: only commit when the user
-explicitly asks). Whoever picks this up next should check `git status` before assuming it's live.
+**Different from every other entry in this file below except the signup/social-login section above
+it**: committed (`8e5ec0b`) but not pushed - this repo's cron auto-deploys `main` on push, so nothing
+here is live yet. Whoever picks this up next should check `git log`/`git status` before assuming it's
+deployed.
 
 **What/why**: Dashboard-WhatsApp already gated capabilities by a 4-tier plan (`basic`/`medium`/`pro`/
 `custom`, `server/services/entitlements.js`) and tracked `Organization.plan`/`billingStatus`, but only
@@ -145,16 +149,17 @@ re-hitting them**:
    quota`). Either wait for the monthly quota reset or upgrade the Upstash plan before the next local
    dev verification attempt (server or client, this feature or any other).
 
+**Update**: the local Redis quota issue was bypassed (see `dashboard-whatsapp-local-dev-redis-quota`
+memory) and the local dev pass below **was** completed - Billing tab confirmed rendering correctly
+(plan cards, "Billing is not configured yet" notice, empty invoice history) against a real running
+local server. Committed as `8e5ec0b`, not pushed yet.
+
 **Exact next steps, in order, for whoever picks this up**:
-1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted this
-   session).
-2. Once the local Redis quota issue clears, do the local dev pass this session couldn't: confirm the
-   Billing tab renders (plan cards, empty invoice history) and Subscribe cleanly surfaces the 503
-   "not configured" state.
-3. Set up a real Razorpay test-mode account + the 3 Plans + webhook (see gap #1 above), then do one
+1. Push when ready (triggers the auto-deploy cron) - confirm the live commit matches after.
+2. Set up a real Razorpay test-mode account + the 3 Plans + webhook (see gap #1 above), then do one
    real end-to-end subscribe -> mandate authorize -> `subscription.charged` webhook -> Invoice-row
    cycle against test-mode, same discipline as every other provider integration in this file.
-4. Decide real ₹ pricing and swap `PLAN_PRICES` in `entitlements.js`.
+3. Decide real ₹ pricing and swap `PLAN_PRICES` in `entitlements.js`.
 
 ## READ THIS FIRST — session paused here 2026-08-23 night, mid-diagnosis on the real product SEND
 
