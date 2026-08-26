@@ -3,13 +3,49 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `cb3ab5a`** — deployed and confirmed live via the 5-minute cron. **Deploy
-note: this repo's cron auto-deploys `main`** — confirm the live commit actually matches after pushing,
-same "don't trust it silently" discipline as Vega's manual deploy. Client and server can end up on
-different effective versions if only one side's cache/process picks up a push — see the settings.js
-bug below for a real example of what that desync can hide.
+**HEAD as of this handoff: `a4b3904`** — deployed and confirmed live 2026-08-26, but **manually**, not
+via the cron - see "BROKEN — auto-deploy cron" section immediately below, read it before assuming a
+future push goes live on its own. Client and server can end up on different effective versions if only
+one side's cache/process picks up a push — see the settings.js bug below for a real example of what
+that desync can hide.
 
-## READ THIS FIRST — public signup/onboarding + social login built 2026-08-25, committed NOT pushed
+## READ THIS FIRST — auto-deploy cron is BROKEN, every push needs a manual deploy until fixed (found 2026-08-26)
+
+**This is a real, separate infra problem, not caused by anything built this session** - discovered
+while confirming today's billing/signup push actually went live. `crontab -l -u dashboard` shows:
+```
+*/5 * * * * /opt/dashboard-whatsapp/scripts/deploy-vps.sh >> /opt/dashboard-whatsapp/deploy-cron.log 2>&1
+```
+**`/opt/dashboard-whatsapp` no longer exists at all** - `/opt/` is completely empty, directory mtime
+Aug 24 10:17 (before this session). The cron has been silently failing every 5 minutes since then -
+**no push has auto-deployed since Aug 24**, this file's own "deployed and confirmed live via the
+5-minute cron" claims for anything after that date were wrong, just never caught until now.
+
+**The actual live app runs from a completely different path**: `/home/dashboard/dashboard-whatsapp`
+(confirmed via `ps aux` - PM2's `dashboard-api` process and nginx's static `client/dist` root both
+point there). Whether `/opt/dashboard-whatsapp`'s old `deploy-vps.sh` ever correctly updated that path,
+or was always deploying to the wrong place even before it got deleted, is unknown - it's gone, can't be
+inspected anymore.
+
+**Confirmed working manual deploy** (used to get today's billing/signup work live):
+```bash
+cd /home/dashboard/dashboard-whatsapp
+git pull origin main
+npm run build --workspace client
+sudo -u dashboard pm2 restart dashboard-api   # plain `pm2 restart` as root fails ("not found") -
+                                                # dashboard-api runs under the dashboard user's own
+                                                # PM2 daemon, root's pm2 can't see it
+```
+Verify with `curl https://dashboard.nemnidhi.com/health` and a route only the new code would have
+(404 before, real response after) - don't just trust a clean build/restart, same discipline as
+everywhere else in this file.
+
+**Not yet done, real follow-up**: recreate `/opt/dashboard-whatsapp/scripts/deploy-vps.sh` (or simpler:
+just repoint the cron entry directly at `/home/dashboard/dashboard-whatsapp` and drop the now-pointless
+`/opt` indirection entirely) so pushes auto-deploy again. Until then, **every push needs the manual
+steps above**, right after pushing, not left for the cron to "catch up on later."
+
+## READ THIS FIRST — public signup/onboarding + social login built 2026-08-25, LIVE 2026-08-26
 
 **Same discipline as the Billing section below**: local, uncommitted, un-pushed - check `git status`
 before assuming anything here is live. Built the same session, right after Billing.
@@ -64,28 +100,27 @@ Dashboard (reusing the existing app id/secret, just a new OAuth product + redire
 needs a real `isSystemAccount`-flagged connected number and an approved `signup_otp` template. All new
 env vars are documented in `server/.env.example`'s new "Public signup / social login" section.
 
-**Committed as `8e5ec0b`** (same commit as Billing below - both built the same session), **not pushed**
-- this repo's cron auto-deploys `main` on push, so nothing here is live until that happens.
+**Committed as `8e5ec0b`/`a4b3904`, pushed and manually deployed live 2026-08-26** (the auto-deploy
+cron turned out to be broken - see the top-of-file section on that; deployed manually instead, verified
+via `GET /api/auth/oauth/google/authorize-url` returning `PROVIDER_NOT_CONFIGURED` in prod instead of
+404). Same commit as Billing below - both built the same session.
 
 **Exact next steps, in order, for whoever picks this up**:
-1. Push when ready (triggers the auto-deploy cron) - confirm the live commit actually matches after,
-   same "don't trust it silently" discipline as this file's own header.
-2. Create the Google OAuth Client, add Facebook/Instagram Login redirect URIs in App Dashboard, set
+1. Create the Google OAuth Client, add Facebook/Instagram Login redirect URIs in App Dashboard, set
    the new env vars.
-3. Get a real `signup_otp` Authentication-category WhatsApp template approved, flag one connected
+2. Get a real `signup_otp` Authentication-category WhatsApp template approved, flag one connected
    `WhatsAppAccount` as the system account in Settings → WhatsApp.
-4. One real end-to-end test per provider + the WhatsApp OTP send, same discipline as everywhere else
+3. One real end-to-end test per provider + the WhatsApp OTP send, same discipline as everywhere else
    in this file - a real signup, not just a clean HTTP response.
-5. Once a client actually completes the WhatsApp onboarding prompt with a genuinely unclaimed number,
+4. Once a client actually completes the WhatsApp onboarding prompt with a genuinely unclaimed number,
    that's the first real proof of Embedded Signup's success path - update its own section further
    below in this file once that happens.
 
-## READ THIS FIRST — client-facing Billing section built 2026-08-25, committed NOT pushed
+## READ THIS FIRST — client-facing Billing section built 2026-08-25, LIVE 2026-08-26
 
 **Different from every other entry in this file below except the signup/social-login section above
-it**: committed (`8e5ec0b`) but not pushed - this repo's cron auto-deploys `main` on push, so nothing
-here is live yet. Whoever picks this up next should check `git log`/`git status` before assuming it's
-deployed.
+it**: committed (`8e5ec0b`/`a4b3904`), pushed, and manually deployed live 2026-08-26 (see the
+top-of-file "auto-deploy cron is BROKEN" section - the cron didn't do this, a manual deploy did).
 
 **What/why**: Dashboard-WhatsApp already gated capabilities by a 4-tier plan (`basic`/`medium`/`pro`/
 `custom`, `server/services/entitlements.js`) and tracked `Organization.plan`/`billingStatus`, but only
@@ -152,14 +187,13 @@ re-hitting them**:
 **Update**: the local Redis quota issue was bypassed (see `dashboard-whatsapp-local-dev-redis-quota`
 memory) and the local dev pass below **was** completed - Billing tab confirmed rendering correctly
 (plan cards, "Billing is not configured yet" notice, empty invoice history) against a real running
-local server. Committed as `8e5ec0b`, not pushed yet.
+local server. Committed as `8e5ec0b`/`a4b3904`, pushed, and manually deployed live 2026-08-26.
 
 **Exact next steps, in order, for whoever picks this up**:
-1. Push when ready (triggers the auto-deploy cron) - confirm the live commit matches after.
-2. Set up a real Razorpay test-mode account + the 3 Plans + webhook (see gap #1 above), then do one
+1. Set up a real Razorpay test-mode account + the 3 Plans + webhook (see gap #1 above), then do one
    real end-to-end subscribe -> mandate authorize -> `subscription.charged` webhook -> Invoice-row
    cycle against test-mode, same discipline as every other provider integration in this file.
-3. Decide real ₹ pricing and swap `PLAN_PRICES` in `entitlements.js`.
+2. Decide real ₹ pricing and swap `PLAN_PRICES` in `entitlements.js`.
 
 ## READ THIS FIRST — session paused here 2026-08-23 night, mid-diagnosis on the real product SEND
 
