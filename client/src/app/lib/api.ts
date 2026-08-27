@@ -861,6 +861,18 @@ export function createAdCampaign<T>(campaign: {
   });
 }
 
+export function activateAdCampaign<T>(id: string) {
+  return request<T>(`/ads/campaigns/${id}/activate`, {
+    method: "POST",
+  });
+}
+
+export function pauseAdCampaign<T>(id: string) {
+  return request<T>(`/ads/campaigns/${id}/pause`, {
+    method: "POST",
+  });
+}
+
 export function getWhatsAppFlowTemplates<T>() {
   return request<T>("/whatsapp-flows/templates");
 }

@@ -4,13 +4,15 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Card } from "./ui/card";
-import { Megaphone, RefreshCw, Trash2 } from "lucide-react";
+import { Megaphone, Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import {
+  activateAdCampaign,
   createAdCampaign,
   createAdsAccount,
   deleteAdsAccount,
   getAdCampaigns,
   getAdsAccounts,
+  pauseAdCampaign,
   testAdsAccount,
 } from "../lib/api";
 
@@ -40,7 +42,7 @@ interface AdCampaign {
 }
 
 function statusVariant(status: string): "default" | "outline" | "destructive" | "warning" {
-  if (status === "connected" || status === "paused") return "default";
+  if (status === "connected" || status === "paused" || status === "active") return "default";
   if (status === "needs_attention" || status === "failed") return "destructive";
   if (status === "creating") return "warning";
   return "outline";
@@ -78,6 +80,7 @@ export function AdsSettingsPanel() {
   });
   const [creativeFile, setCreativeFile] = useState<File | null>(null);
   const [testingAccountId, setTestingAccountId] = useState("");
+  const [campaignActionId, setCampaignActionId] = useState("");
 
   async function loadData() {
     setLoading(true);
@@ -171,6 +174,35 @@ export function AdsSettingsPanel() {
     }
   }
 
+  async function handleActivateCampaign(campaign: AdCampaign) {
+    if (!window.confirm(`Activate "${campaign.name}"? This starts spending real ad budget (₹${(campaign.dailyBudgetMinorUnits / 100).toFixed(2)}/day) on Meta immediately.`)) {
+      return;
+    }
+    setCampaignActionId(campaign.id);
+    setNotice("");
+    try {
+      await activateAdCampaign(campaign.id);
+      await loadData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not activate the campaign.");
+    } finally {
+      setCampaignActionId("");
+    }
+  }
+
+  async function handlePauseCampaign(id: string) {
+    setCampaignActionId(id);
+    setNotice("");
+    try {
+      await pauseAdCampaign(id);
+      await loadData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not pause the campaign.");
+    } finally {
+      setCampaignActionId("");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card className={`p-4 ${cardClass}`}>
@@ -180,8 +212,8 @@ export function AdsSettingsPanel() {
         </div>
         <p className="text-xs text-muted-foreground">
           Connect a Meta Ads account and create Click-to-WhatsApp ad campaigns via the Marketing API.
-          Every campaign created here is left <span className="font-medium text-foreground">paused</span> on
-          Meta&apos;s side — nothing spends until it&apos;s explicitly activated from Meta Ads Manager.
+          Every campaign is created <span className="font-medium text-foreground">paused</span> — nothing
+          spends until you explicitly activate it below.
         </p>
       </Card>
 
@@ -387,6 +419,19 @@ export function AdsSettingsPanel() {
                 )}
                 {campaign.lastError && <p className="text-xs text-destructive mt-1">{campaign.lastError}</p>}
               </div>
+              {campaign.metaCampaignId && (
+                <div className="flex gap-1">
+                  {campaign.status === "active" ? (
+                    <Button type="button" size="icon-sm" variant="outline" className="border-border" title="Pause" onClick={() => handlePauseCampaign(campaign.id)} disabled={campaignActionId === campaign.id}>
+                      <Pause size={14} />
+                    </Button>
+                  ) : (
+                    <Button type="button" size="icon-sm" variant="outline" className="border-border" title="Activate" onClick={() => handleActivateCampaign(campaign)} disabled={campaignActionId === campaign.id}>
+                      <Play size={14} />
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </Card>
         ))}

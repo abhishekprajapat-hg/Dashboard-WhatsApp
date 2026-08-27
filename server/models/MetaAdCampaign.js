@@ -12,7 +12,7 @@ const metaAdCampaignSchema = new mongoose.Schema(
     metaCampaignId: { type: String, trim: true, default: "" },
     metaAdSetId: { type: String, trim: true, default: "" },
     metaAdId: { type: String, trim: true, default: "" },
-    status: { type: String, enum: ["creating", "paused", "failed"], default: "creating", index: true },
+    status: { type: String, enum: ["creating", "paused", "active", "failed"], default: "creating", index: true },
     lastError: { type: String, default: "" },
     history: { type: [mongoose.Schema.Types.Mixed], default: [] },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

@@ -15,6 +15,10 @@ function triggerMatches(flow, { inboundMessage, isNewConversation, isNewLead = f
   if (triggerType === "new_conversation") return Boolean(isNewConversation);
   if (triggerType === "new_lead") return Boolean(isNewLead);
   if (triggerType === "stage_changed") return Boolean(stageChanged);
+  // Scoped to Flow completions specifically, not every inbound message - a flow tied to this
+  // trigger type would otherwise need to be "new_message"-scoped and re-fire on every future
+  // message from that contact forever, not just the one Flow submission it's meant to react to.
+  if (triggerType === "flow_response") return inboundMessage?.type === "flow_response";
 
   if (triggerType === "keyword_match") {
     const keywords = parseKeywords(flow.trigger?.keywords || flow.trigger?.keyword || "");
@@ -97,6 +101,9 @@ export async function runInboundAutomations({
           isNewConversation,
           isNewLead,
           stageChanged,
+          // Lets a condition node branch on individual answered fields (e.g.
+          // {{trigger.flowResponse.data.team_size}}) instead of only the flattened body text.
+          flowResponse: inboundMessage.metadata?.flowResponse || null,
         },
         steps: {},
         variables: {},

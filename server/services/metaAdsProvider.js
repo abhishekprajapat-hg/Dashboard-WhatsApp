@@ -164,3 +164,14 @@ export async function createClickToWhatsAppCampaign(account, { name, dailyBudget
     metaAdId: ad.id,
   };
 }
+
+// Real Marketing API shape for flipping a campaign's own status - POST directly to the campaign
+// object id (not the adAccountId/campaigns collection endpoint used to create one).
+export async function setCampaignStatus(account, campaignId, status) {
+  const credentials = decodeAdsCredentials(account);
+  return graphRequest(campaignId, {
+    method: "POST",
+    accessToken: credentials.accessToken,
+    body: { status },
+  });
+}

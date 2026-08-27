@@ -3,11 +3,95 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `a4b3904`** — deployed and confirmed live 2026-08-26, but **manually**, not
-via the cron - see "BROKEN — auto-deploy cron" section immediately below, read it before assuming a
+**HEAD as of this handoff: `34fc5dd`** (billing/signup code is at `a4b3904`, live; `34fc5dd` is a
+doc-only follow-up, not deployed - no functional change, deploying it isn't urgent) - remember the
+**auto-deploy cron is still broken**, see the section immediately below, read it before assuming a
 future push goes live on its own. Client and server can end up on different effective versions if only
 one side's cache/process picks up a push — see the settings.js bug below for a real example of what
 that desync can hide.
+
+## READ THIS FIRST — CTWA campaign readiness: activate/pause + qualifying-flow building blocks built 2026-08-26, NOT committed
+
+**Local, uncommitted work only** - built this session, not yet `git add`/`git commit`-ed (per this
+session's "only commit when asked" discipline). Check `git status` before assuming any of this is
+live or even saved to history.
+
+**Why**: the user handed over a 4-phase Click-to-WhatsApp (CTWA) rollout plan for SAMVID OS and asked
+"what do we have vs. what needs fixing." Auditing it against this codebase found the technical
+foundation (real WhatsApp Cloud API, not a third-party BSP), the ad-campaign creation path
+(`metaAdsProvider.js`'s `createClickToWhatsAppCampaign`), and the Conversions API integration
+(`metaConversionsApi.js`) were all already built and had already reached real Meta API validation in
+past sessions (see "RESOLVED 2026-08-19" and "App Review submission — SUBMITTED 2026-08-21" sections
+further below) - genuinely more done than the user likely expected. Two real, concrete gaps were
+found and, per the user's explicit choice, fixed/built this session:
+
+**1. Campaign activate/pause** - every campaign created via `createClickToWhatsAppCampaign` was left
+`PAUSED` forever with no way to ever activate it from the app (a deliberate zero-spend-risk choice at
+the time, but a real gap now that the plan calls for an actual running ₹2,000–₹4,500/day campaign).
+Built: `MetaAdCampaign.status` gained `"active"`; `metaAdsProvider.js` gained `setCampaignStatus(account,
+campaignId, status)` (POSTs directly to the campaign id, mirrors `graphRequest`'s existing query-param-
+auth convention - confirmed via a mocked-fetch script that it hits the right URL shape, not the
+create-campaign collection endpoint); `ads.js` gained `POST /campaigns/:id/activate` and `.../pause`,
+mirroring `POST /campaigns`'s exact try/catch/`historyEvent`/`serializeCampaign` pattern;
+`AdsSettingsPanel.tsx` gained Play/Pause icon buttons on each campaign card (matching the existing
+`Test connection`/`Disconnect` icon-button convention - there's no "toggle switch that calls the
+server" precedent anywhere in this codebase, `ui/switch.tsx` is unused dead code, so this didn't invent
+a new pattern). **Activating spends real money** - the button is wrapped in a `window.confirm(...)`
+warning showing the real daily budget, same safety-conscious pattern as Billing's "Cancel subscription."
+
+**2. Qualifying-question flow infrastructure** - no automation flow existed yet to actually ask a real
+prospect the plan's "team size / monthly ad spend" qualifying questions. Two real automation-engine
+gaps were found and fixed first (both necessary, not speculative): `automationRunner.js`'s
+`AutomationRun.context.trigger` never carried `inboundMessage.metadata.flowResponse`, so a `condition`
+node could never branch on an individual answered field - fixed by adding it. And no trigger type
+existed for "this inbound message is specifically a Flow completion" - without one, a flow reacting to
+a Flow submission would have to be scoped to `new_message` and would then wrongly re-fire on every
+future message from that contact forever. Added a real `flow_response` trigger type. **Both verified
+live via a throwaway script** (real Mongo, real `runInboundAutomations`, deleted after): confirmed a
+plain text message does NOT match a `flow_response`-scoped flow (regression check), a real
+`flow_response` message does, `{{trigger.flowResponse.data.team_size}}`-style paths resolve correctly,
+and a `condition` node branches on them correctly.
+
+Then built `whatsappFlows.js`'s new `qualifying_questions` `FLOW_TEMPLATES` entry (two required
+`Dropdown` fields, `team_size`/`monthly_ad_spend`, bucketed ranges matching the plan's own examples) -
+no route/schema change needed, `whatsapp-flows.js`'s route already picks up new template keys
+automatically.
+
+**Per the user's explicit choice ("Flow first, Claude for edge cases")**, the qualifying step's real
+design (documented in `C:\Users\HP\.claude\plans\delegated-percolating-floyd.md`, not yet built as a
+live flow): the plan's own `claude` automation node (`automationExecutors.js`'s `execAiProvider` -
+already real, already exists, just never wired into a live flow before) handles the genuine middle
+ground between clearly-qualified and clearly-casual answers, with `condition` nodes handling the two
+clear-cut ends directly (cheaper, no AI call needed for the obvious cases).
+
+**What's NOT done, and exactly why - two real external prerequisites, not vague**:
+1. **No Anthropic API key is configured anywhere** - `env.integrations?.aiProviders?.claude` is unset
+   for every workspace today. The `claude` node will return `ai_provider_not_configured` until a real
+   key is entered in Settings → Integrations → AI Providers.
+2. **The `qualifying_questions` WhatsApp Flow template exists in code but was never actually created/
+   published against a real WABA** - that's a real `POST /api/whatsapp-flows` (`template:
+   "qualifying_questions"`) then `POST /:id/publish` call, same "needs real Meta-side action" category
+   as `lead_capture`/`appointment_request` before it.
+3. Once both exist, the two `AutomationFlow` JSON bodies (trigger → `send_flow`; `flow_response`
+   trigger → `condition`/`condition`/`claude`/`condition` → `assign_user`/`add_tag`) are fully
+   specified in the plan file above and ready to `POST /api/automation` directly - no further design
+   work needed, just real credentials.
+
+**Verified**: `npm run check:server` (163 files)/`check:client` both clean. Two throwaway mocked/real-
+Mongo scripts (deleted after) proved the engine fix and the new Marketing API call shape, as described
+above. **Not live-tested**: the activate/pause routes were never exercised against a real Meta campaign
+this session (no real Meta Ads credentials in this local environment) - same "logic-verified, not
+live-tested" tier as everything else in this file waiting on real external credentials.
+
+**Exact next steps, in order, for whoever picks this up**:
+1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted this
+   session).
+2. Try the new Activate button against a real (or the existing sandbox) ad account/campaign - confirm
+   it actually flips the campaign live on Meta's side, not just in this app's own DB.
+3. Add a real Anthropic API key in Settings → Integrations, create+publish the `qualifying_questions`
+   WhatsApp Flow, then `POST` the two `AutomationFlow` JSON bodies from the plan file - a real end-to-
+   end test (a real CTWA click → real Flow submission → real routing/Claude verdict) is the actual
+   proof this closes the loop, same discipline as everywhere else in this file.
 
 ## READ THIS FIRST — auto-deploy cron is BROKEN, every push needs a manual deploy until fixed (found 2026-08-26)
 

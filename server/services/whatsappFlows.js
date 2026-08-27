@@ -131,6 +131,73 @@ export const FLOW_TEMPLATES = {
       ],
     }),
   },
+  // Both fields required (a Flow can't be submitted with either blank) - the automation side's
+  // "ambiguous middle ground" is about which *bucket* the answers land in, not missing data.
+  // Both fields use short id-style option values (matching appointment_request's "morning"/
+  // "afternoon" convention), not the display label, since that's what a condition node branches
+  // on downstream.
+  qualifying_questions: {
+    label: "Qualifying Questions",
+    categories: ["LEAD_GENERATION"],
+    buildFlowJson: () => ({
+      version: "6.2",
+      screens: [
+        {
+          id: "QUALIFYING_QUESTIONS",
+          title: "A couple of quick questions",
+          terminal: true,
+          success: true,
+          data: {},
+          layout: {
+            type: "SingleColumnLayout",
+            children: [
+              {
+                type: "Form",
+                name: "qualifying_form",
+                children: [
+                  {
+                    type: "Dropdown",
+                    name: "team_size",
+                    label: "How many people are on your team?",
+                    required: true,
+                    "data-source": [
+                      { id: "1_5", title: "1-5" },
+                      { id: "6_20", title: "6-20" },
+                      { id: "21_50", title: "21-50" },
+                      { id: "50_plus", title: "50+" },
+                    ],
+                  },
+                  {
+                    type: "Dropdown",
+                    name: "monthly_ad_spend",
+                    label: "What's your current monthly ad spend?",
+                    required: true,
+                    "data-source": [
+                      { id: "under_10k", title: "Under ₹10,000" },
+                      { id: "10k_50k", title: "₹10,000 - ₹50,000" },
+                      { id: "50k_2l", title: "₹50,000 - ₹2,00,000" },
+                      { id: "2l_plus", title: "₹2,00,000+" },
+                    ],
+                  },
+                  {
+                    type: "Footer",
+                    label: "Continue",
+                    "on-click-action": {
+                      name: "complete",
+                      payload: {
+                        team_size: "${form.team_size}",
+                        monthly_ad_spend: "${form.monthly_ad_spend}",
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  },
 };
 
 export async function createFlow({ account, template, name }) {

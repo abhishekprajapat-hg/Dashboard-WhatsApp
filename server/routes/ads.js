@@ -10,6 +10,7 @@ import {
   createClickToWhatsAppCampaign,
   decodeAdsCredentials,
   encodeAdsCredentials,
+  setCampaignStatus,
   testMetaAdsConnection,
   uploadAdImage,
 } from "../services/metaAdsProvider.js";
@@ -213,6 +214,74 @@ adsRouter.post("/campaigns", requirePermission("ads:write"), requireEntitlement(
 
     res.status(error.status || 502).json({
       error: error.code || "META_ADS_CAMPAIGN_CREATE_FAILED",
+      message: campaign.lastError,
+      data: serializeCampaign(campaign),
+    });
+  }
+});
+
+// Shared by /activate and /pause - a campaign doesn't embed its own credentials, so the owning
+// MetaAdsAccount has to be re-fetched to make the real Marketing API call.
+async function loadCampaignWithAccount(req, res) {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Ad campaign not found." });
+    return null;
+  }
+  const campaign = await MetaAdCampaign.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!campaign) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Ad campaign not found." });
+    return null;
+  }
+  const account = await MetaAdsAccount.findById(campaign.metaAdsAccountId);
+  if (!account) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Meta Ads account not found." });
+    return null;
+  }
+  return { campaign, account };
+}
+
+adsRouter.post("/campaigns/:id/activate", requirePermission("ads:write"), requireEntitlement("ads"), async (req, res) => {
+  const loaded = await loadCampaignWithAccount(req, res);
+  if (!loaded) return;
+  const { campaign, account } = loaded;
+
+  try {
+    await setCampaignStatus(account, campaign.metaCampaignId, "ACTIVE");
+    campaign.status = "active";
+    campaign.lastError = "";
+    campaign.history.push(historyEvent("activated", req.user.sub));
+    await campaign.save();
+    res.json({ data: serializeCampaign(campaign) });
+  } catch (error) {
+    campaign.lastError = error.message || "Failed to activate the campaign on Meta.";
+    campaign.history.push(historyEvent("activate_failed", req.user.sub, { error: campaign.lastError }));
+    await campaign.save();
+    res.status(error.status || 502).json({
+      error: error.code || "META_ADS_CAMPAIGN_ACTIVATE_FAILED",
+      message: campaign.lastError,
+      data: serializeCampaign(campaign),
+    });
+  }
+});
+
+adsRouter.post("/campaigns/:id/pause", requirePermission("ads:write"), requireEntitlement("ads"), async (req, res) => {
+  const loaded = await loadCampaignWithAccount(req, res);
+  if (!loaded) return;
+  const { campaign, account } = loaded;
+
+  try {
+    await setCampaignStatus(account, campaign.metaCampaignId, "PAUSED");
+    campaign.status = "paused";
+    campaign.lastError = "";
+    campaign.history.push(historyEvent("paused", req.user.sub));
+    await campaign.save();
+    res.json({ data: serializeCampaign(campaign) });
+  } catch (error) {
+    campaign.lastError = error.message || "Failed to pause the campaign on Meta.";
+    campaign.history.push(historyEvent("pause_failed", req.user.sub, { error: campaign.lastError }));
+    await campaign.save();
+    res.status(error.status || 502).json({
+      error: error.code || "META_ADS_CAMPAIGN_PAUSE_FAILED",
       message: campaign.lastError,
       data: serializeCampaign(campaign),
     });
