@@ -3,18 +3,18 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `34fc5dd`** (billing/signup code is at `a4b3904`, live; `34fc5dd` is a
-doc-only follow-up, not deployed - no functional change, deploying it isn't urgent) - remember the
-**auto-deploy cron is still broken**, see the section immediately below, read it before assuming a
-future push goes live on its own. Client and server can end up on different effective versions if only
-one side's cache/process picks up a push — see the settings.js bug below for a real example of what
-that desync can hide.
+**HEAD as of this handoff: `2631381`** — committed, **not pushed** (billing/signup code at `a4b3904` is
+the most recent commit actually live in production; `34fc5dd`/`2631381` are doc + CTWA-readiness
+commits on top, neither deployed yet). Remember the **auto-deploy cron is still broken**, see the
+section below - a push alone won't make this live, the manual deploy steps there are still required.
+Client and server can end up on different effective versions if only one side's cache/process picks up
+a push — see the settings.js bug below for a real example of what that desync can hide.
 
-## READ THIS FIRST — CTWA campaign readiness: activate/pause + qualifying-flow building blocks built 2026-08-26, NOT committed
+## READ THIS FIRST — CTWA campaign readiness: activate/pause + qualifying-flow building blocks built 2026-08-26, committed NOT pushed
 
-**Local, uncommitted work only** - built this session, not yet `git add`/`git commit`-ed (per this
-session's "only commit when asked" discipline). Check `git status` before assuming any of this is
-live or even saved to history.
+**Committed as `2631381`, not pushed or deployed** - check `git log`/`git status` before assuming any
+of this is live. Same broken-cron caveat as the section below: even after pushing, the manual deploy
+steps are required to actually get it live.
 
 **Why**: the user handed over a 4-phase Click-to-WhatsApp (CTWA) rollout plan for SAMVID OS and asked
 "what do we have vs. what needs fixing." Auditing it against this codebase found the technical
@@ -84,8 +84,8 @@ this session (no real Meta Ads credentials in this local environment) - same "lo
 live-tested" tier as everything else in this file waiting on real external credentials.
 
 **Exact next steps, in order, for whoever picks this up**:
-1. Review the diff, `git add`/`git commit` if it looks right (deliberately left uncommitted this
-   session).
+1. Push when ready (triggers the auto-deploy cron - which is broken, see below, so also do the manual
+   deploy steps right after).
 2. Try the new Activate button against a real (or the existing sandbox) ad account/campaign - confirm
    it actually flips the campaign live on Meta's side, not just in this app's own DB.
 3. Add a real Anthropic API key in Settings → Integrations, create+publish the `qualifying_questions`
