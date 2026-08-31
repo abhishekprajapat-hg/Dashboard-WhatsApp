@@ -115,6 +115,8 @@ const triggerTypeMap = {
   "stage changed": "stage_changed",
   stage_changed: "stage_changed",
   "new conversation": "new_conversation",
+  "flow response": "flow_response",
+  flow_response: "flow_response",
   new_conversation: "new_conversation",
 };
 
@@ -130,6 +132,7 @@ function labelForTrigger(type = "new_message") {
     keyword_match: "Keyword match",
     stage_changed: "Stage changed",
     new_conversation: "New conversation",
+    flow_response: "Flow response",
   };
   return labels[type] || type.replace(/_/g, " ");
 }

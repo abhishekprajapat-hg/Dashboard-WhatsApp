@@ -131,19 +131,21 @@ export const FLOW_TEMPLATES = {
       ],
     }),
   },
-  // Both fields required (a Flow can't be submitted with either blank) - the automation side's
-  // "ambiguous middle ground" is about which *bucket* the answers land in, not missing data.
-  // Both fields use short id-style option values (matching appointment_request's "morning"/
-  // "afternoon" convention), not the display label, since that's what a condition node branches
-  // on downstream.
-  qualifying_questions: {
-    label: "Qualifying Questions",
+  // General-purpose intake, not SAMVID-OS/real-estate-only despite that being the primary ad
+  // audience - "Industry" lets any inbound contact self-identify, since a static Flow can't branch
+  // its own questions per industry (no data_exchange endpoint, same v1 constraint noted above).
+  // team_size/monthly_ad_spend stay as general B2B qualifying dimensions regardless of industry -
+  // the automation side's routing logic (see HANDOFF.md) buckets on these two fields. All fields
+  // use short id-style option values (matching appointment_request's "morning"/"afternoon"
+  // convention), not the display label, since that's what a condition node branches on downstream.
+  requirement_gathering: {
+    label: "Requirement Gathering",
     categories: ["LEAD_GENERATION"],
     buildFlowJson: () => ({
       version: "6.2",
       screens: [
         {
-          id: "QUALIFYING_QUESTIONS",
+          id: "REQUIREMENT_GATHERING",
           title: "A couple of quick questions",
           terminal: true,
           success: true,
@@ -153,8 +155,23 @@ export const FLOW_TEMPLATES = {
             children: [
               {
                 type: "Form",
-                name: "qualifying_form",
+                name: "requirement_form",
                 children: [
+                  {
+                    type: "Dropdown",
+                    name: "industry",
+                    label: "What industry is your business in?",
+                    required: true,
+                    "data-source": [
+                      { id: "real_estate", title: "Real Estate" },
+                      { id: "retail_ecommerce", title: "Retail / E-commerce" },
+                      { id: "healthcare", title: "Healthcare / Clinic" },
+                      { id: "professional_services", title: "Professional Services" },
+                      { id: "education", title: "Education" },
+                      { id: "hospitality", title: "Hospitality" },
+                      { id: "other", title: "Other" },
+                    ],
+                  },
                   {
                     type: "Dropdown",
                     name: "team_size",
@@ -170,7 +187,7 @@ export const FLOW_TEMPLATES = {
                   {
                     type: "Dropdown",
                     name: "monthly_ad_spend",
-                    label: "What's your current monthly ad spend?",
+                    label: "What's your current monthly marketing/ad budget?",
                     required: true,
                     "data-source": [
                       { id: "under_10k", title: "Under ₹10,000" },
@@ -179,14 +196,17 @@ export const FLOW_TEMPLATES = {
                       { id: "2l_plus", title: "₹2,00,000+" },
                     ],
                   },
+                  { type: "TextArea", name: "requirement", label: "What do you need help with?", required: true },
                   {
                     type: "Footer",
                     label: "Continue",
                     "on-click-action": {
                       name: "complete",
                       payload: {
+                        industry: "${form.industry}",
                         team_size: "${form.team_size}",
                         monthly_ad_spend: "${form.monthly_ad_spend}",
+                        requirement: "${form.requirement}",
                       },
                     },
                   },

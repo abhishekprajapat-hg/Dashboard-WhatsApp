@@ -3,18 +3,108 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `2631381`** — committed, **not pushed** (billing/signup code at `a4b3904` is
-the most recent commit actually live in production; `34fc5dd`/`2631381` are doc + CTWA-readiness
-commits on top, neither deployed yet). Remember the **auto-deploy cron is still broken**, see the
-section below - a push alone won't make this live, the manual deploy steps there are still required.
-Client and server can end up on different effective versions if only one side's cache/process picks up
-a push — see the settings.js bug below for a real example of what that desync can hide.
+**HEAD as of this handoff: pushed through `bbaa3db`, real requirement-gathering flow work on top of
+that not yet committed as of this note - see the new section immediately below** (billing/signup code
+at `a4b3904` is the most recent commit actually **live in production**; everything after that,
+including `bbaa3db`, is pushed but NOT deployed - the auto-deploy cron is still broken, see its own
+section further below, a push alone won't make anything live, the manual deploy steps there are still
+required). Client and server can end up on different effective versions if only one side's cache/process
+picks up a push — see the settings.js bug below for a real example of what that desync can hide.
 
-## READ THIS FIRST — CTWA campaign readiness: activate/pause + qualifying-flow building blocks built 2026-08-26, committed NOT pushed
+## READ THIS FIRST — real requirement-gathering flow for the official number, built 2026-08-27
 
-**Committed as `2631381`, not pushed or deployed** - check `git log`/`git status` before assuming any
-of this is live. Same broken-cron caveat as the section below: even after pushing, the manual deploy
-steps are required to actually get it live.
+**Context**: before resuming the Meta App Review rejection fix (see its own section just below), the
+user reprioritized - they want real automation running on the actual official WhatsApp number first,
+since Meta ads are about to run. Requirement: anyone who messages the number for the first time (ad
+click or organic) gets a short intake form, their answers should help route the lead, and a human must
+still be able to take over the chat manually at any time.
+
+**Real finding that simplified this a lot**: "shift the lead to the CRM" already happens automatically
+and needed zero new code - `server/services/crm.js`'s `detectWhatsAppLead`/`ensureConversationInCrm`
+(called from `whatsapp.js`'s webhook handler, before any automation even runs) already flags a lead on
+the very first message from an ad-sourced conversation, or on keyword match (which most real opener
+text like "I want to automate my real estate leads" already satisfies via "want"). Manual chat is also
+unaffected either way - the Inbox works completely independently of automations.
+
+**Built** (extends the CTWA-readiness engine work from `2631381`/`bbaa3db` above - same session
+continuity, not a separate effort):
+- `server/services/whatsappFlows.js`'s `qualifying_questions` template **renamed and expanded to
+  `requirement_gathering`** - now 4 fields: `industry` (dropdown: Real Estate first, since that's the
+  actual ad audience, plus Retail/Healthcare/Professional Services/Education/Hospitality/Other so it's
+  genuinely general-purpose, not SAMVID-OS-only), `team_size`, `monthly_ad_spend` (both unchanged from
+  before), and a required `requirement` free-text field ("What do you need help with?") - the actual
+  requirement-gathering line. Single static form (a WhatsApp Flow can't dynamically change its own
+  questions per industry - no `data_exchange` endpoint, a deliberate v1 scope limit noted in the file's
+  own comments) - kept universal rather than real-estate-specific.
+- **Real gap found and fixed while wiring this up**: `server/routes/automation.js`'s own
+  `normalizeTriggerType`/`triggerTypeMap` didn't know about the `flow_response` trigger type added to
+  the engine in the previous commit - creating a flow via `POST /api/automation` with
+  `triggerType: "flow_response"` would have silently been coerced to `"new_message"` instead, which
+  would have made the routing flow below re-fire on every future message from that contact forever
+  instead of just the one Flow submission. Fixed in `triggerTypeMap`/`labelForTrigger`.
+
+**Deliberately kept simple, per the user's own "basic" framing** - the richer hot/nurture/Claude-
+verdict condition-branching design from the CTWA-readiness plan
+(`C:\Users\HP\.claude\plans\delegated-percolating-floyd.md`) is real and still available, but wasn't
+wired into this specific delivery. What's actually specified below is two small flows, ready to POST
+the moment the two real prerequisites exist (below).
+
+**Two `AutomationFlow` JSON bodies, ready to `POST /api/automation` once prerequisites exist** (both
+`status: "active"` so they publish immediately):
+
+1. **Trigger the intake form on first contact**:
+```json
+{
+  "name": "WhatsApp - requirement gathering intake",
+  "triggerType": "new_conversation",
+  "status": "active",
+  "nodes": [
+    { "id": "trigger", "type": "trigger" },
+    { "id": "send_flow_1", "type": "send_flow", "config": { "flowId": "REPLACE_WITH_REAL_WHATSAPP_FLOW_ID" } }
+  ],
+  "edges": [
+    { "source": "trigger", "target": "send_flow_1" }
+  ]
+}
+```
+
+2. **Tag + route once the form is submitted**:
+```json
+{
+  "name": "WhatsApp - route requirement answers",
+  "triggerType": "flow_response",
+  "status": "active",
+  "nodes": [
+    { "id": "trigger", "type": "trigger" },
+    { "id": "tag_industry", "type": "add_tag", "config": { "name": "industry:{{trigger.flowResponse.data.industry}}" } },
+    { "id": "assign_sales", "type": "assign_user", "config": { "userId": "REPLACE_WITH_REAL_SALES_REP_USER_ID" } }
+  ],
+  "edges": [
+    { "source": "trigger", "target": "tag_industry" },
+    { "source": "tag_industry", "target": "assign_sales" }
+  ]
+}
+```
+
+**Two real prerequisites before either can actually go live, in order**:
+1. Deploy this code (push, then the manual deploy steps - cron is broken).
+2. Create + publish the real WhatsApp Flow against the official number's WABA:
+   `POST /api/whatsapp-flows` with `{ template: "requirement_gathering", name: "..." }`, then
+   `POST /api/whatsapp-flows/:id/publish` - copy the returned `_id` into flow 1's `flowId` above.
+3. Find a real sales rep's `User._id` in this workspace (Settings → Team, or `GET /api/team`) - copy
+   into flow 2's `assign_sales.config.userId` above.
+4. POST both flow bodies above (via the API directly, or hand-build them in the visual automation
+   builder using the same node/edge shape).
+
+**Not yet live-tested** - same honest tier as everything else in this file waiting on real deployment
++ a real first message from a genuinely new contact. `npm run check:server` clean (163 files).
+
+## READ THIS FIRST — CTWA campaign readiness: activate/pause + qualifying-flow building blocks built 2026-08-26, pushed NOT deployed
+
+**Committed (`2631381`) and pushed (`bbaa3db`), not deployed** - check `git log`/`git status` before
+assuming any of this is live. Same broken-cron caveat as the section above: the manual deploy steps are
+still required to actually get it live (this session's work builds directly on top of it, one deploy
+covers both).
 
 **Why**: the user handed over a 4-phase Click-to-WhatsApp (CTWA) rollout plan for SAMVID OS and asked
 "what do we have vs. what needs fixing." Auditing it against this codebase found the technical
