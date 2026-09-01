@@ -1,0 +1,14 @@
+/* @xyflow/react v12.11.1's own dist/style.css only sets `position: absolute` on
+   .react-flow__edges and its child <svg> - no width/height/inset. Per CSS spec, an absolutely
+   positioned element with width:auto and neither left nor right set uses shrink-to-fit sizing,
+   which collapsed to 0 in this app (confirmed via a live DOM/computed-style repro: the edges
+   container measured width:0/height:0 while every individual edge <path> had a fully valid,
+   non-zero `d` and normal stroke styling - the paths were being computed correctly and simply
+   clipped to nothing by their zero-sized SVG viewport). Edges were rendering the entire time,
+   just invisible. Explicitly sizing both to fill the flow viewport fixes it. Imported last so
+   it wins any specificity ties against the base xyflow stylesheet or Tailwind's own resets. */
+.react-flow__edges,
+.react-flow__edges svg {
+  width: 100%;
+  height: 100%;
+}
