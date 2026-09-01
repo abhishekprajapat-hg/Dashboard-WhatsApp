@@ -41,18 +41,22 @@ const smsConfigSchema = z.object({
   fromNumber: z.string().optional().default(""),
 });
 
+const googleSheetsConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  webhookUrl: optionalHttpUrlString(),
+  secret: z.string().optional().default(""),
+});
+
+const aiProvidersConfigSchema = z.object({
+  openai: aiProviderConfigSchema.optional().default({}),
+  claude: aiProviderConfigSchema.optional().default({}),
+  gemini: aiProviderConfigSchema.optional().default({}),
+});
+
 export const integrationsSchema = z.object({
   outboundWebhook: webhookConfigSchema.optional().default({}),
-  googleSheets: z.object({
-    enabled: z.boolean().optional().default(false),
-    webhookUrl: optionalHttpUrlString(),
-    secret: z.string().optional().default(""),
-  }).optional().default({}),
-  aiProviders: z.object({
-    openai: aiProviderConfigSchema.optional().default({}),
-    claude: aiProviderConfigSchema.optional().default({}),
-    gemini: aiProviderConfigSchema.optional().default({}),
-  }).optional().default({}),
+  googleSheets: googleSheetsConfigSchema.optional().default({}),
+  aiProviders: aiProvidersConfigSchema.optional().default({}),
   email: emailConfigSchema.optional().default({}),
   sms: smsConfigSchema.optional().default({}),
 });
@@ -201,6 +205,64 @@ settingsRouter.put("/integrations", requirePermission("settings:write"), validat
 
   res.json({ integrations });
 });
+
+// Scoped per-section routes - each validates and persists ONLY its own slice via a targeted
+// $set, so one section's invalid field (e.g. a malformed webhook URL nobody's touched in months)
+// can never block saving an unrelated section (e.g. adding a fresh AI provider key). The combined
+// PUT /integrations route above stays for any existing caller, but silently defaulted every
+// omitted section back to its schema default on save - a real data-loss risk once callers start
+// sending partial payloads, which is exactly what these scoped routes are for instead.
+function makeScopedIntegrationRoute(section, schema) {
+  return async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    const currentWorkspace = await Workspace.findById(req.user.workspaceId);
+    if (!currentWorkspace) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
+    }
+
+    const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
+    const integrations = { ...defaultIntegrations(), ...(settings.integrations || {}), [section]: req.body };
+
+    currentWorkspace.settings = { ...settings, integrations };
+    currentWorkspace.markModified("settings");
+    await currentWorkspace.save();
+
+    res.json({ integrations });
+  };
+}
+
+settingsRouter.put(
+  "/integrations/webhook",
+  requirePermission("settings:write"),
+  validateBody(webhookConfigSchema),
+  makeScopedIntegrationRoute("outboundWebhook", webhookConfigSchema)
+);
+settingsRouter.put(
+  "/integrations/google-sheets",
+  requirePermission("settings:write"),
+  validateBody(googleSheetsConfigSchema),
+  makeScopedIntegrationRoute("googleSheets", googleSheetsConfigSchema)
+);
+settingsRouter.put(
+  "/integrations/ai-providers",
+  requirePermission("settings:write"),
+  validateBody(aiProvidersConfigSchema),
+  makeScopedIntegrationRoute("aiProviders", aiProvidersConfigSchema)
+);
+settingsRouter.put(
+  "/integrations/email",
+  requirePermission("settings:write"),
+  validateBody(emailConfigSchema),
+  makeScopedIntegrationRoute("email", emailConfigSchema)
+);
+settingsRouter.put(
+  "/integrations/sms",
+  requirePermission("settings:write"),
+  validateBody(smsConfigSchema),
+  makeScopedIntegrationRoute("sms", smsConfigSchema)
+);
 
 settingsRouter.put("/notifications", requirePermission("settings:write"), validateBody(notificationsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {

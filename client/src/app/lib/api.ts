@@ -548,6 +548,32 @@ export function updateIntegrations<T>(integrations: {
   });
 }
 
+// Scoped per-section saves - each hits its own endpoint so one section's invalid field (e.g. a
+// stale malformed webhook URL) can never block saving an unrelated section.
+export function updateOutboundWebhook<T>(payload: { enabled?: boolean; url?: string; secret?: string }) {
+  return request<T>("/settings/integrations/webhook", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function updateGoogleSheetsIntegration<T>(payload: { enabled?: boolean; webhookUrl?: string; secret?: string }) {
+  return request<T>("/settings/integrations/google-sheets", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function updateAiProvidersIntegration<T>(payload: {
+  openai?: { enabled?: boolean; apiKey?: string };
+  claude?: { enabled?: boolean; apiKey?: string };
+  gemini?: { enabled?: boolean; apiKey?: string };
+}) {
+  return request<T>("/settings/integrations/ai-providers", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function updateEmailIntegration<T>(payload: { enabled?: boolean; apiKey?: string; fromAddress?: string; fromName?: string }) {
+  return request<T>("/settings/integrations/email", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function updateSmsIntegration<T>(payload: { enabled?: boolean; accountSid?: string; authToken?: string; fromNumber?: string }) {
+  return request<T>("/settings/integrations/sms", { method: "PUT", body: JSON.stringify(payload) });
+}
+
 export function testIntegrationWebhook<T>(payload: { url: string; secret?: string }) {
   return request<T>("/settings/integrations/test-webhook", {
     method: "POST",

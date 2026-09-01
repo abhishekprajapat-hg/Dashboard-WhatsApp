@@ -49,6 +49,11 @@ import {
   testWhatsAppAccount,
   testIntegrationWebhook,
   updateIntegrations,
+  updateOutboundWebhook,
+  updateGoogleSheetsIntegration,
+  updateAiProvidersIntegration,
+  updateEmailIntegration,
+  updateSmsIntegration,
   updateNotifications,
   updateCurrentWorkspace,
 } from "../lib/api";
@@ -310,6 +315,10 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
   const [integrationForm, setIntegrationForm] = useState<IntegrationsPayload>(initialSettings.integrations);
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [integrationNotice, setIntegrationNotice] = useState("");
+  // Per-section save state (Integrations tab) - each card saves independently through its own
+  // scoped endpoint, so one section's invalid field can never block an unrelated one.
+  const [sectionSaving, setSectionSaving] = useState<Record<string, boolean>>({});
+  const [sectionNotice, setSectionNotice] = useState<Record<string, string>>({});
   const [notificationsForm, setNotificationsForm] = useState<NotificationsPayload>(initialSettings.notifications);
   const [notificationsSaving, setNotificationsSaving] = useState(false);
   const [notificationsNotice, setNotificationsNotice] = useState("");
@@ -534,6 +543,81 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     } finally {
       setIntegrationSaving(false);
     }
+  }
+
+  async function saveIntegrationSection(
+    section: string,
+    apiCall: () => Promise<{ integrations: IntegrationsPayload }>
+  ) {
+    if (!canWrite) return;
+    setSectionSaving((current) => ({ ...current, [section]: true }));
+    setSectionNotice((current) => ({ ...current, [section]: "" }));
+    try {
+      const response = await apiCall();
+      setIntegrationForm(response.integrations);
+      setSectionNotice((current) => ({ ...current, [section]: "Saved." }));
+    } catch (error) {
+      setSectionNotice((current) => ({
+        ...current,
+        [section]: error instanceof Error ? error.message : "Could not save.",
+      }));
+    } finally {
+      setSectionSaving((current) => ({ ...current, [section]: false }));
+    }
+  }
+
+  function SectionSaveRow({ section }: { section: string }) {
+    const notice = sectionNotice[section];
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        {canWrite && (
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 text-xs bg-primary text-primary-foreground"
+            disabled={sectionSaving[section]}
+            onClick={() => {
+              const savers: Record<string, () => Promise<void>> = {
+                outboundWebhook: () =>
+                  saveIntegrationSection("outboundWebhook", () =>
+                    updateOutboundWebhook<{ integrations: IntegrationsPayload }>(integrationForm.outboundWebhook)
+                  ),
+                googleSheets: () =>
+                  saveIntegrationSection("googleSheets", () =>
+                    updateGoogleSheetsIntegration<{ integrations: IntegrationsPayload }>(integrationForm.googleSheets)
+                  ),
+                aiProviders: () =>
+                  saveIntegrationSection("aiProviders", () =>
+                    updateAiProvidersIntegration<{ integrations: IntegrationsPayload }>(integrationForm.aiProviders)
+                  ),
+                email: () =>
+                  saveIntegrationSection("email", () =>
+                    updateEmailIntegration<{ integrations: IntegrationsPayload }>(integrationForm.email)
+                  ),
+                sms: () =>
+                  saveIntegrationSection("sms", () =>
+                    updateSmsIntegration<{ integrations: IntegrationsPayload }>(integrationForm.sms)
+                  ),
+              };
+              savers[section]?.();
+            }}
+          >
+            {sectionSaving[section] ? "Saving..." : "Save"}
+          </Button>
+        )}
+        {notice && (
+          <span
+            className={`rounded-md border px-3 py-2 text-xs ${
+              /failed|could not|error/i.test(notice)
+                ? "border-destructive/30 bg-destructive/10 text-destructive"
+                : "border-primary/30 bg-primary/10 text-primary"
+            }`}
+          >
+            {notice}
+          </span>
+        )}
+      </div>
+    );
   }
 
   async function handleWebhookTest() {
@@ -1241,7 +1325,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
               <p className="text-xs text-muted-foreground mt-0.5">Connect outbound webhooks, Zapier-style automations, and lead sync destinations.</p>
             </div>
 
-            <form onSubmit={handleIntegrationsSave} className="space-y-4">
+            <div className="space-y-4">
               <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
@@ -1299,6 +1383,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   </Button>}
                   <span className="self-center text-[11px] text-muted-foreground">Secret: {maskSecret(integrationForm.outboundWebhook.secret)}</span>
                 </div>
+                <SectionSaveRow section="outboundWebhook" />
               </Card>
 
               <Card className={`p-4 ${cardClass} space-y-4`}>
@@ -1352,6 +1437,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     />
                   </div>
                 </div>
+                <SectionSaveRow section="googleSheets" />
               </Card>
 
               <Card className={`p-4 ${cardClass} space-y-4`}>
@@ -1403,6 +1489,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                     </div>
                   ))}
                 </div>
+                <SectionSaveRow section="aiProviders" />
               </Card>
 
               <Card className={`p-4 ${cardClass} space-y-4`}>
@@ -1470,6 +1557,7 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   </div>
                 </div>
                 <span className="text-[11px] text-muted-foreground">API key: {maskSecret(integrationForm.email.apiKey)}</span>
+                <SectionSaveRow section="email" />
               </Card>
 
               <Card className={`p-4 ${cardClass} space-y-4`}>
@@ -1537,22 +1625,14 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                   </div>
                 </div>
                 <span className="text-[11px] text-muted-foreground">Auth token: {maskSecret(integrationForm.sms.authToken)}</span>
+                <SectionSaveRow section="sms" />
               </Card>
 
-              <div className="flex flex-wrap items-center gap-3">
-                {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={integrationSaving}>
-                  {integrationSaving ? "Saving..." : "Save integrations"}
-                </Button>}
-                {integrationNotice && (
-                  <span className={`rounded-md border px-3 py-2 text-xs ${/failed|could not|error/i.test(integrationNotice) ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
-                    {integrationNotice}
-                  </span>
-                )}
-              </div>
               <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
-                Integration secrets are stored through the existing settings API and should be rotated from the provider console if exposed.
+                Integration secrets are stored through the existing settings API and should be rotated from the provider console if exposed. Each
+                section above saves independently - an issue in one won&apos;t block the others.
               </div>
-            </form>
+            </div>
           </div>
         )}
 
