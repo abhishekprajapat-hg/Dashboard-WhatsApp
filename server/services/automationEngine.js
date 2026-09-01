@@ -269,14 +269,15 @@ export async function resumeAutomationRun({ runId }) {
 // sending the question.
 export async function resumeAutomationRunOnReply({ runId, inboundMessageId }) {
   const run = await AutomationRun.findById(runId);
-  if (!run || run.status !== "waiting_for_reply") return { resumed: false };
+  if (!run) return { resumed: false, reason: "run_not_found" };
+  if (run.status !== "waiting_for_reply") return { resumed: false, reason: `run_status_was_${run.status}` };
 
   const flow = await AutomationFlow.findById(run.flowId);
   if (!flow) {
     run.status = "failed";
     run.error = "flow_not_found";
     await run.save();
-    return { resumed: false };
+    return { resumed: false, reason: "flow_not_found" };
   }
 
   run.trigger = { ...(run.trigger || {}), inboundMessageId };

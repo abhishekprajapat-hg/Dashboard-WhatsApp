@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Message, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
@@ -790,7 +790,7 @@ async function execSendFlow({ node, env, run, testMode }) {
 // branch. Distinguishing "first visit" from "resumed after reply" reuses execLoop's own
 // convention of reading this node's prior recorded step state rather than needing new
 // AutomationRun fields.
-async function execAskMcq({ node, config: cfg, env, run, testMode }) {
+async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
   const { account, contact, conversation, inboundMessage } = env;
   if (!account || !contact?.phone || !conversation) {
     return { status: "skipped", logMessage: "Skipped ask_mcq: missing account/contact/conversation", logLevel: "warn" };
@@ -828,12 +828,12 @@ async function execAskMcq({ node, config: cfg, env, run, testMode }) {
       };
     }
 
+    let sendResult;
     try {
-      if (options.length <= 3) {
-        await sendWhatsAppInteractive({ account, to: contact.phone, body: question, buttons: options });
-      } else {
-        await sendWhatsAppInteractive({ account, to: contact.phone, body: question, list: { buttonLabel: "Choose", rows: options } });
-      }
+      sendResult =
+        options.length <= 3
+          ? await sendWhatsAppInteractive({ account, to: contact.phone, body: question, buttons: options })
+          : await sendWhatsAppInteractive({ account, to: contact.phone, body: question, list: { buttonLabel: "Choose", rows: options } });
     } catch (error) {
       // branch: "send_failed" is a sentinel no real flow wires an edge to - without it,
       // pickNext's no-branch fallback picks the first outgoing edge (here, "matched") and the run
@@ -852,7 +852,40 @@ async function execAskMcq({ node, config: cfg, env, run, testMode }) {
       };
     }
 
-    await Conversation.updateOne({ _id: conversation._id }, { $set: { "metadata.pendingAutomationRunId": run._id } });
+    // Every other send-capable executor (execSendMessage, execEmail, ...) creates a Message
+    // document for its outbound send - this one didn't, which is why the actual qualifying
+    // question never showed up in the Inbox conversation view even though it was genuinely
+    // delivered via a real Meta API call (confirmed live: the run's own history logged "Asked
+    // qualifying question" with no error, but the Inbox thread had no trace of it).
+    const outboundMessage = await Message.create({
+      organizationId: run.organizationId,
+      workspaceId: run.workspaceId,
+      conversationId: conversation._id,
+      contactId: contact._id,
+      whatsappAccountId: account._id,
+      direction: "outbound",
+      type: "interactive",
+      body: question,
+      providerMessageId: sendResult.providerMessageId,
+      status: sendResult.status || "sent",
+      sentAt: new Date(),
+      metadata: {
+        automationFlowId: flow._id,
+        automationFlowName: flow.name,
+        automationGenerated: true,
+        providerMode: sendResult.mode,
+      },
+    });
+    await Conversation.updateOne(
+      { _id: conversation._id },
+      {
+        $set: {
+          "metadata.pendingAutomationRunId": run._id,
+          lastMessageId: outboundMessage._id,
+          lastMessageAt: outboundMessage.sentAt,
+        },
+      }
+    );
 
     return {
       status: "ok",

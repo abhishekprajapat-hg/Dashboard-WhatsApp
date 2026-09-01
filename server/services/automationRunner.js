@@ -2,6 +2,7 @@ import { AutomationFlow, AutomationRun, Conversation } from "../models/index.js"
 import { publishConversationChanged } from "../realtime/events.js";
 import { advanceRun, resumeAutomationRunOnReply } from "./automationEngine.js";
 import { keywordMatches, parseKeywords } from "../utils/keywords.js";
+import { logger } from "./logger.js";
 
 function appendRunLog(flowResult, level, message, data = {}) {
   flowResult.logs.push({ at: new Date(), level, message, ...data });
@@ -67,10 +68,15 @@ export async function runInboundAutomations({
   // for the flow it's already mid-way through.
   let resumedRun = false;
   const pendingRunId = conversation.metadata?.pendingAutomationRunId;
+  logger.info(
+    { conversationId: conversation._id?.toString(), inboundMessageId: inboundMessage._id?.toString(), pendingRunId: pendingRunId ? String(pendingRunId) : null },
+    "runInboundAutomations: pending-run check"
+  );
   if (pendingRunId) {
     await Conversation.updateOne({ _id: conversation._id }, { $unset: { "metadata.pendingAutomationRunId": "" } });
-    const { resumed } = await resumeAutomationRunOnReply({ runId: pendingRunId, inboundMessageId: inboundMessage._id });
+    const { resumed, reason } = await resumeAutomationRunOnReply({ runId: pendingRunId, inboundMessageId: inboundMessage._id });
     resumedRun = resumed;
+    logger.info({ runId: String(pendingRunId), resumed, reason: reason || null }, "runInboundAutomations: resume attempt result");
   }
 
   const flowFilter = {
