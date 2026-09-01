@@ -40,6 +40,7 @@ interface ChatWindowProps {
   onAddToCrm: (stage?: string) => void;
   onResolve: () => void;
   onLoadOlder: () => void;
+  onResetForTesting?: () => void;
 }
 
 function dateLabel(message: WhatsAppMessage, previous?: WhatsAppMessage) {
@@ -97,6 +98,7 @@ export function ChatWindow({
   onAddToCrm,
   onResolve,
   onLoadOlder,
+  onResetForTesting,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastConversationIdRef = useRef<string | undefined>(conversation?.id);
@@ -184,6 +186,15 @@ export function ChatWindow({
         <button className="hidden h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_24px_rgba(37,211,102,0.16)] hover:bg-primary/90 sm:block" onClick={onResolve}>
           Resolve
         </button>
+        {onResetForTesting ? (
+          <button
+            className="hidden h-8 items-center rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2 text-xs font-medium text-yellow-300 hover:bg-yellow-500/15 sm:flex"
+            title="Delete this contact/conversation so the same phone number can message in fresh as a brand-new lead"
+            onClick={onResetForTesting}
+          >
+            Reset for testing
+          </button>
+        ) : null}
         {[Search, Phone, Video, Info, MoreVertical].map((Icon, index) => (
           <button key={index} className={`${index > 0 ? "hidden sm:flex" : "flex"} h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground`}>
             <Icon size={18} />

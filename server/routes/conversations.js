@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import { z } from "zod";
 import { conversations } from "../data/demoData.js";
-import { Contact, Conversation, Membership, Message, Template } from "../models/index.js";
+import { AutomationRun, Contact, Conversation, Membership, Message, Template } from "../models/index.js";
 import { InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
@@ -367,6 +367,33 @@ conversationsRouter.get("/:id", async (req, res) => {
 
   const messages = await Message.find(visibleMessagesFilter(conversation._id, req.user.sub)).sort({ createdAt: 1 }).limit(100);
   res.json({ data: serializeConversation(conversation, messages, { userId: req.user.sub }) });
+});
+
+// Testing-only escape hatch: real phone numbers are a genuinely scarce resource for exercising
+// "new_conversation"-triggered flows (a WABA never re-fires that trigger for a contact who has
+// messaged in before, by design). This deletes the conversation, its messages, its contact, and
+// any AutomationRun tied to it, so the exact same phone number can message in again immediately
+// and be treated as a brand-new lead - no need to burn through real test numbers. Gated behind
+// settings:write (admin-level), not inbox:write, since it's destructive and not a normal inbox
+// action.
+conversationsRouter.post("/:id/reset-for-testing", requirePermission("settings:write"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!conversation) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
+  }
+
+  const contactId = conversation.contactId;
+  await Message.deleteMany({ conversationId: conversation._id, workspaceId: req.user.workspaceId });
+  await AutomationRun.deleteMany({ "trigger.conversationId": conversation._id, workspaceId: req.user.workspaceId });
+  await Conversation.deleteOne({ _id: conversation._id });
+  if (contactId) await Contact.deleteOne({ _id: contactId, workspaceId: req.user.workspaceId });
+
+  logger.info({ conversationId: req.params.id, contactId: contactId?.toString() }, "Conversation reset for testing");
+  res.json({ ok: true, message: "Reset - this phone number can message in fresh as a brand-new lead now." });
 });
 
 conversationsRouter.patch("/:id/read", requirePermission("inbox:write"), async (req, res) => {

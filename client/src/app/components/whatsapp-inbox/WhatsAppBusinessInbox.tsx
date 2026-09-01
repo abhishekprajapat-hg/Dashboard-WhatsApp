@@ -51,6 +51,7 @@ interface WhatsAppBusinessInboxProps {
   onConversationSetting: (settings: { pinned?: boolean; muted?: boolean }) => void;
   onLoadOlderMessages: () => void;
   onAddToCrm: (stage?: string) => void;
+  onResetForTesting?: () => void;
 }
 
 export function WhatsAppBusinessInbox({
@@ -99,6 +100,7 @@ export function WhatsAppBusinessInbox({
   onConversationSetting,
   onLoadOlderMessages,
   onAddToCrm,
+  onResetForTesting,
 }: WhatsAppBusinessInboxProps) {
   const selected = conversations.find((conversation) => conversation.id === selectedId) || conversations[0];
   const selectedMeta = selected ? conversationMeta(selected) : { isInCrm: false };
@@ -155,6 +157,7 @@ export function WhatsAppBusinessInbox({
           onMessageAction={onMessageAction}
           onAddToCrm={onAddToCrm}
           onResolve={() => onStatusChange("resolved")}
+          onResetForTesting={onResetForTesting}
           onLoadOlder={onLoadOlderMessages}
         />
 

@@ -505,6 +505,13 @@ export function updateMessageActions<T>(conversationId: string, messageId: strin
   });
 }
 
+// Testing-only: deletes this conversation, its messages, its contact, and any automation runs
+// tied to it, so the same real phone number can message in again and be treated as a genuinely
+// new lead - a "new_conversation" trigger never re-fires for a contact who's messaged in before.
+export function resetConversationForTesting<T>(conversationId: string) {
+  return request<T>(`/conversations/${conversationId}/reset-for-testing`, { method: "POST" });
+}
+
 export function deleteConversationMessage(conversationId: string, messageId: string, mode: "me" | "everyone" = "everyone") {
   return request<void>(`/conversations/${conversationId}/messages/delete`, {
     method: "POST",

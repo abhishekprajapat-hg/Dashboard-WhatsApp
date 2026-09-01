@@ -10,6 +10,7 @@ import {
   getTeamMembers,
   getUnreadCount,
   markConversationRead,
+  resetConversationForTesting,
   sendConversationNote,
   updateConversationSettings,
   updateConversationStatus,
@@ -424,6 +425,23 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
       .finally(() => setCrmSaving(false));
   }, [selected]);
 
+  // Testing-only: deletes the conversation/contact/messages/automation-runs so the exact same
+  // phone number can be reused for the next test instead of burning through real test numbers.
+  const handleResetForTesting = useCallback(async () => {
+    if (!selected) return;
+    const confirmed = window.confirm(
+      `Reset this conversation with ${selected.name || selected.phone}? This permanently deletes the contact, conversation, and all messages so the same number can message in as a brand-new lead. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      await resetConversationForTesting(selected.id);
+      store.selectConversation("");
+      await loadConversations();
+    } catch {
+      window.alert("Could not reset this conversation - check permissions (requires an admin/workspace-admin role).");
+    }
+  }, [selected, loadConversations]);
+
   return {
     conversations,
     selected,
@@ -453,6 +471,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     handleMessageAction,
     handleAssign,
     handleStatusChange,
+    handleResetForTesting,
     handleConversationSetting,
     handleAddToCrm,
     currentUserId,

@@ -158,6 +158,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         onConversationSetting={engine.handleConversationSetting}
         onLoadOlderMessages={engine.loadOlderMessages}
         onAddToCrm={engine.handleAddToCrm}
+        onResetForTesting={engine.handleResetForTesting}
       />
 
       {showProductPicker && (
