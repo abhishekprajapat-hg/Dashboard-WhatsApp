@@ -632,6 +632,17 @@ function BuilderCanvas({
     setManualConnectHandle("");
   }, [selectedNodeId]);
 
+  // Standard fullscreen convention - Escape exits, same as browser/OS fullscreen modes. Only
+  // registers the listener while actually maximized.
+  useEffect(() => {
+    if (!canvasMaximized) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setCanvasMaximized(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canvasMaximized]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => reactFlow.fitView({ padding: 0.2, duration: 250 }), 80);
     return () => window.clearTimeout(timer);
@@ -1224,6 +1235,15 @@ function BuilderCanvas({
           : `grid h-[min(72vh,760px)] min-h-[420px] w-full grid-cols-[minmax(0,1fr)] overflow-hidden lg:h-[min(78vh,860px)] lg:min-h-[560px] ${builderGridColsClass()}`
       }
     >
+      {canvasMaximized ? (
+        <Button
+          size="sm"
+          className="absolute right-3 top-3 z-[60] h-9 bg-primary px-3 text-xs text-primary-foreground shadow-lg hover:bg-primary/90"
+          onClick={() => setCanvasMaximized(false)}
+        >
+          <Minimize2 size={14} className="mr-1.5" /> Exit fullscreen
+        </Button>
+      ) : null}
       {!canvasMaximized && !nodeLibraryCollapsed ? (
       <aside className="no-scrollbar hidden overflow-y-auto border-r border-border bg-card/60 p-3 lg:block">
         <div className="mb-3 flex items-center justify-between">
