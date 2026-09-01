@@ -78,6 +78,7 @@ import {
   deleteAutomationFlow,
   getAutomationFlows,
   getAutomationRuns,
+  getTeamMembers,
   getTemplates,
   getWhatsAppFlows,
   testAutomationFlow,
@@ -267,7 +268,6 @@ const nodeCatalog = [
   { kind: "trigger", label: "Trigger", icon: "Zap", color: "#22c55e", description: "Start from inbound events" },
   { kind: "delay", label: "Delay", icon: "Hourglass", color: "#f59e0b", description: "Wait before next action" },
   { kind: "condition", label: "Condition", icon: "Diamond", color: "#38bdf8", description: "Route by fields" },
-  { kind: "keyword", label: "Keyword", icon: "Tag", color: "#84cc16", description: "Match incoming text" },
   { kind: "if_else", label: "If Else", icon: "GitBranch", color: "#06b6d4", description: "Branch workflow" },
   { kind: "call_webhook", label: "Webhook", icon: "Webhook", color: "#f97316", description: "Send webhook event" },
   { kind: "api", label: "API", icon: "Globe2", color: "#3b82f6", description: "Call an API" },
@@ -565,12 +565,14 @@ function BuilderCanvas({
   canWrite = false,
   availableFlows = [],
   availableWhatsAppFlows = [],
+  availableTeamMembers = [],
 }: {
   selectedFlow?: Flow;
   onFlowSaved: (flow: Flow) => void;
   canWrite?: boolean;
   availableFlows?: Flow[];
   availableWhatsAppFlows?: WhatsAppFlowOption[];
+  availableTeamMembers?: { userId: string; name: string }[];
 }) {
   const reactFlow = useReactFlow();
   const [nodes, setNodes] = useState<Node<AutomationNodeData>[]>(defaultNodes);
@@ -1142,6 +1144,206 @@ function BuilderCanvas({
       );
     }
 
+    // Real, confirmed gaps: the executor for these kinds reads a config field (userId, name/color,
+    // secret/event) that the old generic 7-field fallback never exposed at all - not just an
+    // unclear label, there was genuinely no way to set them from this canvas. Found by auditing
+    // every executor in automationExecutors.js against every kind's inspector form.
+    if (node.data.kind === "assign_user") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Assign to</label>
+          <select
+            value={String(cfg.userId ?? "")}
+            onChange={(event) => updateSelectedConfig("userId", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="">Select a team member...</option>
+            {availableTeamMembers.map((member) => (
+              <option key={member.userId} value={member.userId}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+          {!availableTeamMembers.length ? (
+            <p className="text-[10px] text-muted-foreground">
+              No other team members found yet - add one under Team before this can route to anyone besides you.
+            </p>
+          ) : null}
+        </>
+      );
+    }
+
+    if (node.data.kind === "add_tag") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Tag name</label>
+          <input
+            value={String(cfg.name ?? "")}
+            onChange={(event) => updateSelectedConfig("name", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Lead"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Color</label>
+          <input
+            type="color"
+            value={String(cfg.color || "#25D366")}
+            onChange={(event) => updateSelectedConfig("color", event.target.value)}
+            disabled={!canWrite}
+            className={`${fieldClass} h-9 p-1`}
+          />
+        </>
+      );
+    }
+
+    if (node.data.kind === "call_webhook") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Webhook URL</label>
+          <input
+            value={String(cfg.url ?? "")}
+            onChange={(event) => updateSelectedConfig("url", event.target.value)}
+            disabled={!canWrite}
+            placeholder="https://example.com/webhook"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Secret (optional)</label>
+          <input
+            value={String(cfg.secret ?? "")}
+            onChange={(event) => updateSelectedConfig("secret", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Sent as a signing secret, not required"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Event name</label>
+          <input
+            value={String(cfg.event ?? "")}
+            onChange={(event) => updateSelectedConfig("event", event.target.value)}
+            disabled={!canWrite}
+            placeholder="automation.triggered"
+            className={fieldClass}
+          />
+        </>
+      );
+    }
+
+    // The generic form's "stage" field worked (a plain text input for one of a fixed set of
+    // values), but a free-text box for an enum is error-prone - a typo silently doesn't match any
+    // real stage. Shared across the three CRM-writing kinds since they all read the same field.
+    if (node.data.kind === "add_to_crm" || node.data.kind === "lead_stage" || node.data.kind === "google_sheets") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Lead stage</label>
+          <select
+            value={String(cfg.stage || "new_lead")}
+            onChange={(event) => updateSelectedConfig("stage", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="new_lead">New lead</option>
+            <option value="contacted">Contacted</option>
+            <option value="qualified">Qualified</option>
+            <option value="proposal_sent">Proposal sent</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+          {node.data.kind === "google_sheets" ? (
+            <p className="text-[10px] text-muted-foreground">Also appends a row to the workspace's connected Google Sheet (Settings &gt; Integrations).</p>
+          ) : null}
+        </>
+      );
+    }
+
+    if (node.data.kind === "variables") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Variable name</label>
+          <input
+            value={String(cfg.variable ?? "")}
+            onChange={(event) => updateSelectedConfig("variable", event.target.value)}
+            disabled={!canWrite}
+            placeholder="segment"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Value</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="A fixed value, or {{steps.someNodeId.response}}"
+            rows={3}
+            className={textareaClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Readable anywhere downstream as {"{{variables."}
+            {String(cfg.variable || "name")}
+            {"}}"}.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "openai" || node.data.kind === "claude" || node.data.kind === "gemini") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Prompt</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="What should the model do with this conversation?"
+            rows={6}
+            className={textareaClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            {"{{trigger.body}}"}, {"{{variables.x}}"}, and {"{{steps.nodeId.field}}"} all resolve before this is sent. The
+            reply is available downstream as {"{{steps."}
+            {node.id}
+            {".response}}"}.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "send_message" || node.data.kind === "sms" || node.data.kind === "send_instagram") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Message</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Message text"
+            rows={4}
+            className={textareaClass}
+          />
+        </>
+      );
+    }
+
+    if (node.data.kind === "json_parser") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">JSON input</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder='{"key": "value"}'
+            rows={5}
+            spellCheck={false}
+            className={`${textareaClass} font-mono`}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Parsed result is available downstream as {"{{steps."}
+            {node.id}
+            {".parsed.field}}"}.
+          </p>
+        </>
+      );
+    }
+
     return ["body", "url", "keyword", "status", "stage", "variable", "code"].map((field) => (
       <input
         key={field}
@@ -1619,6 +1821,7 @@ interface AutomationViewProps {
 export function AutomationView({ canWrite = false }: AutomationViewProps) {
   const [flowList, setFlowList] = useState<Flow[]>([]);
   const [whatsAppFlowsList, setWhatsAppFlowsList] = useState<WhatsAppFlowOption[]>([]);
+  const [teamMembersList, setTeamMembersList] = useState<{ userId: string; name: string }[]>([]);
   const [summary, setSummary] = useState({ runsToday: 0, automatedMessages: 0, handoffs: 0 });
   const [selectedFlowId, setSelectedFlowId] = useState("");
   const [flowsListCollapsed, setFlowsListCollapsed] = useState(false);
@@ -1669,6 +1872,9 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
       .catch(() => undefined);
     getWhatsAppFlows<{ data: WhatsAppFlowOption[] }>()
       .then((response) => setWhatsAppFlowsList(response.data))
+      .catch(() => undefined);
+    getTeamMembers<{ data: { userId: string; name: string }[] }>()
+      .then((response) => setTeamMembersList(response.data))
       .catch(() => undefined);
   }, []);
 
@@ -2102,7 +2308,14 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
             )}
           </aside>
 
-          <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} availableFlows={flowList} availableWhatsAppFlows={whatsAppFlowsList} />
+          <BuilderCanvas
+            selectedFlow={selectedFlow}
+            onFlowSaved={upsertFlow}
+            canWrite={canWrite}
+            availableFlows={flowList}
+            availableWhatsAppFlows={whatsAppFlowsList}
+            availableTeamMembers={teamMembersList}
+          />
         </div>
       </div>
     </ReactFlowProvider>
