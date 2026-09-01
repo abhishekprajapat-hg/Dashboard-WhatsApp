@@ -10,6 +10,7 @@ import { sendFlowMessage } from "./whatsappFlows.js";
 import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
+import { bookVegaMeeting, checkVegaOfficeHours, fetchVegaMeetingSlots } from "./vegaIntegration.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { logger } from "./logger.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
@@ -932,6 +933,183 @@ async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
   };
 }
 
+// "Open"/"closed" reads Vega's MeetingAvailability.weeklyWindows (the same config that gates
+// booking slots) via checkVegaOfficeHours - no separate schedule lives in this flow, on purpose.
+// Any failure to reach Vega (unconfigured, timeout, non-2xx) defaults to "closed" rather than
+// "open" - wrongly promising a live agent is worse than wrongly deferring to the async fallback.
+async function execCheckOfficeHours() {
+  const result = await checkVegaOfficeHours();
+  if (!result.ok) {
+    logger.warn({ reason: result.reason }, "execCheckOfficeHours: check failed, defaulting to closed");
+    return {
+      status: "ok",
+      branch: "closed",
+      action: { type: "check_office_hours", status: "unavailable", reason: result.reason },
+      logMessage: `Office hours check unavailable (${result.reason}) - defaulting to closed`,
+      logLevel: "warn",
+    };
+  }
+  return {
+    status: "ok",
+    branch: result.open ? "open" : "closed",
+    action: { type: "check_office_hours", status: "ok", open: result.open },
+    logMessage: `Office hours: ${result.open ? "open" : "closed"}`,
+  };
+}
+
+// "2026-09-08"/"11:00" -> "Tue 8 Sep, 11:00 AM" - both are already IST calendar-day/wall-clock
+// strings from Vega (src/lib/meetings/date.ts), so this is pure string/date-math formatting, no
+// timezone conversion needed on this side.
+function formatSlotLabel(dateKey, timeKey) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const [hour, minute] = timeKey.split(":").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const period = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${weekday} ${day} ${new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })}, ${hour12}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+// Books a real Vega meeting slot in-chat - same event-based pause/resume pattern as ask_mcq
+// above (a WhatsApp interactive list has no server-side state of its own, so the run persists
+// across the separate "show slots" and "customer taps one" webhook events via
+// Conversation.metadata.pendingAutomationRunId). Slots and the actual booking both come from
+// Vega (vegaIntegration.js) - this node has no scheduling logic of its own, so "available slots"
+// stays defined in exactly one place (the same MeetingAvailability an admin configures for the
+// portal booking flow).
+async function execBookMeeting({ node, config: cfg, env, run, flow, testMode }) {
+  const { account, contact, conversation, inboundMessage } = env;
+  if (!account || !contact?.phone || !conversation) {
+    return { status: "skipped", logMessage: "Skipped book_meeting: missing account/contact/conversation", logLevel: "warn" };
+  }
+
+  const variableName = String(cfg?.variable || node.id).trim();
+  const meetingType = cfg?.type === "in_person" ? "in_person" : "online";
+  const priorState = run.context.steps[node.id];
+  const priorOptions = Array.isArray(priorState?.options) ? priorState.options : [];
+  const alreadyAsked = priorState?.status === "sent";
+
+  const interactiveReply = alreadyAsked ? inboundMessage?.metadata?.interactiveReply : null;
+  const matchedOption = interactiveReply && priorOptions.find((option) => option.id === interactiveReply.id);
+
+  if (alreadyAsked && matchedOption) {
+    const [dateKey, timeKey] = matchedOption.id.split("|");
+
+    if (testMode) {
+      return {
+        status: "ok",
+        branch: "booked",
+        action: { type: "book_meeting", status: "skipped", skipped: true },
+        logMessage: "Book meeting skipped in test mode",
+      };
+    }
+
+    const bookResult = await bookVegaMeeting({ contactName: contact.name, contactPhone: contact.phone, type: meetingType, dateKey, timeKey });
+
+    if (!bookResult.ok) {
+      logger.warn({ nodeId: node.id, reason: bookResult.reason }, "execBookMeeting: booking failed");
+      return {
+        status: "ok",
+        branch: "failed",
+        action: { type: "book_meeting", status: "failed", reason: bookResult.reason },
+        logMessage: `Meeting booking failed: ${bookResult.reason}`,
+        logLevel: "warn",
+      };
+    }
+
+    run.context.variables = run.context.variables || {};
+    run.context.variables[variableName] = { dateKey, timeKey, type: meetingType };
+
+    try {
+      await enqueueAutomationSendMessage({
+        flowId: flow._id.toString(),
+        flowName: flow.name,
+        nodeId: node.id,
+        accountId: account._id.toString(),
+        workspaceId: run.workspaceId.toString(),
+        organizationId: run.organizationId.toString(),
+        contactId: contact._id.toString(),
+        conversationId: conversation._id.toString(),
+        body: `You're booked for ${formatSlotLabel(dateKey, timeKey)} (${bookResult.durationMinutes || 30} min${
+          meetingType === "in_person" ? `, ${bookResult.location}` : ""
+        }). We'll see you then!`,
+        testMode,
+      });
+    } catch (error) {
+      logger.error({ nodeId: node.id, error: error.message }, "execBookMeeting: confirmation message failed to queue");
+    }
+
+    return {
+      status: "ok",
+      branch: "booked",
+      action: { type: "book_meeting", status: "booked", dateKey, timeKey },
+      logMessage: `Meeting booked: ${dateKey} ${timeKey}`,
+    };
+  }
+
+  // First visit, or a resumed reply that didn't match any offered slot - (re)fetch and (re)send
+  // the list. Reusing this same branch for "no match" keeps the node's state machine to two
+  // cases (has a matched tap / doesn't) instead of a third "nudge and re-wait" special case.
+  if (testMode) {
+    return { status: "ok", action: { type: "book_meeting", status: "skipped", skipped: true }, logMessage: "Book meeting skipped in test mode" };
+  }
+
+  const slotsResult = await fetchVegaMeetingSlots({ type: meetingType });
+  const slots = slotsResult.ok ? slotsResult.slots || [] : [];
+  if (!slots.length) {
+    return {
+      status: "ok",
+      branch: "no_slots",
+      action: { type: "book_meeting", status: "no_slots", reason: slotsResult.ok ? "no_availability" : slotsResult.reason },
+      logMessage: "No meeting slots available",
+      logLevel: "warn",
+    };
+  }
+
+  const options = slots.map((slot) => ({ id: `${slot.dateKey}|${slot.timeKey}`, title: formatSlotLabel(slot.dateKey, slot.timeKey) }));
+  const question = String(cfg?.body || "").trim() || "Great! Here are our next available slots - pick one that works:";
+
+  let sendResult;
+  try {
+    sendResult = await sendWhatsAppInteractive({ account, to: contact.phone, body: question, list: { buttonLabel: "Choose a time", rows: options } });
+  } catch (error) {
+    logger.error({ nodeId: node.id, conversationId: conversation._id?.toString(), error: error.message }, "execBookMeeting: send failed");
+    return {
+      status: "failed",
+      branch: "send_failed",
+      error: error.message,
+      action: { type: "book_meeting", status: "failed", error: error.message },
+      logMessage: "Book meeting failed to send",
+      logLevel: "error",
+    };
+  }
+
+  const outboundMessage = await Message.create({
+    organizationId: run.organizationId,
+    workspaceId: run.workspaceId,
+    conversationId: conversation._id,
+    contactId: contact._id,
+    whatsappAccountId: account._id,
+    direction: "outbound",
+    type: "interactive",
+    body: question,
+    providerMessageId: sendResult.providerMessageId,
+    status: sendResult.status || "sent",
+    sentAt: new Date(),
+    metadata: { automationFlowId: flow._id, automationFlowName: flow.name, automationGenerated: true, providerMode: sendResult.mode },
+  });
+  await Conversation.updateOne(
+    { _id: conversation._id },
+    { $set: { "metadata.pendingAutomationRunId": run._id, lastMessageId: outboundMessage._id, lastMessageAt: outboundMessage.sentAt } }
+  );
+
+  return {
+    status: "ok",
+    waitForReply: true,
+    action: { type: "book_meeting", status: "sent", options },
+    logMessage: `Offered ${options.length} meeting slots`,
+  };
+}
+
 // Single Product messages only (v1 scope, matching whatsappCommerce.js) - synchronous, no queue,
 // same shape as execSendFlow above since both are Meta-only interactive-message sends outside the
 // bulk-campaign system. catalogId comes from the triggering WhatsAppAccount (a business connects
@@ -1058,6 +1236,8 @@ const executors = {
   email: execEmail,
   send_flow: execSendFlow,
   ask_mcq: execAskMcq,
+  check_office_hours: execCheckOfficeHours,
+  book_meeting: execBookMeeting,
   send_product_message: execSendProductMessage,
   send_instagram: execSendInstagram,
   sms: execSms,

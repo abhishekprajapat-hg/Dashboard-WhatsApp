@@ -26,6 +26,7 @@ import {
   Braces,
   CalendarDays,
   CheckCircle2,
+  Clock,
   Code2,
   Copy,
   Database,
@@ -282,6 +283,8 @@ const nodeCatalog = [
   { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
   { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
   { kind: "ask_mcq", label: "Ask MCQ", icon: "ListChecks", color: "#fb923c", description: "In-chat buttons, AI handles edge cases" },
+  { kind: "check_office_hours", label: "Office Hours", icon: "Clock", color: "#facc15", description: "Branch on Vega's live office-hours config" },
+  { kind: "book_meeting", label: "Book Meeting", icon: "CalendarDays", color: "#34d399", description: "Show real Vega slots in-chat and book one" },
   { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "#0ea5e9", description: "Send a catalog product" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
   { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
@@ -311,6 +314,7 @@ function iconFor(name: string, size = 15) {
     Braces: <Braces size={size} />,
     CalendarDays: <CalendarDays size={size} />,
     CheckCircle2: <CheckCircle2 size={size} />,
+    Clock: <Clock size={size} />,
     Code2: <Code2 size={size} />,
     Database: <Database size={size} />,
     Diamond: <Diamond size={size} />,
@@ -366,6 +370,20 @@ const branchHandlesByKind: Record<string, { id: string; label: string; dotClassN
     { id: "matched", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
     { id: "edge_case", label: "AI", dotClassName: "!bg-purple-500", textClassName: "text-purple-300" },
   ],
+  // open/closed reads Vega's MeetingAvailability.weeklyWindows live - no schedule configured here.
+  check_office_hours: [
+    { id: "open", label: "Open", dotClassName: "!bg-primary", textClassName: "text-primary" },
+    { id: "closed", label: "Closed", dotClassName: "!bg-muted-foreground", textClassName: "text-muted-foreground" },
+  ],
+  // booked: a real Vega Meeting was created - continue the main path. failed: booking rejected
+  // (slot taken, Vega unreachable) - wire to a fallback message or back to this same node to
+  // retry with fresh slots. no_slots: nothing open in Vega right now - wire to a "we'll reach
+  // out directly" message instead of leaving the customer stuck.
+  book_meeting: [
+    { id: "booked", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
+    { id: "failed", label: "✗", dotClassName: "!bg-destructive", textClassName: "text-destructive" },
+    { id: "no_slots", label: "∅", dotClassName: "!bg-muted-foreground", textClassName: "text-muted-foreground" },
+  ],
 };
 
 function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>) {
@@ -393,23 +411,30 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
         </div>
       </div>
       {branchHandles ? (
-        branchHandles.flatMap((handle, index) => [
-          <Handle
-            key={`${handle.id}-handle`}
-            type="source"
-            position={Position.Right}
-            id={handle.id}
-            style={{ top: `${38 + index * 34}%` }}
-            className={`!h-3.5 !w-3.5 !border-2 !border-background ${handle.dotClassName}`}
-          />,
-          <span
-            key={`${handle.id}-label`}
-            className={`pointer-events-none absolute right-1.5 text-[9px] font-semibold ${handle.textClassName}`}
-            style={{ top: `${30 + index * 34}%` }}
-          >
-            {handle.label}
-          </span>,
-        ])
+        // Spread evenly across a fixed 30%-85% band regardless of count, rather than a fixed
+        // 34%-per-step that only fit the 2-handle case every kind used to have - book_meeting's
+        // 3 handles (booked/failed/no_slots) would overflow below the card at a flat 34% step.
+        branchHandles.flatMap((handle, index) => {
+          const step = branchHandles.length > 1 ? 48 / (branchHandles.length - 1) : 0;
+          const top = 30 + index * step;
+          return [
+            <Handle
+              key={`${handle.id}-handle`}
+              type="source"
+              position={Position.Right}
+              id={handle.id}
+              style={{ top: `${top + 8}%` }}
+              className={`!h-3.5 !w-3.5 !border-2 !border-background ${handle.dotClassName}`}
+            />,
+            <span
+              key={`${handle.id}-label`}
+              className={`pointer-events-none absolute right-1.5 text-[9px] font-semibold ${handle.textClassName}`}
+              style={{ top: `${top}%` }}
+            >
+              {handle.label}
+            </span>,
+          ];
+        })
       ) : (
         <Handle type="source" position={Position.Right} className={handleClass} />
       )}
@@ -946,6 +971,56 @@ function BuilderCanvas({
             2-3 options send as tap buttons, 4-10 send as a list. Wire the &quot;✓&quot; handle to the next question on a matched
             reply. Wire &quot;AI&quot; to a Claude node when the customer types something that doesn&apos;t match any option -
             read the raw reply as {"{{variables."}{String(cfg.variable || "answer")}{"_raw}}"} in that node&apos;s prompt.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "check_office_hours") {
+      return (
+        <p className="text-[10px] text-muted-foreground">
+          No configuration here - reads Vega&apos;s live MeetingAvailability schedule (the same weekly windows an admin sets
+          at vega.nemnidhi.com/meetings). Wire &quot;Open&quot; to an immediate hand-off (e.g. Assign Agent), and
+          &quot;Closed&quot; to a message that sets honest expectations. If Vega can&apos;t be reached, this defaults to
+          &quot;Closed&quot; rather than risk promising someone&apos;s online who isn&apos;t.
+        </p>
+      );
+    }
+
+    if (node.data.kind === "book_meeting") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Intro message (optional)</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="Great! Here are our next available slots - pick one that works:"
+            className={textareaClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Meeting type</label>
+          <select
+            value={String(cfg.type || "online")}
+            onChange={(event) => updateSelectedConfig("type", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="online">Online</option>
+            <option value="in_person">In person</option>
+          </select>
+          <label className="block text-[10px] font-medium text-muted-foreground">Store booking as variable</label>
+          <input
+            value={String(cfg.variable ?? "")}
+            onChange={(event) => updateSelectedConfig("variable", event.target.value)}
+            disabled={!canWrite}
+            placeholder="demo_booking"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Pulls real open slots from Vega (up to 10, sent as a WhatsApp list) and books whichever one the customer taps -
+            no separate scheduling logic here. &quot;✓&quot; continues once booked; &quot;✗&quot; fires if the slot was taken
+            or Vega rejected the booking (wire back to this node to retry, or to a fallback message); &quot;∅&quot; fires if
+            Vega has no open slots at all right now (e.g. MeetingAvailability isn&apos;t configured yet).
           </p>
         </>
       );
