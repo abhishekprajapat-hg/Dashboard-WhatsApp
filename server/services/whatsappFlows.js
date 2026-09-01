@@ -218,6 +218,86 @@ export const FLOW_TEMPLATES = {
       ],
     }),
   },
+  // Real-estate-specific qualifying flow for the CTWA reel campaign - kept separate from
+  // requirement_gathering (that one stays general-purpose for other verticals). Four questions
+  // only, deliberately short for a cold ad-click lead: segment, current lead-handling, single
+  // biggest pain point, optional free text. No budget/team-size-as-a-number question - not
+  // relevant to qualifying a real-estate CRM buyer the way it is for a generic B2B lead.
+  real_estate_qualifying: {
+    label: "Real Estate Qualifying",
+    categories: ["LEAD_GENERATION"],
+    buildFlowJson: () => ({
+      version: "6.2",
+      screens: [
+        {
+          id: "REAL_ESTATE_QUALIFYING",
+          title: "A couple of quick questions",
+          terminal: true,
+          success: true,
+          data: {},
+          layout: {
+            type: "SingleColumnLayout",
+            children: [
+              {
+                type: "Form",
+                name: "real_estate_form",
+                children: [
+                  {
+                    type: "Dropdown",
+                    name: "segment",
+                    label: "What best describes you?",
+                    required: true,
+                    "data-source": [
+                      { id: "individual_agent", title: "Individual agent" },
+                      { id: "small_agency", title: "Small agency (2-10 people)" },
+                      { id: "larger_agency_builder", title: "Larger agency / builder (10+)" },
+                    ],
+                  },
+                  {
+                    type: "Dropdown",
+                    name: "lead_handling",
+                    label: "How are you handling leads and enquiries today?",
+                    required: true,
+                    "data-source": [
+                      { id: "whatsapp_calls_untracked", title: "Mostly WhatsApp/calls, nothing tracked" },
+                      { id: "excel_notebook", title: "Excel or a notebook" },
+                      { id: "existing_crm", title: "Already using some CRM" },
+                    ],
+                  },
+                  {
+                    type: "Dropdown",
+                    name: "pain_point",
+                    label: "What's the single biggest headache right now?",
+                    required: true,
+                    "data-source": [
+                      { id: "losing_leads", title: "Losing track of leads" },
+                      { id: "followups_slipping", title: "Follow-ups slipping through" },
+                      { id: "team_coordination", title: "Team not coordinated" },
+                      { id: "client_reporting", title: "Reporting to clients/owners" },
+                    ],
+                  },
+                  { type: "TextArea", name: "notes", label: "Anything else you want us to know?", required: false },
+                  {
+                    type: "Footer",
+                    label: "Continue",
+                    "on-click-action": {
+                      name: "complete",
+                      payload: {
+                        segment: "${form.segment}",
+                        lead_handling: "${form.lead_handling}",
+                        pain_point: "${form.pain_point}",
+                        notes: "${form.notes}",
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  },
 };
 
 export async function createFlow({ account, template, name }) {
