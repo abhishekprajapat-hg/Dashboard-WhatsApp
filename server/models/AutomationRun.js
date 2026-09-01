@@ -8,7 +8,7 @@ const automationRunSchema = new mongoose.Schema(
     organizationId: { type: mongoose.Schema.Types.ObjectId, ref: "Organization", required: true, index: true },
     workspaceId: { type: mongoose.Schema.Types.ObjectId, ref: "Workspace", required: true, index: true },
     flowId: { type: mongoose.Schema.Types.ObjectId, ref: "AutomationFlow", required: true, index: true },
-    status: { type: String, enum: ["running", "waiting", "completed", "failed", "cancelled"], default: "running", index: true },
+    status: { type: String, enum: ["running", "waiting", "waiting_for_reply", "completed", "failed", "cancelled"], default: "running", index: true },
     testMode: { type: Boolean, default: false },
     // Set when this run was created by a "sub_workflow" node in another run, rather than by a
     // real trigger - lets the Run History UI eventually show nesting. Null for top-level runs.

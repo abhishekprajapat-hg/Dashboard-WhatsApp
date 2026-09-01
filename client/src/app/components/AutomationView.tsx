@@ -63,6 +63,7 @@ import {
   Workflow,
   Instagram,
   ShoppingBag,
+  ListChecks,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -276,6 +277,7 @@ const nodeCatalog = [
   { kind: "send_instagram", label: "Instagram DM", icon: "Instagram", color: "#e1306c", description: "Send an Instagram DM" },
   { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
   { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
+  { kind: "ask_mcq", label: "Ask MCQ", icon: "ListChecks", color: "#fb923c", description: "In-chat buttons, AI handles edge cases" },
   { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "#0ea5e9", description: "Send a catalog product" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
   { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
@@ -325,6 +327,7 @@ function iconFor(name: string, size = 15) {
     Workflow: <Workflow size={size} />,
     Instagram: <Instagram size={size} />,
     ShoppingBag: <ShoppingBag size={size} />,
+    ListChecks: <ListChecks size={size} />,
     Zap: <Zap size={size} />,
   };
   return icons[name] || <Zap size={size} />;
@@ -351,6 +354,13 @@ const branchHandlesByKind: Record<string, { id: string; label: string; dotClassN
   loop: [
     { id: "loop", label: "↻", dotClassName: "!bg-yellow-500", textClassName: "text-yellow-300" },
     { id: "done", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
+  ],
+  // matched: the reply was a button/list tap (or free text) matching one of the configured
+  // options - continue the main path. edge_case: anything else (unrecognized tap, free-text
+  // answer that doesn't match) - wire this to a "claude" node to interpret it.
+  ask_mcq: [
+    { id: "matched", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
+    { id: "edge_case", label: "AI", dotClassName: "!bg-purple-500", textClassName: "text-purple-300" },
   ],
 };
 
@@ -798,6 +808,43 @@ function BuilderCanvas({
           <p className="text-[10px] text-muted-foreground">
             Only published WhatsApp Flows can be sent (Settings &gt; Flows). Sent to the current contact&apos;s phone number -
             skipped if the contact has none.
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "ask_mcq") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Question</label>
+          <textarea
+            value={String(cfg.body ?? "")}
+            onChange={(event) => updateSelectedConfig("body", event.target.value)}
+            disabled={!canWrite}
+            placeholder="What best describes you?"
+            className={textareaClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Options (JSON)</label>
+          <textarea
+            value={String(cfg.options ?? "")}
+            onChange={(event) => updateSelectedConfig("options", event.target.value)}
+            disabled={!canWrite}
+            placeholder='[{"id":"individual_agent","title":"Individual agent"},{"id":"small_agency","title":"Small agency (2-10 people)"}]'
+            className={textareaClass}
+            rows={4}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Store answer as variable</label>
+          <input
+            value={String(cfg.variable ?? "")}
+            onChange={(event) => updateSelectedConfig("variable", event.target.value)}
+            disabled={!canWrite}
+            placeholder="segment"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            2-3 options send as tap buttons, 4-10 send as a list. Wire the &quot;✓&quot; handle to the next question on a matched
+            reply. Wire &quot;AI&quot; to a Claude node when the customer types something that doesn&apos;t match any option -
+            read the raw reply as {"{{variables."}{String(cfg.variable || "answer")}{"_raw}}"} in that node&apos;s prompt.
           </p>
         </>
       );

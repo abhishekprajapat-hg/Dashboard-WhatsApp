@@ -441,6 +441,115 @@ export async function sendWhatsAppText({ account, to, body, attachments = [] }) 
   };
 }
 
+// Native in-chat quick-reply UI - buttons (<=3 options) or a list (<=10 options, Meta's own cap),
+// distinct from the WhatsApp Flow popup (whatsappFlows.js's sendFlowMessage): this stays inline in
+// the conversation instead of opening a separate form screen. Meta Cloud API only for now - Twilio/
+// Wati have their own separate interactive-message shapes, not needed for the one real WABA this
+// is built against.
+export async function sendWhatsAppInteractive({ account, to, body, buttons, list }) {
+  if (buttons && list) {
+    const error = new Error("Pass either buttons or list, not both.");
+    error.code = "INVALID_INTERACTIVE_MESSAGE";
+    throw error;
+  }
+  if (!buttons && !list) {
+    const error = new Error("An interactive message needs buttons or a list.");
+    error.code = "INVALID_INTERACTIVE_MESSAGE";
+    throw error;
+  }
+  if (buttons && buttons.length > 3) {
+    const error = new Error("WhatsApp button messages support at most 3 options - use a list instead.");
+    error.code = "TOO_MANY_BUTTONS";
+    throw error;
+  }
+  if (list && list.rows?.length > 10) {
+    const error = new Error("WhatsApp list messages support at most 10 options.");
+    error.code = "TOO_MANY_LIST_ROWS";
+    throw error;
+  }
+
+  if (!account) {
+    return { providerMessageId: `local_${Date.now()}`, status: "sent", mode: "local" };
+  }
+
+  const credentials = decodeCredentials(account);
+  if (isLocalCredential(credentials)) {
+    return { providerMessageId: `local_${account._id}_${Date.now()}`, status: "sent", mode: "local", to, body };
+  }
+
+  if (account.provider !== "meta") {
+    const error = new Error("Interactive button/list messages are only supported on the Meta Cloud API provider.");
+    error.code = "INTERACTIVE_NOT_SUPPORTED";
+    throw error;
+  }
+
+  const recipient = normalizeRecipient(to);
+  if (!recipient) {
+    const error = new Error("Recipient phone number is missing.");
+    error.code = "INVALID_RECIPIENT";
+    throw error;
+  }
+
+  const interactive = buttons
+    ? {
+        type: "button",
+        body: { text: body },
+        action: {
+          buttons: buttons.map((option) => ({
+            type: "reply",
+            reply: { id: option.id, title: String(option.title).slice(0, 20) },
+          })),
+        },
+      }
+    : {
+        type: "list",
+        body: { text: body },
+        action: {
+          button: String(list.buttonLabel || "Choose").slice(0, 20),
+          sections: [
+            {
+              title: list.sectionTitle || "Options",
+              rows: list.rows.map((row) => ({
+                id: row.id,
+                title: String(row.title).slice(0, 24),
+                ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
+              })),
+            },
+          ],
+        },
+      };
+
+  const accessToken = credentials.accessToken;
+  const response = await fetch(`https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: recipient,
+      type: "interactive",
+      interactive,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || "Meta interactive message send failed.");
+    error.meta = payload;
+    error.code = payload?.error?.code || "META_INTERACTIVE_SEND_FAILED";
+    error.status = response.status;
+    throw error;
+  }
+
+  return {
+    providerMessageId: payload?.messages?.[0]?.id || `meta_interactive_${Date.now()}`,
+    status: "sent",
+    mode: "meta",
+    to: recipient,
+    body,
+  };
+}
+
 function countPlaceholders(text = "") {
   const matches = String(text).match(/{{\s*\d+\s*}}/g);
   return matches ? matches.length : 0;
@@ -714,6 +823,17 @@ export function normalizeWebhookPayload(payload) {
         flowResponse = { name: nfmReply.name || "", body: nfmReply.body || "", data: {} };
       }
     }
+    // Tap on a native button/list message (sendWhatsAppInteractive above) - structurally distinct
+    // from nfm_reply (Flow popup completion). Both shapes carry {id, title}; list also has
+    // description. Free-text replies to an interactive prompt arrive as plain text (message.text),
+    // not here - that's how the automation engine tells "matched an option" from "edge case".
+    const buttonReply = message.interactive?.type === "button_reply" ? message.interactive.button_reply : null;
+    const listReply = message.interactive?.type === "list_reply" ? message.interactive.list_reply : null;
+    const interactiveReply = buttonReply
+      ? { type: "button", id: buttonReply.id || "", title: buttonReply.title || "" }
+      : listReply
+      ? { type: "list", id: listReply.id || "", title: listReply.title || "", description: listReply.description || "" }
+      : null;
     // Cart checkout inside a catalog conversation - message.type === "order", a structurally
     // separate shape from text/media (confirmed via Meta's real webhook payload docs), same
     // piggyback-on-the-generic-inbound-message approach as flowResponse above rather than a
@@ -740,6 +860,7 @@ export function normalizeWebhookPayload(payload) {
       providerMessageId: message.id,
       referral: message.referral || null,
       flowResponse,
+      interactiveReply,
       order,
       profile: {
         waName: contact.profile?.name || "",

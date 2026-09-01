@@ -1,6 +1,6 @@
 import { AutomationFlow, AutomationRun, Conversation } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
-import { advanceRun } from "./automationEngine.js";
+import { advanceRun, resumeAutomationRunOnReply } from "./automationEngine.js";
 import { keywordMatches, parseKeywords } from "../utils/keywords.js";
 
 function appendRunLog(flowResult, level, message, data = {}) {
@@ -59,6 +59,19 @@ export async function runInboundAutomations({
 }) {
   if (!account || !contact || !conversation || !inboundMessage) return [];
   if (inboundMessage.direction === "outbound" || inboundMessage.metadata?.automationGenerated) return [];
+
+  // A conversation mid-qualifying-sequence has this set by ask_mcq's first invocation (see
+  // automationExecutors.js) - this inbound message is the answer to that pending question, not a
+  // fresh trigger event. Resume that specific paused run before evaluating any flow's trigger
+  // from scratch, so the same message doesn't also get treated as a brand-new "new_message" event
+  // for the flow it's already mid-way through.
+  let resumedRun = false;
+  const pendingRunId = conversation.metadata?.pendingAutomationRunId;
+  if (pendingRunId) {
+    await Conversation.updateOne({ _id: conversation._id }, { $unset: { "metadata.pendingAutomationRunId": "" } });
+    const { resumed } = await resumeAutomationRunOnReply({ runId: pendingRunId, inboundMessageId: inboundMessage._id });
+    resumedRun = resumed;
+  }
 
   const flowFilter = {
     workspaceId: account.workspaceId,
@@ -154,7 +167,7 @@ export async function runInboundAutomations({
     results.push(flowResult);
   }
 
-  if (results.length) {
+  if (results.length || resumedRun) {
     const hydratedConversation = await Conversation.findById(conversation._id);
     await publishConversationChanged(hydratedConversation?._id || conversation._id);
   }

@@ -206,6 +206,18 @@ export async function advanceRun(run, flow, { testMode = false } = {}) {
 
     const nextId = pickNext(outgoing, currentId, result.branch);
 
+    // Event-based pause (ask_mcq's first invocation, sending the question) - distinct from
+    // waitMs's time-based pause below. Cursor stays AT this same node (not nextId) so the resume
+    // re-invokes this node's own executor with the new inbound message, letting it decide
+    // matched/edge_case; the resume trigger is a Conversation.metadata flag (see
+    // automationRunner.js), not a queued timer job.
+    if (result.waitForReply && !testMode) {
+      run.status = "waiting_for_reply";
+      run.cursor = { nodeId: currentId };
+      await run.save();
+      return run;
+    }
+
     if (result.waitMs && !testMode) {
       run.status = "waiting";
       run.cursor = { nodeId: nextId };
@@ -244,6 +256,30 @@ export async function resumeAutomationRun({ runId }) {
     return { resumed: false };
   }
 
+  run.status = "running";
+  await advanceRun(run, flow, { testMode: run.testMode });
+  return { resumed: true };
+}
+
+// Companion to resumeAutomationRun above, for ask_mcq's event-based pause instead of a timer.
+// Re-points run.trigger.inboundMessageId at the NEW reply (loadRunEnv always re-fetches
+// inboundMessage fresh from this id, so this is the only change needed for the resumed node to
+// see the right message) before continuing traversal from run.cursor - the same node it paused
+// at, so execAskMcq's own "already asked" check re-runs against the new reply instead of re-
+// sending the question.
+export async function resumeAutomationRunOnReply({ runId, inboundMessageId }) {
+  const run = await AutomationRun.findById(runId);
+  if (!run || run.status !== "waiting_for_reply") return { resumed: false };
+
+  const flow = await AutomationFlow.findById(run.flowId);
+  if (!flow) {
+    run.status = "failed";
+    run.error = "flow_not_found";
+    await run.save();
+    return { resumed: false };
+  }
+
+  run.trigger = { ...(run.trigger || {}), inboundMessageId };
   run.status = "running";
   await advanceRun(run, flow, { testMode: run.testMode });
   return { resumed: true };

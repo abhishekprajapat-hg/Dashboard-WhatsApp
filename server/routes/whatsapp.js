@@ -746,7 +746,8 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           .map(([key, value]) => `${key}: ${value}`)
           .join(", ")
         : "";
-      const messageBody = normalized.body || attachments[0]?.caption || flowResponseSummary || normalized.order?.text || "";
+      const interactiveReplySummary = normalized.interactiveReply ? normalized.interactiveReply.title : "";
+      const messageBody = normalized.body || attachments[0]?.caption || flowResponseSummary || interactiveReplySummary || normalized.order?.text || "";
       const messageType = attachments[0]?.type || mediaTypeFor(attachments[0]?.mimeType || "") || "text";
       const found = await findReusableContactAndConversation({ account, phone: normalized.from });
       const waName = normalized.profile?.waName || found.contact?.waName || found.contact?.name || normalized.from;
@@ -809,7 +810,15 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
           contactId: contact._id,
           whatsappAccountId: account._id,
           direction: "inbound",
-          type: normalized.order ? "order" : normalized.flowResponse ? "flow_response" : attachments.length ? messageType : "text",
+          type: normalized.order
+            ? "order"
+            : normalized.flowResponse
+            ? "flow_response"
+            : normalized.interactiveReply
+            ? "interactive_reply"
+            : attachments.length
+            ? messageType
+            : "text",
           body: messageBody,
           attachments,
           providerMessageId: normalized.providerMessageId,
@@ -821,6 +830,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
             ...(normalized.profile ? { profile: normalized.profile } : {}),
             ...(campaign ? { campaign } : {}),
             ...(normalized.flowResponse ? { flowResponse: normalized.flowResponse } : {}),
+            ...(normalized.interactiveReply ? { interactiveReply: normalized.interactiveReply } : {}),
             ...(normalized.order ? { order: normalized.order } : {}),
           },
         },

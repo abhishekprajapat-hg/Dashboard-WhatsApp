@@ -7,6 +7,7 @@ import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
 import { sendEmail, sendSms } from "./notificationChannels.js";
 import { sendFlowMessage } from "./whatsappFlows.js";
+import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
 import { runSandboxedCode } from "./codeSandbox.js";
@@ -778,6 +779,116 @@ async function execSendFlow({ node, env, run, testMode }) {
   }
 }
 
+// Native in-chat buttons/list (sendWhatsAppInteractive), not the WhatsApp Flow popup - the
+// "hybrid" qualifying design: MCQ options for the fast path, free text always allowed, and an
+// "edge_case" branch (wire to a "claude" node) when the reply doesn't match any option. Unlike
+// every other node here, this genuinely pauses the run - Meta's Flow UI held all multi-question
+// state internally and returned one combined answer, but native buttons means separate webhook
+// events per question, so this node has to be revisited: the first visit sends the question and
+// pauses (see automationEngine.js's waitForReply handling + automationRunner.js's
+// pendingAutomationRunId), the second visit (after the reply arrives) reads it and picks a
+// branch. Distinguishing "first visit" from "resumed after reply" reuses execLoop's own
+// convention of reading this node's prior recorded step state rather than needing new
+// AutomationRun fields.
+async function execAskMcq({ node, config: cfg, env, run, testMode }) {
+  const { account, contact, conversation, inboundMessage } = env;
+  if (!account || !contact?.phone || !conversation) {
+    return { status: "skipped", logMessage: "Skipped ask_mcq: missing account/contact/conversation", logLevel: "warn" };
+  }
+
+  let options;
+  try {
+    options = JSON.parse(cfg?.options || "[]");
+  } catch {
+    return {
+      status: "failed",
+      error: "invalid_options_json",
+      action: { type: "ask_mcq", status: "failed", error: "invalid_options_json" },
+      logMessage: "Ask MCQ failed: options is not valid JSON",
+      logLevel: "error",
+    };
+  }
+  if (!Array.isArray(options) || !options.length) {
+    return { status: "skipped", logMessage: "Skipped ask_mcq: no options configured", logLevel: "warn" };
+  }
+
+  const variableName = String(cfg?.variable || node.id).trim();
+  const priorState = run.context.steps[node.id];
+  const alreadyAsked = priorState?.status === "sent";
+
+  if (!alreadyAsked) {
+    const question = String(cfg?.body || "").trim();
+    if (!question) return { status: "skipped", logMessage: "Skipped ask_mcq: no question text", logLevel: "warn" };
+
+    if (testMode) {
+      return {
+        status: "ok",
+        action: { type: "ask_mcq", status: "skipped", skipped: true, question, options },
+        logMessage: "Ask MCQ skipped in test mode",
+      };
+    }
+
+    try {
+      if (options.length <= 3) {
+        await sendWhatsAppInteractive({ account, to: contact.phone, body: question, buttons: options });
+      } else {
+        await sendWhatsAppInteractive({ account, to: contact.phone, body: question, list: { buttonLabel: "Choose", rows: options } });
+      }
+    } catch (error) {
+      // branch: "send_failed" is a sentinel no real flow wires an edge to - without it,
+      // pickNext's no-branch fallback picks the first outgoing edge (here, "matched") and the run
+      // would silently fall through as if the customer had already answered, without ever asking
+      // the question or storing a value. This stops traversal cleanly instead (dead end, no
+      // edge matches), rather than reusing the general failure-continues-anyway behavior every
+      // other node kind relies on - a send failure here is not survivable the way e.g. a failed
+      // Google Sheets append is.
+      return {
+        status: "failed",
+        branch: "send_failed",
+        error: error.message,
+        action: { type: "ask_mcq", status: "failed", error: error.message },
+        logMessage: "Ask MCQ failed to send",
+        logLevel: "error",
+      };
+    }
+
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { "metadata.pendingAutomationRunId": run._id } });
+
+    return {
+      status: "ok",
+      waitForReply: true,
+      action: { type: "ask_mcq", status: "sent", question, options },
+      logMessage: `Asked qualifying question: "${question}"`,
+    };
+  }
+
+  // Resumed: inboundMessage is the reply that just arrived (automationRunner.js re-points
+  // run.trigger.inboundMessageId at it before calling advanceRun again).
+  const interactiveReply = inboundMessage?.metadata?.interactiveReply;
+  const matched = interactiveReply && options.find((option) => option.id === interactiveReply.id);
+
+  run.context.variables = run.context.variables || {};
+
+  if (matched) {
+    run.context.variables[variableName] = matched.id;
+    return {
+      status: "ok",
+      branch: "matched",
+      action: { type: "ask_mcq", status: "matched", value: matched.id },
+      logMessage: `Ask MCQ answer matched: ${matched.id}`,
+    };
+  }
+
+  const rawReply = inboundMessage?.body || interactiveReply?.title || "";
+  run.context.variables[`${variableName}_raw`] = rawReply;
+  return {
+    status: "ok",
+    branch: "edge_case",
+    action: { type: "ask_mcq", status: "edge_case", raw: rawReply },
+    logMessage: `Ask MCQ hit an edge case: "${rawReply}"`,
+  };
+}
+
 // Single Product messages only (v1 scope, matching whatsappCommerce.js) - synchronous, no queue,
 // same shape as execSendFlow above since both are Meta-only interactive-message sends outside the
 // bulk-campaign system. catalogId comes from the triggering WhatsAppAccount (a business connects
@@ -903,6 +1014,7 @@ const executors = {
   gemini: makeAiExecutor("gemini"),
   email: execEmail,
   send_flow: execSendFlow,
+  ask_mcq: execAskMcq,
   send_product_message: execSendProductMessage,
   send_instagram: execSendInstagram,
   sms: execSms,
