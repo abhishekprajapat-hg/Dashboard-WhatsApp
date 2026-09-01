@@ -3,13 +3,169 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: pushed through `bbaa3db`, real requirement-gathering flow work on top of
-that not yet committed as of this note - see the new section immediately below** (billing/signup code
-at `a4b3904` is the most recent commit actually **live in production**; everything after that,
-including `bbaa3db`, is pushed but NOT deployed - the auto-deploy cron is still broken, see its own
-section further below, a push alone won't make anything live, the manual deploy steps there are still
-required). Client and server can end up on different effective versions if only one side's cache/process
-picks up a push — see the settings.js bug below for a real example of what that desync can hide.
+**HEAD as of this handoff: `24d52d7`, confirmed live in production** (deploy cron is still broken -
+every one of the 13 commits below needed the manual deploy steps in its own section further down,
+repeated one at a time throughout this session; don't assume a push alone is live, always check
+`git log -1` on the VPS matches before trusting anything in this file as "done").
+
+## READ THIS FIRST — real estate CTWA qualifying flow: built, deployed, and proven live end-to-end on real WhatsApp, 2026-09-01
+
+**Context**: the user needed to launch a Click-to-WhatsApp Meta ad campaign (a 1:15 reel for a real
+estate CRM product) *the same day*, routing clicks into a WhatsApp qualifying conversation that feeds
+Vega. This session built the qualifying flow itself, then spent most of its length finding and fixing
+a chain of real, independent production bugs blocking it - each one confirmed via actual API calls,
+real WhatsApp messages, or a live browser repro, not assumed. **All 13 commits below are deployed and
+the flow is confirmed working end-to-end on the real WABA** (`+918269150205`) - see the final proof at
+the bottom of this section.
+
+**1. New `real_estate_qualifying` WhatsApp Flow template** (`5230bb7`) - kept separate from the
+existing general-purpose `requirement_gathering` template. Four short questions:
+`segment`/`lead_handling`/`pain_point` (dropdowns) + free-text `notes`. Superseded almost immediately
+by item 2 below once the user pushed back that a native WhatsApp Flow popup is real friction for
+Indian users vs. staying in the chat thread - kept in the codebase as an available template, not
+actively used in the live flow.
+
+**2. Native in-chat MCQ buttons/list + AI-fallback qualifying flow, replacing the Flow-popup approach**
+(`028b7e1`) - the actual mechanism now in production use:
+- `whatsappProvider.js`'s new `sendWhatsAppInteractive()` sends real WhatsApp button (≤3 options) or
+  list (4-10 options) messages - inline in the chat thread, no separate popup screen.
+- New `interactive`/`interactive_reply` handling in the inbound webhook normalizer (button/list tap
+  metadata) and a matching `Message.type` enum addition.
+- New `ask_mcq` automation node type (`automationExecutors.js`'s `execAskMcq`) with two outputs: **✓
+  matched** (a real button/list tap, or free text that happens to equal an option - continues
+  straight through) and **AI edge_case** (anything else - wire to an AI node to interpret). This
+  genuinely needed a new **event-based pause/resume mechanism** in the engine
+  (`automationEngine.js`'s `waitForReply`/`waiting_for_reply` status, mirroring the existing
+  `waitMs`/`waiting` timer-based pause) since - unlike the WhatsApp Flow popup, which held all
+  multi-question state internally and reported one combined answer - native buttons mean a separate
+  webhook event per question, so the run has to actually persist across them
+  (`Conversation.metadata.pendingAutomationRunId`, checked at the top of every
+  `runInboundAutomations` call in `automationRunner.js`).
+- New front-end "Ask MCQ" node in the visual builder (question + options JSON + variable name),
+  matching branch-handle UI already used by condition/if_else/loop.
+
+**3. Real bug caught while building #2: a send failure would silently mismark a lead as "matched"**
+(fixed within `028b7e1` itself, `automationExecutors.js`) - `pickNext`'s no-branch fallback picks
+the first outgoing edge when an executor doesn't set `branch`; `execAskMcq`'s own catch block now
+returns `branch: "send_failed"` (a sentinel no real flow wires to) so a genuine send failure dead-ends
+instead of continuing as if the customer had already answered.
+
+**4. Real bug: the Trigger node's "Fires on" field was completely decorative** (`05550f7`) -
+`newFlow()` hardcoded `triggerType: "new_message"` on every new visual flow regardless of what its
+Trigger node showed, and `saveCanvas`'s update path never sent `trigger`/`triggerType` at all on
+subsequent saves. Every flow built through the visual canvas silently ran as "fires on every message"
+- which would have made the qualifying sequence re-ask its first question on every single reply
+instead of once per new conversation. Fixed: a real Trigger inspector form, and `saveCanvas`/`newFlow`
+now derive `triggerType` from the actual Trigger node's config and send it. Also added a scoped
+`trigger.keyword`/`trigger.keywords` `$set` on the PATCH route (previously only wired for the separate
+"simple automation" edit path).
+
+**5. Real bug: automation-canvas node connections were completely invisible** (`b469f22`) - a genuine
+upstream gap in `@xyflow/react` v12.11.1 itself, not anything in this codebase: its own
+`dist/style.css` sets only `position: absolute` on `.react-flow__edges` and its child `<svg>`, with no
+width/height/inset anywhere. Confirmed via an isolated live-browser repro (a bare test page with zero
+app code, DOM/computed-style inspected directly): every edge `<path>` had a fully valid, non-zero `d`
+attribute and completely normal stroke styling - the edges container had just collapsed to
+`width:0/height:0` per CSS spec (an absolutely-positioned element with `width:auto` and neither `left`
+nor `right` set uses shrink-to-fit sizing), clipping every edge to nothing. Every connection made all
+session - drag-based or the click-based fallback added alongside it (`c755a99`, a second way to wire
+nodes via the Node Inspector's new "Connections" section, not dependent on React Flow's drag/drop
+hit-testing at all) - had actually been succeeding the whole time; it just never rendered. Fix:
+`client/src/styles/xyflow-overrides.css`, explicitly sizing both to fill the viewport, imported last.
+Separately also bumped handle size 10px→14px and `connectionRadius` 20→45px (`21364ca`) for easier
+drag targeting, though that turned out not to be the real bug.
+
+**6. Real bug: ask_mcq's outbound question created no Message record** (`1d39557`) - every other
+send-capable executor (`execSendMessage`, `execEmail`, ...) creates a `Message` document for its
+outbound send; `execAskMcq` never did, so the qualifying question was genuinely delivered via a real
+Meta API call (confirmed in the run's own history log) but never showed up in the Inbox conversation
+view, and `conversation.lastMessageId/lastMessageAt` never advanced for it. Fixed by mirroring the
+existing pattern - new `Message.type: "interactive"` (outbound, distinct from `"interactive_reply"`
+which is the inbound tap).
+
+**7. Integrations settings page: one shared save blocked every section by an unrelated stale field**
+(`f6d57ee`) - all 5 sections (webhook, Google Sheets, AI providers, Email, SMS) shared one `PUT
+/settings/integrations` request validated as a single Zod schema; a stale invalid Google Sheets
+webhook URL from months ago blocked saving *any* section, including simply enabling Gemini today. Also
+a nastier bug found in the process: the original combined route silently overwrote every **omitted**
+section back to its schema default on save (`req.body.outboundWebhook` etc. unconditionally, which
+Zod defaults to `{}` when the client doesn't send it) - meaning a partial-payload caller would have
+been actively destructive, not just blocked. Fixed: 5 new scoped routes (`PUT
+/settings/integrations/{webhook,google-sheets,ai-providers,email,sms}`), each validating and
+persisting only its own slice via a targeted merge; client now has one independent Save button per
+section instead of one shared submit at the page bottom.
+
+**8. Gemini's default model was stale** (`0395ac3`) - `gemini-1.5-flash` no longer appears on Google
+AI Studio's own model/rate-limit page, suggesting deprecation. Switched the default to
+`gemini-2.5-flash` (`AI_GEMINI_MODEL` env var still overrides either way).
+
+**9. Full node-kind inspector audit** (`0a08585`) - went through every executor in
+`automationExecutors.js` and cross-checked its config fields against what its inspector form actually
+exposed. Two were genuinely broken (no UI to set a field the executor needed at all, not just an
+unclear label): **`assign_user`** (`config.userId` - now a real dropdown sourced from the workspace's
+team members) and **`add_tag`** (`config.name`/`color` - now real fields). Also fixed: `call_webhook`
+(missing secret/event fields), `add_to_crm`/`lead_stage`/`google_sheets` (stage was a free-text box for
+an enum - now a dropdown), `variables` (relabeled ambiguous "body" to "Value"), `openai`/`claude`/
+`gemini` (prompt now a textarea, was a cramped single-line input), `send_message`/`sms`/
+`send_instagram` (message now a textarea), `json_parser` (now a monospace textarea). Also removed the
+"Keyword" node from the library - confirmed via grep it was never wired to any executor at all,
+silently doing nothing if ever dragged onto a canvas.
+
+**10. Full per-node execution logging added to the automation engine** (`3967cb6`) - a real production
+run resumed successfully (confirmed: no crash, no error) but produced no further visible action, and
+none of the *existing* logs covered per-node failures since those only wrote into the run's own
+DB-stored `history`, invisible in PM2 logs with no direct database read access available this session.
+Added a log line after **every single node execution** in `advanceRun` (type/status/branch/error -
+covers every node kind), plus targeted logs at `execAskMcq`'s send-failure catch, its resumed
+matched/edge_case branch decision, and every AI provider call's configured-check/success/failure. This
+is what actually found bug #12 below - go straight to these logs (`grep 'advanceRun: node executed'
+/home/dashboard/.pm2/logs/dashboard-api-out.log`) before re-diagnosing any future "flow doesn't
+progress" report from scratch.
+
+**11. "Reset for testing" - reuse the same phone number across test runs** (`24d52d7`) - real phone
+numbers are a scarce resource for exercising `new_conversation`-triggered flows (that trigger, by
+design, never re-fires for a contact who's messaged in before). New `POST
+/conversations/:id/reset-for-testing` (gated behind `settings:write`, since it's destructive) deletes
+the conversation, its messages, its contact, and any `AutomationRun` tied to it. New "Reset for
+testing" button in the chat header, with a confirm dialog. Use this liberally instead of asking anyone
+to text in from a fresh number again.
+
+**12. The actual root cause of "the qualifying flow stops after the first question" - not a code bug
+at all** - once logging (#10) was live, a real test showed `execAskMcq` correctly resuming, correctly
+detecting a real button tap match, and correctly choosing `branch: "matched"` - but then **no further
+node ever executed**, meaning `pickNext` found no edge for that branch. Checking the Node Inspector's
+Connections panel confirmed it directly: the node's *only* wired output was `[edge_case] → Ask MCQ` -
+the "✓ matched" branch had **no connection at all**, and edge_case was wired straight to the next
+question instead of to its own AI node. This was a **flow-configuration mistake in the specific
+AutomationFlow document** (made while manually wiring the canvas), not an engine bug - the fix was
+rewiring the canvas, not touching code. **The correct pattern for every Ask MCQ node**: `✓ matched` →
+the next question directly; `AI edge_case` → that question's own AI node → its Variables node → *then*
+the next question. Worth internalizing this pattern before wiring any future qualifying sequence by
+hand - it's easy to get backwards, and the symptom (silent dead-end, no error anywhere) gives no hint
+which branch is missing without reading the per-node execution log.
+
+**13. Confirmed working, real end-to-end, 2026-09-01 evening** - a real WhatsApp conversation (Vaibhavi
+Basal / Nemnidhi test number) went: new message → "Thanks for reaching out" → **Q1** ("What best
+describes you?") → real button tap *Small agency (2-10 people)* (matched branch) → **Q2** ("How are
+you handling leads and enquiries today?") → *Excel or a notebook* → **Q3** ("What's the single biggest
+headache right now?") → *Team not coordinated* → CRM confirmed: tag **Lead**, stage **New lead**,
+**Assigned Agent: Abhishek Prajapat**. Every question, both the matched-branch and the AI-interpreted
+free-text path, tagging, CRM stage, and sales-rep assignment all fired correctly on the real WABA.
+
+**Real, still-open items, not yet done**:
+- The actual Meta ad campaign itself (uploading the reel as creative, budget, audience) has not
+  been staged yet - `metaAdsProvider.js`'s `createClickToWhatsAppCampaign`/`setCampaignStatus` are
+  already built and proven against the real ad account (`act_338172839578849`, see the "RESOLVED
+  2026-08-19" section below) from a prior session; this session never touched the Ads settings panel.
+- `docs/META_APP_REVIEW_INSTAGRAM.md`'s Instagram permissions batch and the `ads_management`/`ads_read`/
+  `pages_show_list`/`pages_read_engagement` App Review submission (`developers.facebook.com/apps/
+  1622746365465041/app-review`, submitted 2026-08-21) - status not rechecked this session, but per the
+  "RESOLVED 2026-08-19" section the account's own campaigns already work pre-approval regardless.
+- The other 3 previously-built templates/nodes this session didn't touch: `qualifying_questions`/
+  `requirement_gathering` WhatsApp Flow popups are still in the codebase as available templates, not
+  removed - just superseded by the native ask_mcq approach for this specific campaign.
+- Deploy cron is still broken (unchanged from prior sessions) - every commit above needed a manual
+  deploy; see its own section further below for the exact steps.
 
 ## READ THIS FIRST — real requirement-gathering flow for the official number, built 2026-08-27
 
