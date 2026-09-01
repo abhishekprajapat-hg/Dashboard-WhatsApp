@@ -3,10 +3,24 @@
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
-**HEAD as of this handoff: `24d52d7`, confirmed live in production** (deploy cron is still broken -
-every one of the 13 commits below needed the manual deploy steps in its own section further down,
-repeated one at a time throughout this session; don't assume a push alone is live, always check
-`git log -1` on the VPS matches before trusting anything in this file as "done").
+**HEAD as of this handoff: `83c8b29`** (deploy cron is still broken - every commit below needed the
+manual deploy steps in its own section further down, repeated one at a time throughout this session;
+don't assume a push alone is live, always check `git log -1` on the VPS matches before trusting
+anything in this file as "done").
+
+**Addendum, same evening, after the section below was written**: a further live test with genuinely
+random free-text replies ("15", "I use a notebook", "People don't pick up my call") proved the engine
+itself is robust - it completed the full chain (Tag → Lead Stage → Assign Agent) correctly regardless
+of whether Gemini succeeded, confirming the "continue past an AI failure" design works as intended.
+But Gemini itself was failing on **every real call**: `models/gemini-2.5-flash is no longer available
+to new users - use models/gemini-3.6-flash` (a real error from the API, not guessed - Gemini model
+churn is evidently faster than Google AI Studio's own rate-limit page reflects, since that page is
+what `0395ac3` trusted a few hours earlier the same day). Fixed in `83c8b29`. **Also found or noticed
+but not yet fixed**: the pain_point question's Gemini node in the live flow has an **empty prompt**
+(logged as "skipped", not "failed" - never got its prompt pasted in when the Claude→Gemini node swap
+happened) - check every AI node's prompt field is actually filled before trusting this flow's edge-case
+path end to end again. Re-verify with one more real free-text test on all 3 questions once the model
+fix is deployed and that prompt is filled in.
 
 ## READ THIS FIRST — real estate CTWA qualifying flow: built, deployed, and proven live end-to-end on real WhatsApp, 2026-09-01
 
