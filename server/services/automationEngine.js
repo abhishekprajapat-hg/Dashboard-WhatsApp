@@ -191,6 +191,11 @@ export async function advanceRun(run, flow, { testMode = false } = {}) {
       result = { status: "failed", error: error.message, logMessage: `Node "${node.type}" threw`, logLevel: "error" };
     }
 
+    logger.info(
+      { runId: run._id?.toString(), nodeId: node.id, nodeType: node.type, status: result.status, branch: result.branch || null, waitForReply: Boolean(result.waitForReply), waitMs: result.waitMs || null, error: result.error || null },
+      "advanceRun: node executed"
+    );
+
     run.context.steps[node.id] = result.action || { status: result.status, branch: result.branch };
     run.markModified("context");
     run.history.push({

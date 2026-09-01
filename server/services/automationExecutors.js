@@ -11,6 +11,7 @@ import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
 import { runSandboxedCode } from "./codeSandbox.js";
+import { logger } from "./logger.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
 import {
   enqueueAutomationGoogleSheetAction,
@@ -456,6 +457,7 @@ function makeAiExecutor(provider) {
 
     const providerConfig = env.integrations?.aiProviders?.[provider];
     if (!providerConfig?.enabled || !providerConfig?.apiKey) {
+      logger.error({ provider, enabled: Boolean(providerConfig?.enabled), hasApiKey: Boolean(providerConfig?.apiKey) }, "execAiProvider: not configured");
       return {
         status: "failed",
         error: "ai_provider_not_configured",
@@ -475,12 +477,14 @@ function makeAiExecutor(provider) {
 
     try {
       const result = await callAiProvider({ provider, apiKey: providerConfig.apiKey, prompt });
+      logger.info({ provider, responsePreview: String(result.text || "").slice(0, 200) }, "execAiProvider: call completed");
       return {
         status: "ok",
         action: { type: provider, status: "ok", response: result.text },
         logMessage: `${label} call completed`,
       };
     } catch (error) {
+      logger.error({ provider, error: error.message }, "execAiProvider: call failed");
       return {
         status: "failed",
         error: error.message,
@@ -842,6 +846,7 @@ async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
       // edge matches), rather than reusing the general failure-continues-anyway behavior every
       // other node kind relies on - a send failure here is not survivable the way e.g. a failed
       // Google Sheets append is.
+      logger.error({ nodeId: node.id, conversationId: conversation._id?.toString(), error: error.message }, "execAskMcq: send failed");
       return {
         status: "failed",
         branch: "send_failed",
@@ -899,6 +904,11 @@ async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
   // run.trigger.inboundMessageId at it before calling advanceRun again).
   const interactiveReply = inboundMessage?.metadata?.interactiveReply;
   const matched = interactiveReply && options.find((option) => option.id === interactiveReply.id);
+
+  logger.info(
+    { nodeId: node.id, hasInteractiveReply: Boolean(interactiveReply), matchedOptionId: matched?.id || null, rawBody: inboundMessage?.body || "" },
+    "execAskMcq: resumed, deciding branch"
+  );
 
   run.context.variables = run.context.variables || {};
 
