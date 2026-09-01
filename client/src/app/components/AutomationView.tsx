@@ -591,6 +591,11 @@ function BuilderCanvas({
   const [runs, setRuns] = useState<AutomationRunSummary[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(new Set());
+  // Click-based connection fallback (Node Inspector's "Connections" section) - doesn't depend on
+  // drag/drop hit-testing at all, unlike onConnect above. Reset whenever the selected node changes
+  // so a stale target/branch pick from a previous node doesn't carry over.
+  const [manualConnectTarget, setManualConnectTarget] = useState("");
+  const [manualConnectHandle, setManualConnectHandle] = useState("");
 
   function toggleRunExpanded(runId: string) {
     setExpandedRunIds((current) => {
@@ -623,6 +628,11 @@ function BuilderCanvas({
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
 
   useEffect(() => {
+    setManualConnectTarget("");
+    setManualConnectHandle("");
+  }, [selectedNodeId]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => reactFlow.fitView({ padding: 0.2, duration: 250 }), 80);
     return () => window.clearTimeout(timer);
   }, [canvasMaximized, nodeLibraryCollapsed, nodeInspectorCollapsed, reactFlow]);
@@ -635,6 +645,32 @@ function BuilderCanvas({
   const onConnect = useCallback((connection: Connection) => {
     setEdges((items) => normalizeCanvasEdges(addEdge({ ...connection, id: `${connection.source}-${connection.target}-${Date.now()}`, animated: true }, items)));
   }, []);
+
+  // Click-based fallback for wiring nodes together (Node Inspector's "Connections" section) -
+  // goes through the exact same normalizeCanvasEdges path as drag-based onConnect above, so it's
+  // indistinguishable from a dragged connection once saved. Doesn't touch React Flow's pointer/
+  // drag machinery at all, so it works regardless of any drag-and-drop hit-testing issue.
+  function addManualConnection() {
+    if (!selectedNode || !manualConnectTarget) return;
+    setEdges((items) =>
+      normalizeCanvasEdges([
+        ...items,
+        {
+          id: `${selectedNode.id}-${manualConnectTarget}-${Date.now()}`,
+          source: selectedNode.id,
+          target: manualConnectTarget,
+          sourceHandle: manualConnectHandle || null,
+          animated: true,
+        },
+      ])
+    );
+    setManualConnectTarget("");
+    setManualConnectHandle("");
+  }
+
+  function removeConnection(edgeId: string) {
+    setEdges((items) => items.filter((edge) => edge.id !== edgeId));
+  }
 
   function onDragStart(event: DragEvent, kind: string) {
     if (!canWrite) return;
@@ -1328,6 +1364,81 @@ function BuilderCanvas({
               </div>
             ) : null}
           </section>
+
+          {selectedNode ? (
+            <section>
+              <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                <Workflow size={14} /> Connections
+              </h3>
+              <div className="space-y-2 rounded-md border border-border bg-background p-3">
+                <p className="text-[10px] text-muted-foreground">
+                  Wire this node without dragging - pick a target below. Drag-connecting on the canvas still works too.
+                </p>
+                {edges.filter((edge) => edge.source === selectedNode.id).length ? (
+                  <div className="space-y-1">
+                    {edges
+                      .filter((edge) => edge.source === selectedNode.id)
+                      .map((edge) => {
+                        const targetNode = nodes.find((node) => node.id === edge.target);
+                        return (
+                          <div key={edge.id} className="flex items-center justify-between gap-2 rounded border border-border bg-card px-2 py-1.5 text-[11px]">
+                            <span className="truncate text-foreground">
+                              {edge.sourceHandle ? `[${edge.sourceHandle}] -> ` : "-> "}
+                              {targetNode?.data.label || edge.target}
+                            </span>
+                            {canWrite ? (
+                              <button
+                                type="button"
+                                title="Remove connection"
+                                aria-label="Remove connection"
+                                onClick={() => removeConnection(edge.id)}
+                                className="shrink-0 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">No outgoing connections yet.</p>
+                )}
+                {canWrite ? (
+                  <div className="space-y-1.5 border-t border-border pt-2">
+                    {branchHandlesByKind[selectedNode.data.kind] ? (
+                      <select value={manualConnectHandle} onChange={(event) => setManualConnectHandle(event.target.value)} className={fieldClass}>
+                        <option value="">Choose branch...</option>
+                        {branchHandlesByKind[selectedNode.data.kind].map((handle) => (
+                          <option key={handle.id} value={handle.id}>
+                            {handle.label} ({handle.id})
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <select value={manualConnectTarget} onChange={(event) => setManualConnectTarget(event.target.value)} className={fieldClass}>
+                      <option value="">Connect to...</option>
+                      {nodes
+                        .filter((node) => node.id !== selectedNode.id)
+                        .map((node) => (
+                          <option key={node.id} value={node.id}>
+                            {node.data.label} ({node.id})
+                          </option>
+                        ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      className="h-8 w-full bg-primary text-xs text-primary-foreground"
+                      onClick={addManualConnection}
+                      disabled={!manualConnectTarget || Boolean(branchHandlesByKind[selectedNode.data.kind]) && !manualConnectHandle}
+                    >
+                      <Plus size={13} className="mr-1" /> Add connection
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
