@@ -107,7 +107,7 @@ export const config = {
   ai: {
     openaiModel: process.env.AI_OPENAI_MODEL || "gpt-4o-mini",
     claudeModel: process.env.AI_CLAUDE_MODEL || "claude-3-5-haiku-latest",
-    geminiModel: process.env.AI_GEMINI_MODEL || "gemini-2.5-flash",
+    geminiModel: process.env.AI_GEMINI_MODEL || "gemini-3.6-flash",
     requestTimeoutMs: numberFromEnv("AI_REQUEST_TIMEOUT_MS", 30000),
   },
   notifications: {
