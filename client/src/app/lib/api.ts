@@ -1025,7 +1025,16 @@ export function updateAutomationFlow<T>(id: string, flow: { name?: string; statu
 
 export function updateAutomationCanvas<T>(
   id: string,
-  flow: { name?: string; status?: string; trigger?: unknown; nodes?: unknown[]; edges?: unknown[]; versionLabel?: string }
+  flow: {
+    name?: string;
+    status?: string;
+    trigger?: unknown;
+    triggerType?: string;
+    keyword?: string;
+    nodes?: unknown[];
+    edges?: unknown[];
+    versionLabel?: string;
+  }
 ) {
   return request<T>(`/automation/${id}`, {
     method: "PATCH",

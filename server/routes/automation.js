@@ -444,6 +444,14 @@ automationRouter.patch("/:id", requirePermission("automation:write"), requireEnt
   }
   if (req.body?.trigger && typeof req.body.trigger === "object") updates.$set.trigger = req.body.trigger;
   if (req.body?.triggerType) updates.$set["trigger.type"] = normalizeTriggerType(req.body.triggerType);
+  // Scoped sub-field $sets, not a wholesale trigger replace - trigger also carries analytics
+  // (runs/lastRunAt/executionLogs, incremented elsewhere via $inc/$push) that a full trigger
+  // object replacement here would silently wipe.
+  if (typeof req.body?.keyword === "string") {
+    const keywords = parseKeywords(req.body.keyword);
+    updates.$set["trigger.keyword"] = formatKeywords(keywords);
+    updates.$set["trigger.keywords"] = keywords;
+  }
   if (req.body?.description) updates.$set["trigger.description"] = req.body.description;
   if (req.body?.category) updates.$set["trigger.category"] = req.body.category;
   if (req.body?.status) {

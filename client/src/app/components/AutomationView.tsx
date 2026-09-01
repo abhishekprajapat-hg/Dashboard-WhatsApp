@@ -64,6 +64,10 @@ import {
   Instagram,
   ShoppingBag,
   ListChecks,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -578,6 +582,11 @@ function BuilderCanvas({
   const [testResult, setTestResult] = useState<TestResult | { error: string } | null>(null);
   const [debugMode, setDebugMode] = useState(true);
   const [canvasMaximized, setCanvasMaximized] = useState(false);
+  // Independent from canvasMaximized - lets the Node Library / Node Inspector be hidden on demand
+  // to reclaim canvas width without forcing a jarring full-screen takeover just to see more nodes
+  // at once (there was previously no way to do this short of maximizing).
+  const [nodeLibraryCollapsed, setNodeLibraryCollapsed] = useState(false);
+  const [nodeInspectorCollapsed, setNodeInspectorCollapsed] = useState(false);
   const [canvasLocked, setCanvasLocked] = useState(false);
   const [runs, setRuns] = useState<AutomationRunSummary[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -616,7 +625,7 @@ function BuilderCanvas({
   useEffect(() => {
     const timer = window.setTimeout(() => reactFlow.fitView({ padding: 0.2, duration: 250 }), 80);
     return () => window.clearTimeout(timer);
-  }, [canvasMaximized, reactFlow]);
+  }, [canvasMaximized, nodeLibraryCollapsed, nodeInspectorCollapsed, reactFlow]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<AutomationNodeData>>[]) => setNodes((items) => applyNodeChanges(changes, items)),
@@ -664,6 +673,49 @@ function BuilderCanvas({
 
   function renderNodeInspectorFields(node: Node<AutomationNodeData>) {
     const cfg = node.data.config || {};
+
+    // The Trigger node's "event" field previously had no inspector at all - it just displayed
+    // whatever config.event was set to on creation ("New conversation") as a read-only pill, with
+    // no way to actually change it and no connection to the real flow.trigger.type the engine
+    // reads (see saveCanvas below, which now derives triggerType from this same field). Options
+    // match the server's triggerTypeMap exactly (case-insensitive on the server, but shown here in
+    // its canonical display form).
+    if (node.data.kind === "trigger") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">Fires on</label>
+          <select
+            value={String(cfg.event || "New conversation")}
+            onChange={(event) => updateSelectedConfig("event", event.target.value)}
+            disabled={!canWrite}
+            className={fieldClass}
+          >
+            <option value="New conversation">New conversation (first message from a contact)</option>
+            <option value="New message">New message (every inbound message)</option>
+            <option value="Keyword match">Keyword match</option>
+            <option value="New lead">New lead</option>
+            <option value="Stage changed">Stage changed</option>
+            <option value="Flow response">Flow response (a WhatsApp Flow was submitted)</option>
+          </select>
+          {String(cfg.event) === "Keyword match" ? (
+            <>
+              <label className="block text-[10px] font-medium text-muted-foreground">Keywords (comma-separated)</label>
+              <input
+                value={String(cfg.keyword ?? "")}
+                onChange={(event) => updateSelectedConfig("keyword", event.target.value)}
+                disabled={!canWrite}
+                placeholder="price, cost, quote"
+                className={fieldClass}
+              />
+            </>
+          ) : null}
+          <p className="text-[10px] text-muted-foreground">
+            &quot;New conversation&quot; only fires once per contact&apos;s first message - use this for a qualifying
+            sequence like Ask MCQ, not &quot;New message&quot; (which re-fires on every reply).
+          </p>
+        </>
+      );
+    }
 
     if (node.data.kind === "delay") {
       return (
@@ -1059,14 +1111,22 @@ function BuilderCanvas({
     if (!canWrite) return;
     setSaving(true);
     try {
+      // Derive the REAL trigger type from the canvas's own Trigger node - it used to be ignored
+      // entirely here (hardcoded to "new_message"/selectedFlow's stale value), meaning the
+      // Trigger node's "Fires on" field was purely decorative and every visual flow silently ran
+      // as "new_message" (fires on every inbound message) regardless of what it displayed.
+      const triggerNode = nodes.find((node) => node.data.kind === "trigger");
+      const triggerEvent = String(triggerNode?.data.config?.event || "New conversation");
+      const triggerKeyword = String(triggerNode?.data.config?.keyword || "");
+
       const payload = {
         name: selectedFlow?.name || "Visual Automation Flow",
         status: status || selectedFlow?.status || "draft",
-        triggerType: selectedFlow?.triggerType || "new_message",
-        trigger: selectedFlow?.trigger || "New message",
+        triggerType: triggerEvent,
+        trigger: triggerEvent,
         description: selectedFlow?.description || "Visual automation builder flow",
         category: selectedFlow?.category || "Visual",
-        keyword: selectedFlow?.keyword || "",
+        keyword: triggerKeyword,
         nodes: nodes.map(canvasNodeToServer),
         edges: normalizeCanvasEdges(edges),
       };
@@ -1074,6 +1134,8 @@ function BuilderCanvas({
         ? await updateAutomationCanvas<{ data: Flow }>(selectedFlow.id, {
             name: payload.name,
             status: payload.status,
+            triggerType: payload.triggerType,
+            keyword: payload.keyword,
             nodes: payload.nodes,
             edges: payload.edges,
             versionLabel: "Visual canvas save",
@@ -1107,15 +1169,26 @@ function BuilderCanvas({
   const controlButtonClass =
     "flex h-9 w-9 items-center justify-center border-b border-white/10 text-white transition last:border-b-0 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 
+  // Four literal, statically-scannable variants (Tailwind's JIT compiler needs the full class
+  // string to appear verbatim in source, not built from interpolated fragments) - one per
+  // Node Library / Node Inspector collapse combination. Maximized mode ignores these entirely
+  // (both asides are already hidden there) and keeps its own single-column override.
+  function builderGridColsClass() {
+    if (nodeLibraryCollapsed && nodeInspectorCollapsed) return "lg:grid-cols-[minmax(0,1fr)]";
+    if (nodeLibraryCollapsed) return "lg:grid-cols-[minmax(0,1fr)_310px]";
+    if (nodeInspectorCollapsed) return "lg:grid-cols-[240px_minmax(0,1fr)]";
+    return "lg:grid-cols-[240px_minmax(0,1fr)_310px]";
+  }
+
   return (
     <div
       className={
         canvasMaximized
           ? "fixed inset-0 z-50 grid min-h-0 grid-cols-[minmax(0,1fr)] overflow-hidden bg-background"
-          : "grid h-[min(58vh,560px)] min-h-[360px] w-full grid-cols-[minmax(0,1fr)] overflow-hidden lg:h-[min(62vh,600px)] lg:min-h-[500px] lg:grid-cols-[240px_minmax(0,1fr)_310px]"
+          : `grid h-[min(72vh,760px)] min-h-[420px] w-full grid-cols-[minmax(0,1fr)] overflow-hidden lg:h-[min(78vh,860px)] lg:min-h-[560px] ${builderGridColsClass()}`
       }
     >
-      {!canvasMaximized ? (
+      {!canvasMaximized && !nodeLibraryCollapsed ? (
       <aside className="no-scrollbar hidden overflow-y-auto border-r border-border bg-card/60 p-3 lg:block">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -1158,6 +1231,24 @@ function BuilderCanvas({
           </Button>
         </div>
         <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-md border border-white/15 bg-[#111820]/95 shadow-xl backdrop-blur sm:left-3">
+          <button
+            type="button"
+            className={controlButtonClass}
+            title={nodeLibraryCollapsed ? "Show Node Library" : "Hide Node Library"}
+            aria-label={nodeLibraryCollapsed ? "Show Node Library" : "Hide Node Library"}
+            onClick={() => setNodeLibraryCollapsed((value) => !value)}
+          >
+            {nodeLibraryCollapsed ? <PanelLeftOpen size={16} strokeWidth={2.4} /> : <PanelLeftClose size={16} strokeWidth={2.4} />}
+          </button>
+          <button
+            type="button"
+            className={controlButtonClass}
+            title={nodeInspectorCollapsed ? "Show Node Inspector" : "Hide Node Inspector"}
+            aria-label={nodeInspectorCollapsed ? "Show Node Inspector" : "Hide Node Inspector"}
+            onClick={() => setNodeInspectorCollapsed((value) => !value)}
+          >
+            {nodeInspectorCollapsed ? <PanelRightOpen size={16} strokeWidth={2.4} /> : <PanelRightClose size={16} strokeWidth={2.4} />}
+          </button>
           <button type="button" className={controlButtonClass} title="Zoom in" aria-label="Zoom in" onClick={() => reactFlow.zoomIn({ duration: 180 })}>
             <ZoomIn size={16} strokeWidth={2.4} />
           </button>
@@ -1199,7 +1290,7 @@ function BuilderCanvas({
         </ReactFlow>
       </main>
 
-      {!canvasMaximized ? (
+      {!canvasMaximized && !nodeInspectorCollapsed ? (
       <aside className="no-scrollbar hidden overflow-y-auto border-l border-border bg-card lg:block">
         <div className="sticky top-0 z-10 border-b border-border bg-card p-3">
           <div className="flex items-center justify-between gap-2">
@@ -1393,6 +1484,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
   const [whatsAppFlowsList, setWhatsAppFlowsList] = useState<WhatsAppFlowOption[]>([]);
   const [summary, setSummary] = useState({ runsToday: 0, automatedMessages: 0, handoffs: 0 });
   const [selectedFlowId, setSelectedFlowId] = useState("");
+  const [flowsListCollapsed, setFlowsListCollapsed] = useState(false);
   const [simpleForm, setSimpleForm] = useState({
     name: "Keyword auto-reply",
     triggerType: "keyword_match",
@@ -1457,11 +1549,14 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
   }
 
   async function newFlow() {
+    // Must match defaultNodes()'s own Trigger node config (event: "New conversation") - a
+    // mismatch here is exactly the bug that made every visual flow silently run as "new_message"
+    // regardless of what its Trigger node displayed.
     const response = await createAutomationFlow<{ data: Flow }>({
       name: `Visual Flow ${flowList.length + 1}`,
       description: "Visual automation builder flow",
-      trigger: "Visual workflow",
-      triggerType: "new_message",
+      trigger: "New conversation",
+      triggerType: "New conversation",
       category: "Visual",
       status: "draft",
       sendReply: false,
@@ -1740,16 +1835,36 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
         )}
 
         <div className="flex min-h-[360px] w-full min-w-0 shrink-0 flex-col lg:min-h-[500px] lg:flex-row">
-          <aside className="max-h-72 w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r">
+          <aside
+            className={
+              flowsListCollapsed
+                ? "w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:w-12 lg:border-b-0 lg:border-r"
+                : "max-h-72 w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r"
+            }
+          >
             <div className="border-b border-border bg-background/35 p-3">
               <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Flows</div>
-                  <div className="text-[11px] text-muted-foreground">Saved workflows and quick tests</div>
-                </div>
-                <Badge variant="outline" className="border-border bg-card text-[10px] text-muted-foreground">{flowList.length}</Badge>
+                {!flowsListCollapsed ? (
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Flows</div>
+                    <div className="text-[11px] text-muted-foreground">Saved workflows and quick tests</div>
+                  </div>
+                ) : null}
+                {!flowsListCollapsed ? (
+                  <Badge variant="outline" className="border-border bg-card text-[10px] text-muted-foreground">{flowList.length}</Badge>
+                ) : null}
+                <button
+                  type="button"
+                  title={flowsListCollapsed ? "Show Flows list" : "Hide Flows list"}
+                  aria-label={flowsListCollapsed ? "Show Flows list" : "Hide Flows list"}
+                  onClick={() => setFlowsListCollapsed((value) => !value)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                >
+                  {flowsListCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+                </button>
               </div>
             </div>
+            {flowsListCollapsed ? null : (
             <div className="no-scrollbar max-h-[220px] overflow-y-auto p-2 lg:h-full lg:max-h-none">
               {loadingFlows ? (
                 <div className="space-y-2">
@@ -1847,6 +1962,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                 </div>
               )}
             </div>
+            )}
           </aside>
 
           <BuilderCanvas selectedFlow={selectedFlow} onFlowSaved={upsertFlow} canWrite={canWrite} availableFlows={flowList} availableWhatsAppFlows={whatsAppFlowsList} />
