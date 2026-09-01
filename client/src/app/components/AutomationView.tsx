@@ -341,7 +341,7 @@ function catalogFor(kind: string) {
   return nodeCatalog.find((node) => node.kind === kind) || nodeCatalog[0];
 }
 
-const handleClass = "!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground";
+const handleClass = "!h-3.5 !w-3.5 !border-2 !border-background !bg-muted-foreground hover:!bg-primary transition-colors";
 
 // Node kinds with more than one source handle - condition/if_else route true/false, loop routes
 // loop (still iterating, back into the body)/done (exhausted, continue the main flow). Every
@@ -400,7 +400,7 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
             position={Position.Right}
             id={handle.id}
             style={{ top: `${38 + index * 34}%` }}
-            className={`!h-2.5 !w-2.5 !border-2 !border-background ${handle.dotClassName}`}
+            className={`!h-3.5 !w-3.5 !border-2 !border-background ${handle.dotClassName}`}
           />,
           <span
             key={`${handle.id}-label`}
@@ -1278,6 +1278,12 @@ function BuilderCanvas({
           fitView
           minZoom={0.2}
           maxZoom={2}
+          // Default is 20px - handles here render at only 10-12px, and users were reliably
+          // missing the drop target (temp connection line visible while dragging, but not
+          // "catching" on release unless the cursor lands within this radius of the handle
+          // center). A larger radius makes the drop far more forgiving without needing pixel-
+          // perfect aim.
+          connectionRadius={45}
           panOnScroll
           selectionOnDrag={!canvasLocked && canWrite}
           panOnDrag={!canvasLocked}
