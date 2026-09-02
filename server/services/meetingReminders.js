@@ -1,0 +1,137 @@
+import mongoose from "mongoose";
+import { Contact, Conversation, Message, WhatsAppAccount } from "../models/index.js";
+import { fetchUpcomingVegaMeetings, markVegaMeetingReminded } from "./vegaIntegration.js";
+import { sendWhatsAppInteractive } from "./whatsappProvider.js";
+import { logger } from "./logger.js";
+
+// Same normalization shape as whatsapp.js's phoneLookupValues (private to that file) - kept
+// local rather than exported/shared, since this is the only other place that needs to go
+// phone -> Contact starting from a bare string with no workspace already known.
+function phoneLookupValues(phone) {
+  const raw = String(phone || "").trim();
+  const digits = raw.replace(/[^\d]/g, "");
+  const values = new Set([raw, digits]);
+  if (digits) {
+    values.add(`+${digits}`);
+    values.add(`whatsapp:+${digits}`);
+  }
+  const last10 = digits.length > 10 ? digits.slice(-10) : digits;
+  if (last10.length === 10) {
+    values.add(last10);
+    values.add(`+${last10}`);
+    values.add(`91${last10}`);
+    values.add(`+91${last10}`);
+  }
+  return [...values].filter(Boolean);
+}
+
+// A Vega meeting only carries a raw contactPhone, not a workspace/conversation reference (Vega
+// has no concept of either) - this is the reverse lookup, phone -> the real WhatsApp thread to
+// send the reminder into. Picks the contact's most recently active conversation, same
+// "most recent wins" convention as findReusableContactAndConversation in whatsapp.js.
+async function findConversationForPhone(phone) {
+  const values = phoneLookupValues(phone);
+  if (!values.length) return null;
+
+  const contact = await Contact.findOne({ phone: mongoose.trusted({ $in: values }) }).sort({ lastMessageAt: -1, updatedAt: -1 });
+  if (!contact) return null;
+
+  const conversation = await Conversation.findOne({ workspaceId: contact.workspaceId, contactId: contact._id }).sort({
+    lastMessageAt: -1,
+    createdAt: -1,
+  });
+  if (!conversation?.whatsappAccountId) return null;
+
+  const account = await WhatsAppAccount.findById(conversation.whatsappAccountId);
+  if (!account) return null;
+
+  return { contact, conversation, account };
+}
+
+function formatMeetingTime(startAt) {
+  return new Date(startAt).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+async function sendReminder(meeting, window) {
+  const found = await findConversationForPhone(meeting.contactPhone);
+  if (!found) {
+    logger.warn({ meetingId: meeting._id, phone: meeting.contactPhone }, "meetingReminders: no matching WhatsApp conversation, skipping");
+    return;
+  }
+  const { contact, conversation, account } = found;
+  const when = formatMeetingTime(meeting.startAt);
+  const body =
+    window === "24h"
+      ? `Reminder: your demo is tomorrow, ${when}. Still good for you?`
+      : `Quick reminder - your demo is in about an hour, ${when}.`;
+
+  let sendResult;
+  try {
+    sendResult = await sendWhatsAppInteractive({
+      account,
+      to: contact.phone,
+      body,
+      buttons: [
+        { id: "confirm", title: "Confirm" },
+        { id: "reschedule", title: "Reschedule" },
+      ],
+    });
+  } catch (error) {
+    logger.error({ meetingId: meeting._id, error: error.message }, "meetingReminders: send failed");
+    return;
+  }
+
+  const outboundMessage = await Message.create({
+    organizationId: conversation.organizationId,
+    workspaceId: conversation.workspaceId,
+    conversationId: conversation._id,
+    contactId: contact._id,
+    whatsappAccountId: account._id,
+    direction: "outbound",
+    type: "interactive",
+    body,
+    providerMessageId: sendResult.providerMessageId,
+    status: sendResult.status || "sent",
+    sentAt: new Date(),
+    metadata: { automationGenerated: true, meetingReminder: window },
+  });
+  await Conversation.updateOne(
+    { _id: conversation._id },
+    { $set: { lastMessageId: outboundMessage._id, lastMessageAt: outboundMessage.sentAt } }
+  );
+
+  const mark = await markVegaMeetingReminded(meeting._id, window);
+  if (!mark.ok) {
+    logger.warn({ meetingId: meeting._id, window, reason: mark.reason }, "meetingReminders: sent but failed to mark reminded in Vega");
+  }
+}
+
+// The scheduled sweep entry point - see jobs.js's repeatable "reminders.sweep" job. Reads are
+// resilient by design (fetchUpcomingVegaMeetings/sendWhatsAppInteractive both degrade instead of
+// throwing) so one bad meeting or a Vega outage never blocks the rest of the sweep or crashes
+// the worker.
+export async function sweepMeetingReminders() {
+  const summary = { "24h": 0, "1h": 0 };
+  for (const window of ["24h", "1h"]) {
+    const result = await fetchUpcomingVegaMeetings(window);
+    if (!result.ok) {
+      if (result.reason !== "not_configured") {
+        logger.warn({ window, reason: result.reason }, "meetingReminders: sweep fetch failed");
+      }
+      continue;
+    }
+    for (const meeting of result.meetings || []) {
+      await sendReminder(meeting, window);
+      summary[window] += 1;
+    }
+  }
+  return { ok: true, sweptAt: new Date().toISOString(), ...summary };
+}

@@ -123,3 +123,58 @@ export async function bookVegaMeeting(payload) {
     clear();
   }
 }
+
+// The reminder sweep's read/write pair - see meetingReminders.js for the caller. Same
+// not-configured/timeout/non-2xx degradation as the three functions above.
+
+export async function fetchUpcomingVegaMeetings(window) {
+  if (!config.vega.apiUrl || !config.vega.integrationSecret) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  const { signal, clear } = withTimeout();
+  try {
+    const response = await fetch(`${config.vega.apiUrl}/api/integrations/meetings/upcoming?window=${window}`, {
+      method: "GET",
+      headers: { "x-integration-secret": config.vega.integrationSecret },
+      signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, window }, "fetchUpcomingVegaMeetings: Vega rejected the request");
+      return { ok: false, reason: `http_${response.status}` };
+    }
+    const body = await response.json();
+    return { ok: true, ...body.data };
+  } catch (error) {
+    logger.warn({ err: error, window }, "fetchUpcomingVegaMeetings: request failed");
+    return { ok: false, reason: "request_failed" };
+  } finally {
+    clear();
+  }
+}
+
+export async function markVegaMeetingReminded(meetingId, window) {
+  if (!config.vega.apiUrl || !config.vega.integrationSecret) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  const { signal, clear } = withTimeout();
+  try {
+    const response = await fetch(`${config.vega.apiUrl}/api/integrations/meetings/${meetingId}/remind`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-integration-secret": config.vega.integrationSecret },
+      body: JSON.stringify({ window }),
+      signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, meetingId, window }, "markVegaMeetingReminded: Vega rejected the request");
+      return { ok: false, reason: `http_${response.status}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    logger.warn({ err: error, meetingId, window }, "markVegaMeetingReminded: request failed");
+    return { ok: false, reason: "request_failed" };
+  } finally {
+    clear();
+  }
+}

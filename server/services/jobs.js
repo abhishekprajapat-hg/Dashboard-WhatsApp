@@ -6,6 +6,7 @@ import { callOutboundWebhook } from "./integrations.js";
 import { logger } from "./logger.js";
 import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
+import { sweepMeetingReminders } from "./meetingReminders.js";
 import {
   processAutomationGoogleSheetAction,
   processAutomationSendMessage,
@@ -64,7 +65,15 @@ export function startWorkers() {
 
   workers.set("webhooks", new Worker("webhooks", async (job) => callOutboundWebhook(job.data), options));
   workers.set("events", new Worker("events", async (job) => publishEvent(job.name, job.data), options));
-  workers.set("maintenance", new Worker("maintenance", async () => ({ ok: true, ranAt: new Date().toISOString() }), options));
+  const maintenanceProcessors = { "reminders.sweep": sweepMeetingReminders };
+  workers.set(
+    "maintenance",
+    new Worker(
+      "maintenance",
+      async (job) => (maintenanceProcessors[job.name] || (async () => ({ ok: true, ranAt: new Date().toISOString() })))(),
+      options
+    )
+  );
   workers.set("campaigns", new Worker("campaigns", async (job) => processCampaignRecipient(job.data), { ...options, concurrency: 10 }));
   const automationProcessors = {
     "automation.call-webhook": processAutomationWebhookAction,
@@ -81,6 +90,13 @@ export function startWorkers() {
   for (const [name, worker] of workers) {
     worker.on("failed", (job, error) => logger.warn({ queue: name, jobId: job?.id, err: error }, "Job failed"));
   }
+
+  // BullMQ dedupes a repeatable job by its repeat config + jobId, so calling this on every
+  // server boot is idempotent - it does not create a second schedule, just confirms the existing
+  // one (or creates it, the first time this deploys).
+  getQueue("maintenance")
+    ?.add("reminders.sweep", {}, { repeat: { every: 15 * 60 * 1000 }, jobId: "reminders-sweep" })
+    .catch((error) => logger.warn({ err: error }, "Failed to schedule reminders.sweep"));
 
   return { enabled: true, workers: workers.size };
 }
