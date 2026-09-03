@@ -29,6 +29,18 @@ export function requirePermission(permission) {
   };
 }
 
+// A workspace's own "admin" role carries wildcard permissions (rbac.js), same as "super_admin" -
+// that's correct, a client should have full control of their own workspace. But some routes
+// (global feature flags, direct plan overrides that bypass billing) affect the whole platform, not
+// just the caller's own org, and must stay restricted to Nemnidhi's own organization regardless of
+// the caller's role/permissions. Fails closed if isPlatformOwner is missing for any reason.
+export function requirePlatformOwner(req, res, next) {
+  if (!req.user?.isPlatformOwner) {
+    return res.status(403).json({ error: "FORBIDDEN", message: "This action is restricted to the platform owner." });
+  }
+  next();
+}
+
 // Separate from requirePermission on purpose: permission is "can this role do this", entitlement
 // is "did this organization's plan even buy this". A dev-role user on a Basic-tier org should
 // still be blocked from the automation builder, independent of their role.
@@ -89,6 +101,8 @@ export async function requireAuth(req, res, next) {
     return res.status(403).json({ error: "FORBIDDEN", message: "No active role found for this workspace." });
   }
 
+  const organization = await Organization.findById(membership.organizationId).select("isPlatformOwner");
+
   req.user = {
     ...payload,
     email: user.email,
@@ -97,6 +111,7 @@ export async function requireAuth(req, res, next) {
     role: role.name,
     roleKey: normalizeRoleKey(role.key),
     permissions: role.permissions || [],
+    isPlatformOwner: Boolean(organization?.isPlatformOwner),
   };
   next();
 }

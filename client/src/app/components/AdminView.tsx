@@ -309,7 +309,8 @@ function SectionHeader({ icon, title, detail }: { icon: ReactNode; title: string
   );
 }
 
-export function AdminView() {
+export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boolean }) {
+  const visibleTabs = isPlatformOwner ? tabs : tabs.filter((tab) => tab !== "Plan" && tab !== "Feature Flags");
   const [overview, setOverview] = useState<AdminOverview>(emptyOverview);
   const [activeTab, setActiveTab] = useState<AdminTab>("Overview");
   const [loading, setLoading] = useState(true);
@@ -489,7 +490,7 @@ export function AdminView() {
         <div className="flex min-w-0 gap-4">
           <aside className="hidden w-48 shrink-0 lg:block">
             <div className="sticky top-4 rounded-lg border border-border bg-card p-2">
-              {tabs.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -505,7 +506,7 @@ export function AdminView() {
 
           <main className="min-w-0 flex-1 overflow-x-hidden">
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
-              {tabs.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}

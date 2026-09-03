@@ -5,6 +5,11 @@ const organizationSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, trim: true },
     ownerUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    // True only for Nemnidhi's own organization(s) - gates platform-wide controls (global feature
+    // flags, direct plan overrides bypassing billing) that must never be reachable by a paying
+    // client's own admin, even though that admin's role otherwise carries wildcard permissions on
+    // their own workspace. Defaults false so every new signup is correctly scoped from creation.
+    isPlatformOwner: { type: Boolean, default: false },
     // Pack tier - gates which capabilities this organization's workspaces get, see
     // services/entitlements.js. Kept as a plain string (not a hard schema enum) so an unknown
     // legacy value never blocks a save; entitlements.js is the single source of truth for what's

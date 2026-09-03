@@ -94,13 +94,13 @@ async function provisionWorkspaceForNewUser(user, workspaceName) {
     joinedAt: new Date(),
   });
 
-  return { workspace, role };
+  return { organization, workspace, role };
 }
 
-function newAccountSession(user, workspace, role) {
+function newAccountSession(user, workspace, role, organization) {
   return {
     token: signSession({ user, workspace, role }),
-    user: serializeUser(user, role),
+    user: serializeUser(user, role, organization),
     workspace: serializeWorkspace(workspace),
     isNewAccount: true,
   };
@@ -133,9 +133,10 @@ async function buildSessionForUser(user, workspaceId = "") {
     return null;
   }
 
-  const [workspace, role] = await Promise.all([
+  const [workspace, role, organization] = await Promise.all([
     Workspace.findById(membership.workspaceId),
     Role.findById(membership.roleId),
+    Organization.findById(membership.organizationId).select("isPlatformOwner"),
   ]);
 
   if (!workspace || !role) {
@@ -144,7 +145,7 @@ async function buildSessionForUser(user, workspaceId = "") {
 
   return {
     token: signSession({ user, workspace, role }),
-    user: serializeUser(user, role),
+    user: serializeUser(user, role, organization),
     workspace: serializeWorkspace(workspace),
   };
 }
@@ -244,9 +245,9 @@ authRouter.post("/register", signupRateLimiter, validateBody(registerSchema), as
   }
 
   const user = await User.create({ name, email: normalizedEmail, passwordHash: hashPassword(password), status: "active" });
-  const { workspace, role } = await provisionWorkspaceForNewUser(user, workspaceName);
+  const { organization, workspace, role } = await provisionWorkspaceForNewUser(user, workspaceName);
 
-  res.status(201).json(newAccountSession(user, workspace, role));
+  res.status(201).json(newAccountSession(user, workspace, role, organization));
 });
 
 authRouter.get("/oauth/:provider/authorize-url", (req, res) => {
@@ -321,8 +322,8 @@ authRouter.get("/oauth/:provider/callback", async (req, res) => {
       [providerIdField]: profile.providerId,
       status: "active",
     });
-    const { workspace, role } = await provisionWorkspaceForNewUser(user, profile.name || profile.email.split("@")[0]);
-    return renderOAuthCallbackPage(res, { provider, session: newAccountSession(user, workspace, role) });
+    const { organization, workspace, role } = await provisionWorkspaceForNewUser(user, profile.name || profile.email.split("@")[0]);
+    return renderOAuthCallbackPage(res, { provider, session: newAccountSession(user, workspace, role, organization) });
   }
 
   const session = await buildSessionForUser(user);
@@ -355,9 +356,9 @@ authRouter.post("/oauth/complete", validateBody(oauthCompleteSchema), async (req
     [providerIdField]: providerId,
     status: "active",
   });
-  const { workspace, role } = await provisionWorkspaceForNewUser(user, name || normalizedEmail.split("@")[0]);
+  const { organization, workspace, role } = await provisionWorkspaceForNewUser(user, name || normalizedEmail.split("@")[0]);
 
-  res.status(201).json(newAccountSession(user, workspace, role));
+  res.status(201).json(newAccountSession(user, workspace, role, organization));
 });
 
 authRouter.post("/whatsapp-otp/send", signupRateLimiter, validateBody(whatsappOtpSendSchema), async (req, res) => {
@@ -400,8 +401,8 @@ authRouter.post("/whatsapp-otp/verify", validateBody(whatsappOtpVerifySchema), a
       phoneVerifiedAt: new Date(),
       status: "active",
     });
-    const { workspace, role } = await provisionWorkspaceForNewUser(user, user.name);
-    return res.status(201).json(newAccountSession(user, workspace, role));
+    const { organization, workspace, role } = await provisionWorkspaceForNewUser(user, user.name);
+    return res.status(201).json(newAccountSession(user, workspace, role, organization));
   }
 
   if (!user.phoneVerifiedAt) {

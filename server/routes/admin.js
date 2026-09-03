@@ -13,7 +13,7 @@ import {
   WhatsAppAccount,
   Workspace,
 } from "../models/index.js";
-import { requirePermission } from "../middleware/auth.js";
+import { requirePermission, requirePlatformOwner } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { pruneAuditLogs } from "../services/auditLogRetention.js";
 import { getEntitlements, PACK_TIERS } from "../services/entitlements.js";
@@ -426,13 +426,14 @@ adminRouter.post("/audit-log/prune", requirePermission("admin:write"), async (re
   res.json({ data: result });
 });
 
-adminRouter.get("/feature-flags", requirePermission("admin:read"), async (req, res) => {
+adminRouter.get("/feature-flags", requirePermission("admin:read"), requirePlatformOwner, async (req, res) => {
   res.json({ data: await listFeatureFlagsWithMeta() });
 });
 
 adminRouter.put(
   "/feature-flags/:key",
   requirePermission("admin:write"),
+  requirePlatformOwner,
   validateBody(featureFlagUpdateSchema),
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -468,6 +469,7 @@ adminRouter.get("/entitlements", requirePermission("admin:read"), async (req, re
 adminRouter.put(
   "/entitlements/plan",
   requirePermission("admin:write"),
+  requirePlatformOwner,
   validateBody(packTierUpdateSchema),
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {

@@ -7,6 +7,7 @@ export interface AuthSession {
     role: string;
     roleKey?: string;
     permissions?: string[];
+    isPlatformOwner?: boolean;
   };
   workspace: {
     id: string;
@@ -701,6 +702,7 @@ export function createTemplate<T>(template: {
   body?: string;
   variables?: string[];
   status?: string;
+  whatsappAccountId?: string;
 }) {
   return request<T>("/templates", {
     method: "POST",
@@ -716,6 +718,7 @@ export function updateTemplate<T>(id: string, template: Partial<{
   body: string;
   variables: string[];
   status: string;
+  whatsappAccountId: string;
 }>) {
   return request<T>(`/templates/${id}`, {
     method: "PATCH",
@@ -751,6 +754,12 @@ export function syncTemplateLibrary<T>(payload: { accountId?: string } = {}) {
 
 export function markTemplateUsed<T>(id: string) {
   return request<T>(`/templates/${id}/use`, {
+    method: "POST",
+  });
+}
+
+export function submitTemplateForApproval<T>(id: string) {
+  return request<T>(`/templates/${id}/submit`, {
     method: "POST",
   });
 }

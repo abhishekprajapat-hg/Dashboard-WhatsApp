@@ -17,7 +17,7 @@ import { AssistantView } from "./components/AssistantView";
 import { AdminView } from "./components/AdminView";
 import { SettingsView } from "./components/SettingsView";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
-import { allowedViews, canAccessView, hasPermission } from "./lib/permissions";
+import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
 
 const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
@@ -137,6 +137,7 @@ export default function App() {
   const canWriteTeam = hasPermission(session, "team:write");
   const canWriteTasks = hasPermission(session, "tasks:write");
   const canWriteSettings = hasPermission(session, "settings:write");
+  const isPlatformOwnerSession = isPlatformOwner(session);
   const workspaceName = session?.workspace?.name || "Workspace";
   const activeLabel = VIEW_LABELS[activeView];
   const activeDescription = VIEW_DESCRIPTIONS[activeView];
@@ -294,7 +295,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "team" && <TeamView canManage={canWriteTeam} />}
           {canAccessView(session, activeView) && activeView === "tasks" && <TasksView canWrite={canWriteTasks} />}
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}
-          {canAccessView(session, activeView) && activeView === "admin" && <AdminView />}
+          {canAccessView(session, activeView) && activeView === "admin" && <AdminView isPlatformOwner={isPlatformOwnerSession} />}
           {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} />}
         </div>
       </main>

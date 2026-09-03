@@ -25,6 +25,15 @@ export function hasPermission(session: AuthSession | null, permission: string) {
   return permissions.includes("*") || permissions.includes(permission);
 }
 
+// Distinct from hasPermission: an org's own "admin" role already carries wildcard permissions on
+// its own workspace, correctly. This gates the small set of platform-wide controls (global feature
+// flags, direct plan overrides that bypass billing) that must stay restricted to Nemnidhi's own
+// organization no matter the caller's role - the server enforces this independently, this is just
+// so the client UI doesn't dangle controls a client admin would only see rejected.
+export function isPlatformOwner(session: AuthSession | null) {
+  return Boolean(session?.user.isPlatformOwner);
+}
+
 export function canAccessView(session: AuthSession | null, view: ViewId) {
   return hasPermission(session, viewPermissions[view]);
 }

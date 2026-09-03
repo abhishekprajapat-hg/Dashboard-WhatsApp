@@ -114,6 +114,10 @@ teamRouter.post("/", requirePermission("team:write"), validateBody(inviteMemberS
   const { name, email, role, password } = req.body;
   const normalizedEmail = email.toLowerCase().trim();
 
+  if (normalizeRoleKey(role) === "super_admin" && !req.user?.isPlatformOwner) {
+    return res.status(403).json({ error: "FORBIDDEN", message: "Only the platform owner can assign the Super Admin role." });
+  }
+
   const roleDoc = await ensureRole({
     organizationId: req.user.organizationId,
     workspaceId: req.user.workspaceId,
@@ -158,6 +162,13 @@ teamRouter.patch("/:id", requirePermission("team:write"), validateBody(updateMem
 
   const membership = await Membership.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!membership) return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
+
+  // "super_admin" and "admin" carry identical permissions today (rbac.js) - the label itself is
+  // meaningless as a permission boundary - but it must never be assignable by a client's own admin
+  // inside their own workspace, since it reads as (and could in future gate as) platform ownership.
+  if (req.body?.role && normalizeRoleKey(req.body.role) === "super_admin" && !req.user?.isPlatformOwner) {
+    return res.status(403).json({ error: "FORBIDDEN", message: "Only the platform owner can assign the Super Admin role." });
+  }
 
   if (req.body?.role) {
     const roleDoc = await Role.findOne({

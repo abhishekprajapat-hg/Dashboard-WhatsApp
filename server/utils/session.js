@@ -19,7 +19,7 @@ export function signSession({ user, workspace, role }) {
   );
 }
 
-export function serializeUser(user, role) {
+export function serializeUser(user, role, organization = null) {
   const roleKey = normalizeRoleKey(role.key);
   return {
     id: user._id.toString(),
@@ -28,6 +28,7 @@ export function serializeUser(user, role) {
     role: role.name,
     roleKey,
     permissions: role.permissions || [],
+    isPlatformOwner: Boolean(organization?.isPlatformOwner),
   };
 }
 
