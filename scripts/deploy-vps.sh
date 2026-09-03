@@ -1,11 +1,16 @@
 #!/bin/bash
 # Polls origin/main for new commits and deploys them if found. Meant to run on a schedule
-# (cron) as the same user that owns /opt/dashboard-whatsapp and its PM2 process, e.g.:
+# (cron) as the same user that owns the checkout and its PM2 process, e.g.:
 #
-#   */5 * * * * /opt/dashboard-whatsapp/scripts/deploy-vps.sh >> /opt/dashboard-whatsapp/deploy-cron.log 2>&1
+#   */5 * * * * /home/dashboard/dashboard-whatsapp/scripts/deploy-vps.sh >> /home/dashboard/dashboard-whatsapp/deploy-cron.log 2>&1
 #
-# Log files live inside this checkout, not in /opt/ directly - the deploy user typically only
-# owns the repo directory, not /opt/ itself, so writes straight to /opt/*.log fail silently.
+# This path was previously /opt/dashboard-whatsapp - that directory was deleted at some point
+# without the crontab being updated, so the cron silently failed every 5 minutes for over a week
+# (found and fixed 2026-09-04, see HANDOFF.md's "auto-deploy cron is BROKEN" entry). The real live
+# app has always run from /home/dashboard/dashboard-whatsapp - point the cron there.
+#
+# Log files live inside this checkout, not in a separate root-owned directory - the deploy user
+# typically only owns its own home directory, so writes straight to another path can fail silently.
 #
 # Tracks the last successfully deployed commit in .last-deploy-sha (gitignored) rather than
 # just comparing against git's HEAD, so a failed deploy (bad build, etc.) is retried on the
