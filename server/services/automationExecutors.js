@@ -10,7 +10,7 @@ import { sendFlowMessage } from "./whatsappFlows.js";
 import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
-import { bookVegaMeeting, checkVegaOfficeHours, fetchVegaMeetingSlots } from "./vegaIntegration.js";
+import { bookVegaMeeting, cancelVegaMeeting, checkVegaOfficeHours, fetchVegaMeetingSlots } from "./vegaIntegration.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { logger } from "./logger.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
@@ -1110,6 +1110,40 @@ async function execBookMeeting({ node, config: cfg, env, run, flow, testMode }) 
   };
 }
 
+// Cancels a real Vega meeting - the "CTWA - meeting reschedule" flow's first step, before it
+// re-offers slots via book_meeting above. meetingId is normally {{trigger.replyToMeetingId}}
+// (see automationRunner.js), not a fixed node.config value, so it comes from the interpolated
+// config like every other user-facing field. Deliberately no branch output (unlike book_meeting):
+// a customer who tapped Reschedule should still get offered new slots even if the old meeting
+// failed to cancel cleanly - pickNext dead-ends a run when a branch has no matching edge
+// (see automationEngine.js), so this stays a single default-edge step, not a fork.
+async function execCancelMeeting({ node, config: cfg, testMode }) {
+  const meetingId = String(cfg?.meetingId || "").trim();
+  if (!meetingId) return { status: "skipped", logMessage: "Skipped cancel_meeting: no meetingId", logLevel: "warn" };
+
+  if (testMode) {
+    return { status: "ok", action: { type: "cancel_meeting", status: "skipped", skipped: true, meetingId }, logMessage: "Cancel meeting skipped in test mode" };
+  }
+
+  const reason = String(cfg?.reason || "Customer requested reschedule via WhatsApp").trim();
+  const result = await cancelVegaMeeting(meetingId, reason);
+  if (!result.ok) {
+    logger.warn({ nodeId: node.id, meetingId, reason: result.reason }, "execCancelMeeting: cancel failed");
+    return {
+      status: "ok",
+      action: { type: "cancel_meeting", status: "failed", reason: result.reason },
+      logMessage: `Meeting cancel failed: ${result.reason} (continuing to offer new slots anyway)`,
+      logLevel: "warn",
+    };
+  }
+
+  return {
+    status: "ok",
+    action: { type: "cancel_meeting", status: "cancelled", meetingId },
+    logMessage: `Meeting ${meetingId} cancelled`,
+  };
+}
+
 // Single Product messages only (v1 scope, matching whatsappCommerce.js) - synchronous, no queue,
 // same shape as execSendFlow above since both are Meta-only interactive-message sends outside the
 // bulk-campaign system. catalogId comes from the triggering WhatsAppAccount (a business connects
@@ -1238,6 +1272,7 @@ const executors = {
   ask_mcq: execAskMcq,
   check_office_hours: execCheckOfficeHours,
   book_meeting: execBookMeeting,
+  cancel_meeting: execCancelMeeting,
   send_product_message: execSendProductMessage,
   send_instagram: execSendInstagram,
   sms: execSms,

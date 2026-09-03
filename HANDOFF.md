@@ -1,5 +1,72 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04: the 3 satellite flows built — escape hatch, meeting confirm, meeting reschedule
+
+Closes the "3 satellite flows from the original build guide" gap flagged in the 2026-09-03 entry
+below. Planned with the user first (design doc: escape hatch cancels the in-progress qualifying
+run rather than running alongside it; reschedule cancels the old Vega meeting before booking a
+new one), then built and verified locally before touching production.
+
+**Engine changes** (`server/services/automationRunner.js`):
+- New `interactive_reply` trigger type - scoped to a specific button/list tap by id
+  (`inboundMessage.metadata.interactiveReply.id === flow.trigger.buttonId`), unlike `keyword_match`
+  which can false-positive on free text containing the same word. Used by the Confirm/Reschedule
+  flows, matching the meeting-reminder sweep's real button ids (`"confirm"`/`"reschedule"`,
+  `meetingReminders.js`).
+- `context.trigger.replyToMeetingId` - resolved from a new `conversation.metadata.
+  pendingMeetingReminder` field (set by `meetingReminders.js` right after a reminder send,
+  "most-recent-reminder-wins" - same convention as `findConversationForPhone`). Lets a flow node
+  reference `{{trigger.replyToMeetingId}}` to know which Vega meeting a Confirm/Reschedule tap is
+  about, without threading WhatsApp's `message.context` reply-reference through the webhook
+  normalizer.
+- **The one change that touches the already-proven, ad-ready qualifying flow's runtime path**:
+  `runInboundAutomations` now computes which flows match a fresh trigger *before* deciding whether
+  to resume a paused run, so a flow marked `trigger.interruptsActiveRun: true` (only the escape
+  hatch sets this) can cancel the pending run instead of feeding it the reply. Verified with a
+  throwaway integration script (real local Mongo, deleted after) proving both directions: an
+  interrupting message cancels the pending run (status `cancelled`) and the escape-hatch flow
+  itself runs; a non-interrupting message still goes through the *original* resume call unchanged
+  (confirmed via a fake flowId that fails predictably with status `failed`, never `cancelled`).
+
+**New node type**: `cancel_meeting` (`automationExecutors.js`) - calls a new `cancelVegaMeeting()`
+in `vegaIntegration.js`, mirroring `markVegaMeetingReminded`'s exact shared-secret fetch shape.
+Deliberately does not branch on success/failure (unlike `book_meeting`) - a customer who tapped
+Reschedule should still get offered new slots even if the old meeting failed to cancel cleanly;
+`pickNext` dead-ends a run when a branch has no matching edge (see `automationEngine.js`), so this
+stays a single default-edge step.
+
+**Vega side**: new `POST /api/integrations/meetings/[id]/cancel` route (mirrors the existing
+`[id]/remind` route exactly - shared secret, sets `status: "cancelled"`/`cancelledAt`/
+`cancelledReason`, no model change needed since those fields already existed). Verified against
+local dev with the shared secret: bad secret → 401, valid → 200 with correct fields. (Hit the
+known Vega Turbopack stale-route-cache flakiness getting there - a brand-new route 404'd until a
+full `rm -rf .next` + restart, a plain restart wasn't enough. See vega-deployment memory.)
+
+**The three flows themselves** - inserted directly into production as hand-built node/edge JSON
+(same pattern the original CTWA plan established), reusing real data read off the live "Visual
+Flow 6" document rather than hardcoding possibly-stale copies (the assign_user's team-member id,
+and the exact open/closed office-hours handoff message text):
+1. **"CTWA - meeting confirmed"** - `interactive_reply` (buttonId `confirm`) → `send_message`
+   acknowledgment. No Vega call - `Meeting.status` is already `"confirmed"` at booking time, so
+   there's no separate "pending confirmation" state to move it out of.
+2. **"CTWA - meeting reschedule"** - `interactive_reply` (buttonId `reschedule`) →
+   `cancel_meeting` (`meetingId: {{trigger.replyToMeetingId}}`) → `book_meeting` (same node type
+   the main flow's book-demo branch already uses).
+3. **"CTWA - talk to a human (escape hatch)"** - `keyword_match` on multi-word human-handoff
+   phrases (deliberately not bare "human"/"agent" - `keywordMatches` is substring, so a single
+   word would false-positive on e.g. "I'm an insurance agent"), `interruptsActiveRun: true` →
+   `add_tag` "escape-hatch" → `assign_user` (same team member as the main flow) →
+   `check_office_hours` → the main flow's own exact open/closed handoff copy.
+
+**Not yet done - this needs the user's own real WhatsApp**, same as every other WhatsApp feature
+in this project's history - I can build and verify the plumbing but can't tap a real button:
+- Tap "Confirm" on a real reminder → acknowledgment arrives, no Vega mutation.
+- Tap "Reschedule" → old meeting shows `cancelled` in Vega, new slot list arrives, booking creates
+  a fresh `confirmed` meeting.
+- Mid-qualifying-flow, type "talk to a human" → gets the handoff message, and the *next*
+  qualifying question does NOT arrive afterward (the real proof the cancel-not-resume path works
+  live, not just in the integration script).
+
 ## 2026-09-03 (later): the "empty pain_point prompt" noted below turned out to already be fine — checked directly against production, not a real gap
 
 The entry below ("Addendum, same evening") flagged the `pain_point` question's Gemini fallback node

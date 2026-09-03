@@ -26,6 +26,13 @@ function triggerMatches(flow, { inboundMessage, isNewConversation, isNewLead = f
     return keywords.length ? keywordMatches(inboundBody, keywords) : true;
   }
 
+  // Scoped to a specific button/list tap by id (e.g. the meeting-reminder sweep's "confirm"/
+  // "reschedule" buttons) - unlike keyword_match, this can't false-positive on free text that
+  // happens to contain the same word.
+  if (triggerType === "interactive_reply") {
+    return inboundMessage?.type === "interactive_reply" && inboundMessage?.metadata?.interactiveReply?.id === flow.trigger?.buttonId;
+  }
+
   if (triggerType === "webhook_event") return true;
 
   return false;
@@ -61,24 +68,9 @@ export async function runInboundAutomations({
   if (!account || !contact || !conversation || !inboundMessage) return [];
   if (inboundMessage.direction === "outbound" || inboundMessage.metadata?.automationGenerated) return [];
 
-  // A conversation mid-qualifying-sequence has this set by ask_mcq's first invocation (see
-  // automationExecutors.js) - this inbound message is the answer to that pending question, not a
-  // fresh trigger event. Resume that specific paused run before evaluating any flow's trigger
-  // from scratch, so the same message doesn't also get treated as a brand-new "new_message" event
-  // for the flow it's already mid-way through.
-  let resumedRun = false;
-  const pendingRunId = conversation.metadata?.pendingAutomationRunId;
-  logger.info(
-    { conversationId: conversation._id?.toString(), inboundMessageId: inboundMessage._id?.toString(), pendingRunId: pendingRunId ? String(pendingRunId) : null },
-    "runInboundAutomations: pending-run check"
-  );
-  if (pendingRunId) {
-    await Conversation.updateOne({ _id: conversation._id }, { $unset: { "metadata.pendingAutomationRunId": "" } });
-    const { resumed, reason } = await resumeAutomationRunOnReply({ runId: pendingRunId, inboundMessageId: inboundMessage._id });
-    resumedRun = resumed;
-    logger.info({ runId: String(pendingRunId), resumed, reason: reason || null }, "runInboundAutomations: resume attempt result");
-  }
-
+  // Computed before the pending-run check below (moved ahead of it deliberately) so an
+  // interrupting trigger (e.g. the "talk to a human" escape hatch) can be detected before deciding
+  // whether to resume a paused run - see the interruptingFlow branch below.
   const flowFilter = {
     workspaceId: account.workspaceId,
     status: "published",
@@ -91,6 +83,38 @@ export async function runInboundAutomations({
   const matchingFlows = flows.filter((flow) =>
     !alreadyRan.has(flow._id.toString()) && triggerMatches(flow, { inboundMessage, isNewConversation, isNewLead, stageChanged })
   );
+  // A flow explicitly marked to interrupt (e.g. the escape hatch) takes priority over resuming
+  // whatever question the customer was mid-way through - see below.
+  const interruptingFlow = matchingFlows.find((flow) => flow.trigger?.interruptsActiveRun === true);
+
+  // A conversation mid-qualifying-sequence has this set by ask_mcq's first invocation (see
+  // automationExecutors.js) - this inbound message is the answer to that pending question, not a
+  // fresh trigger event. Resume that specific paused run before evaluating any flow's trigger
+  // from scratch, so the same message doesn't also get treated as a brand-new "new_message" event
+  // for the flow it's already mid-way through. Unless an interrupting flow matched this same
+  // message (e.g. "talk to a human") - then the customer explicitly asked to skip ahead, so cancel
+  // the pending run instead of feeding it this reply.
+  let resumedRun = false;
+  const pendingRunId = conversation.metadata?.pendingAutomationRunId;
+  logger.info(
+    { conversationId: conversation._id?.toString(), inboundMessageId: inboundMessage._id?.toString(), pendingRunId: pendingRunId ? String(pendingRunId) : null },
+    "runInboundAutomations: pending-run check"
+  );
+  if (pendingRunId) {
+    await Conversation.updateOne({ _id: conversation._id }, { $unset: { "metadata.pendingAutomationRunId": "" } });
+    if (interruptingFlow) {
+      await AutomationRun.updateOne({ _id: pendingRunId }, { $set: { status: "cancelled" } });
+      logger.info(
+        { runId: String(pendingRunId), interruptFlowId: interruptingFlow._id.toString() },
+        "runInboundAutomations: pending run cancelled by an interrupting trigger"
+      );
+    } else {
+      const { resumed, reason } = await resumeAutomationRunOnReply({ runId: pendingRunId, inboundMessageId: inboundMessage._id });
+      resumedRun = resumed;
+      logger.info({ runId: String(pendingRunId), resumed, reason: reason || null }, "runInboundAutomations: resume attempt result");
+    }
+  }
+
   const results = [];
 
   for (const flow of matchingFlows) {
@@ -123,6 +147,9 @@ export async function runInboundAutomations({
           // Lets a condition node branch on individual answered fields (e.g.
           // {{trigger.flowResponse.data.team_size}}) instead of only the flattened body text.
           flowResponse: inboundMessage.metadata?.flowResponse || null,
+          // The meeting a Confirm/Reschedule tap is about - set by meetingReminders.js when it
+          // sends the reminder, "most recent reminder wins" (see the field's own comment there).
+          replyToMeetingId: conversation.metadata?.pendingMeetingReminder?.meetingId || null,
         },
         steps: {},
         variables: {},

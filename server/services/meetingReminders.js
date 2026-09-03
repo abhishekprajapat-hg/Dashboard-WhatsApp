@@ -105,7 +105,17 @@ async function sendReminder(meeting, window) {
   });
   await Conversation.updateOne(
     { _id: conversation._id },
-    { $set: { lastMessageId: outboundMessage._id, lastMessageAt: outboundMessage.sentAt } }
+    {
+      $set: {
+        lastMessageId: outboundMessage._id,
+        lastMessageAt: outboundMessage.sentAt,
+        // Correlates a later Confirm/Reschedule tap back to this meeting - "most recent reminder
+        // wins" (same convention as findConversationForPhone above), simpler than threading
+        // WhatsApp's message.context reply-reference through the webhook normalizer for a case
+        // that's realistically never ambiguous (a contact doesn't have two reminders in flight).
+        "metadata.pendingMeetingReminder": { meetingId: String(meeting._id), window, sentAt: new Date() },
+      },
+    }
   );
 
   const mark = await markVegaMeetingReminded(meeting._id, window);

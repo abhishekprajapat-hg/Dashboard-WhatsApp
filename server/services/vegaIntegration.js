@@ -178,3 +178,31 @@ export async function markVegaMeetingReminded(meetingId, window) {
     clear();
   }
 }
+
+// Used by the "CTWA - meeting reschedule" satellite flow's cancel_meeting node, before it books a
+// fresh slot - same not-configured/timeout/non-2xx degradation as every function above.
+export async function cancelVegaMeeting(meetingId, reason) {
+  if (!config.vega.apiUrl || !config.vega.integrationSecret) {
+    return { ok: false, reason: "not_configured" };
+  }
+
+  const { signal, clear } = withTimeout();
+  try {
+    const response = await fetch(`${config.vega.apiUrl}/api/integrations/meetings/${meetingId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-integration-secret": config.vega.integrationSecret },
+      body: JSON.stringify({ reason }),
+      signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, meetingId }, "cancelVegaMeeting: Vega rejected the request");
+      return { ok: false, reason: `http_${response.status}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    logger.warn({ err: error, meetingId }, "cancelVegaMeeting: request failed");
+    return { ok: false, reason: "request_failed" };
+  } finally {
+    clear();
+  }
+}
