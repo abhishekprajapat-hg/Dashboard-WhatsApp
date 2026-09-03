@@ -156,7 +156,7 @@ function normalizeEdges(edges = []) {
       const baseId = String(edge.id || `${edge.source}-${edge.target}-${index}`);
       const id = seen.has(baseId) ? `${baseId}-${index}` : baseId;
       seen.add(id);
-      return { ...edge, id, source: String(edge.source), target: String(edge.target) };
+      return { id, source: String(edge.source), target: String(edge.target), sourceHandle: edge.sourceHandle ?? null, targetHandle: edge.targetHandle ?? null };
     });
 }
 
