@@ -1,5 +1,26 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-03 (later): the "empty pain_point prompt" noted below turned out to already be fine — checked directly against production, not a real gap
+
+The entry below ("Addendum, same evening") flagged the `pain_point` question's Gemini fallback node
+as having an empty prompt, never filled in after a Claude→Gemini node swap. Before touching it,
+queried the live production `AutomationFlow` document directly (read-only script, run as the
+`dashboard` VPS user so it used the app's own already-configured `MONGODB_URI` - no credentials moved
+anywhere). Traced the exact node: `ask_mcq_1788260411236` (the `pain_point` question, in flow
+"Visual Flow 6", `6a96681548390af9dea65107`) → `edge_case` branch → `gemini_1788278713612`. That
+node's prompt is **not** empty - it's a real, well-formed 535-character classification prompt,
+matching the pattern of the other three Gemini fallback nodes in the same flow (segment,
+lead_handling, next_step - 353/388/507 chars respectively, all real).
+
+**Conclusion: no fix needed.** Automation flows live entirely in the DB (edited through the
+flow-builder UI), not in this git repo - a fix made directly through the UI after the addendum below
+was written would never show up in `git log`, which is the most likely explanation for the
+discrepancy. **Don't re-attempt this "fix" without re-checking the live document first** - the
+technique that resolved it (query `AutomationFlow.find({})`, print every node's `config.body` length,
+walk the edges from the target `ask_mcq` node's `edge_case` handle to find its real AI fallback node)
+is worth reusing for any future "is this node actually configured right" question, rather than
+trusting a HANDOFF note's claim at face value.
+
 ## 2026-09-03: real estate qualifying flow root-caused and fixed for real — HEAD `3aab883`, deployed and verified live end-to-end on real WhatsApp
 
 **Read this section first if the previous entries below say the flow was "proven live" — that
