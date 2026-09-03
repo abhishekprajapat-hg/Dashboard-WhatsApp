@@ -1,5 +1,56 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (overnight session, wrap-up): full session summary - read this one first, it indexes everything below
+
+The user went to sleep partway through tonight's plan and asked for everything gap-filled and made
+production-ready that doesn't need them personally. Six commits landed, all **local only, not
+pushed** (see "why not pushed" at the bottom - deliberate, not an oversight). In order:
+
+1. `06b23ee` - platform-owner RBAC fix (a client's own admin could reach global feature flags and a
+   billing-bypassing plan override; also could mint "super_admin" in their own workspace).
+2. `1286d1e` - real WhatsApp template submission to Meta (previously only a read-only sync existed;
+   a client had no way to author+submit a new template from inside the app at all).
+3. `021981c` - inbox redesign: resizable list/chat/profile panes, collapsible WhatsApp/Instagram/
+   Facebook channel sections, Facebook shown as a real "not connected" placeholder.
+4. `5a54d39` - a full cross-tenant route audit (self-initiated, the obvious next question after #1)
+   found and fixed two more real gaps: a missed `DELETE /admin/feature-flags/:key` gate, and a real
+   account-takeover bug in `POST /team` (inviting an existing email silently reset their password).
+5. `a07dde6` - this file, mid-session.
+6. `5d9169d` - added login rate limiting, and fixed a real pre-existing bug found while verifying it:
+   every `rateLimiter()` call site shared one counter per IP with no way to isolate its own budget,
+   so route-specific limits (signup, now login) were being silently exhausted by unrelated traffic.
+
+**Every fix above was verified against a real running local dev server, not just typechecked** -
+each entry below has the specific curl/fetch-based proof. `check:server`/`check:client` both clean
+after every change. The project's own `node --test` e2e suite can't run in this sandbox (server-
+spawning tests produce no output here, a known limitation) - re-run it from a normal terminal for a
+real signal before fully trusting anything, though nothing here touched code those tests exercise
+in a way that should regress them.
+
+**What's still genuinely open, none of it touched tonight because it needs the user or carries real
+unverifiable risk:**
+- **Phase 1 (the actual top priority from the plan below): Embedded Signup with the client's real,
+  unclaimed WhatsApp number.** Nothing tonight substitutes for this - it needs a real phone in hand.
+  Do this first, before anything else, once back at the keyboard.
+- Phase 0.2/0.3 (Instagram use-case status re-check, confirming unclaimed-vs-porting for the
+  client's number) - still open, needs the user's Meta dashboard.
+- Rotating the exposed Meta `catalog_management` token, and the Mongo password that got pasted in
+  plaintext into this session's chat transcript - both need the user directly.
+- A real Razorpay live-payment test - needs real money and the user's action.
+- The Phase 2 App Review resubmission - explicitly postponed to this morning by the user.
+- WhatsApp Catalog/commerce send failure, Instagram-vanished-account audit-log check - both need
+  checking the user's real Meta/WhatsApp Manager dashboards directly.
+- `instagram.js`'s webhook self-heal single-account assumption (see its own entry below) - deferred
+  deliberately, needs a real second Instagram account to verify a fix against.
+
+**Why nothing got pushed to `origin/main`**: this repo's deploy cron pulls and auto-deploys from
+`origin/main` on every tick. Pushing six commits' worth of changes - including two real security
+fixes and a route restructuring - overnight with nobody awake to watch the deploy or catch a break
+before a real paying client tries to onboard this morning was the wrong risk to take unattended.
+**Review the six commits above, then push when someone's actually watching the result.**
+
+---
+
 ## 2026-09-04 (late night, continued): inbox redesign shipped + a full cross-tenant audit found and fixed two more real gaps - read the entry below this one first for context, this one continues it
 
 **Correction to the priority list's Tier 3 item "`FeatureFlag` staying global instead of
