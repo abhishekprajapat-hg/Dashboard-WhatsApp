@@ -9,7 +9,9 @@ import {
   createTemplate,
   duplicateTemplate,
   getTemplates,
+  getWhatsAppAccounts,
   previewTemplate,
+  submitTemplateForApproval,
   syncTemplateLibrary,
   updateTemplate,
 } from "../lib/api";
@@ -25,6 +27,7 @@ interface TemplateItem {
   variables: string[];
   status: "draft" | "active" | "archived" | "approved" | "pending" | "rejected";
   providerTemplateId?: string;
+  whatsappAccountId?: string;
   usageCount: number;
   lastUsedAt?: string;
   updatedAt?: string;
@@ -74,6 +77,7 @@ const emptyForm = {
   status: "draft",
   body: "",
   variables: "",
+  whatsappAccountId: "",
 };
 
 function statusClass(status: string) {
@@ -122,6 +126,13 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
   const [selectedId, setSelectedId] = useState("");
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [previewText, setPreviewText] = useState("");
+  const [whatsappAccounts, setWhatsappAccounts] = useState<{ id: string; displayName: string; phoneNumber: string }[]>([]);
+
+  useEffect(() => {
+    getWhatsAppAccounts<{ data: { id: string; displayName: string; phoneNumber: string }[] }>()
+      .then((response) => setWhatsappAccounts(response.data))
+      .catch(() => undefined);
+  }, []);
 
   const selected = templates.find((item) => item.id === selectedId) || templates[0] || null;
 
@@ -179,6 +190,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
       status: template.status,
       body: template.body,
       variables: (template.variables || []).join(", "),
+      whatsappAccountId: template.whatsappAccountId || "",
     });
   }
 
@@ -195,6 +207,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
       status: editing.status,
       body: editing.body,
       variables: editing.variables.split(",").map((item) => item.trim()).filter(Boolean),
+      whatsappAccountId: editing.type === "whatsapp" ? (editing.whatsappAccountId || undefined) : undefined,
     };
     try {
       if (editing.id) await updateTemplate<{ data: TemplateItem }>(editing.id, payload);
@@ -220,6 +233,20 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
     const response = await archiveTemplate<{ data: TemplateItem }>(id);
     setTemplates((items) => items.map((item) => item.id === id ? response.data : item));
     setNotice("Template archived.");
+  }
+
+  async function submitForApproval(id: string) {
+    setSaving(true);
+    setNotice("");
+    try {
+      const response = await submitTemplateForApproval<{ data: TemplateItem }>(id);
+      setTemplates((items) => items.map((item) => item.id === id ? response.data : item));
+      setNotice("Submitted to Meta for review.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Submission to Meta failed.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function syncWhatsApp() {
@@ -433,6 +460,16 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                 <div>Slug: {selected.slug || "-"}</div>
                 <div>Provider: {selected.providerTemplateId || "Internal"}</div>
               </Card>
+              {canWrite && selected.type === "whatsapp" && !selected.providerTemplateId && (
+                <Button
+                  size="sm"
+                  className="h-8 w-full bg-primary text-xs text-primary-foreground"
+                  disabled={saving}
+                  onClick={() => submitForApproval(selected.id)}
+                >
+                  <Send size={13} className="mr-1.5" /> Submit to Meta for review
+                </Button>
+              )}
             </div>
           ) : (
             <div className="p-4">
@@ -470,6 +507,22 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                     {categories.filter((item) => item !== "all").map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
                 </label>
+                {editing.type === "whatsapp" && (
+                  <label className="block space-y-1.5">
+                    <span className="text-[11px] font-medium text-muted-foreground">WhatsApp account</span>
+                    <select
+                      value={editing.whatsappAccountId}
+                      onChange={(event) => setEditing((current) => current && ({ ...current, whatsappAccountId: event.target.value }))}
+                      className={fieldClass}
+                    >
+                      <option value="">Choose an account...</option>
+                      {whatsappAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.displayName || account.phoneNumber}</option>
+                      ))}
+                    </select>
+                    <span className="block text-[10px] text-muted-foreground">Required before this template can be submitted to Meta for review.</span>
+                  </label>
+                )}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <label className="block space-y-1.5">
                     <span className="text-[11px] font-medium text-muted-foreground">Language</span>

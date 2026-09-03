@@ -737,6 +737,54 @@ export async function fetchWhatsAppTemplates(account) {
   }));
 }
 
+// Submits a brand-new template to Meta for review - distinct from fetchWhatsAppTemplates above,
+// which only ever reads templates that already exist in Meta's WhatsApp Manager. Meta's own
+// creation endpoint (POST .../message_templates) is the one real gap this app had: until this
+// function existed, a client could see synced templates but never author a new one from inside
+// the app itself. Same demo/local-credential fallback shape as every other real-API call in this
+// file, so it stays usable in local dev with no real Meta app connected.
+export async function createWhatsAppTemplate({ account, name, category, language, components }) {
+  const credentials = decodeCredentials(account);
+
+  if (isLocalCredential(credentials) || account.provider !== "meta") {
+    return {
+      providerTemplateId: `local_template_${Date.now()}`,
+      status: "pending",
+      category,
+    };
+  }
+
+  const accessToken = credentials.accessToken;
+  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.businessAccountId}/message_templates`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, category, language, components }),
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = payload?.error?.error_user_msg || payload?.error?.message || "Meta template submission failed.";
+    const error = new Error(message);
+    error.meta = payload;
+    error.code = "META_TEMPLATE_SUBMIT_FAILED";
+    error.status = response.status || 502;
+    throw error;
+  }
+
+  return {
+    providerTemplateId: payload.id,
+    // Meta always returns PENDING immediately after creation - real approval is asynchronous,
+    // same "call succeeded, approval still pending" shape already established for Instagram's
+    // content_publish review counter.
+    status: String(payload.status || "pending").toLowerCase(),
+    category: payload.category || category,
+  };
+}
+
 export async function testWhatsAppConnection(account) {
   if (!account) {
     const error = new Error("WhatsApp account not found.");

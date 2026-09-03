@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
-import { fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
+import { createWhatsAppTemplate, fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
 import { optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const templatesRouter = Router();
@@ -148,6 +148,51 @@ function cleanPayload(body = {}) {
   };
 }
 
+// This app's own templates use named {{variable}} tokens (see extractVariables above); Meta only
+// accepts sequential positional placeholders ({{1}}, {{2}}, ...) in a submitted template body, and
+// requires a realistic-looking example value for each one or the submission is rejected outright.
+// Renumbering here (rather than asking authors to type {{1}} directly) keeps the friendlier named
+// syntax everywhere else in the app - preview, quick replies, automation nodes.
+const metaCategoryByLocalCategory = {
+  marketing: "MARKETING",
+  sales: "MARKETING",
+  utility: "UTILITY",
+  support: "UTILITY",
+  payment: "UTILITY",
+  appointment: "UTILITY",
+  general: "UTILITY",
+};
+
+function toMetaCategory(category) {
+  return metaCategoryByLocalCategory[String(category || "").toLowerCase()] || "UTILITY";
+}
+
+// Meta template names must be lowercase snake_case - this app's slugify() produces hyphens for
+// display slugs, which Meta rejects, so this stays a separate, stricter transform.
+function toMetaTemplateName(name) {
+  return (
+    String(name || "template")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 512) || "template"
+  );
+}
+
+function buildMetaTemplateComponents(body = "", variables = []) {
+  let numberedBody = body;
+  variables.forEach((variable, index) => {
+    numberedBody = numberedBody.replace(new RegExp(`\\{\\{\\s*${variable}\\s*\\}\\}`, "g"), `{{${index + 1}}}`);
+  });
+
+  const bodyComponent = { type: "BODY", text: numberedBody };
+  if (variables.length) {
+    bodyComponent.example = { body_text: [variables.map((variable) => `Sample ${variable}`)] };
+  }
+  return { numberedBody, components: [bodyComponent] };
+}
+
 function renderPreview(body = "", variables = {}) {
   return String(body || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key) => {
     const value = variables[key] ?? variables[String(key).toLowerCase()] ?? "";
@@ -267,6 +312,76 @@ templatesRouter.get("/:id", requirePermission("templates:read"), async (req, res
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const template = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!template) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
+  res.json({ data: serializeTemplate(template) });
+});
+
+// Submits a locally-authored template to Meta for real review - closes the gap where creating a
+// "whatsapp" template only ever wrote to this app's own DB (see cleanPayload/POST "/" above) and
+// never actually reached Meta. Only meaningful for templates that haven't already been submitted -
+// synced-from-Meta templates already carry a real providerTemplateId and go through sync-whatsapp
+// for status updates, not this route.
+templatesRouter.post("/:id/submit", requirePermission("templates:write"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
+  const template = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!template) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
+
+  if (template.type !== "whatsapp") {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Only WhatsApp templates can be submitted for Meta review." });
+  }
+  if (template.providerTemplateId) {
+    return res.status(409).json({ error: "ALREADY_SUBMITTED", message: "This template has already been submitted to Meta." });
+  }
+  if (!template.body?.trim()) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Add a message body before submitting for review." });
+  }
+  if (!template.whatsappAccountId) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Choose a connected WhatsApp account before submitting for review." });
+  }
+
+  const account = await WhatsAppAccount.findOne({ _id: template.whatsappAccountId, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "The WhatsApp account linked to this template was not found." });
+  }
+
+  const metaName = toMetaTemplateName(template.name);
+  const metaCategory = toMetaCategory(template.category);
+  const { numberedBody, components } = buildMetaTemplateComponents(template.body, template.variables || []);
+
+  let result;
+  try {
+    result = await createWhatsAppTemplate({
+      account,
+      name: metaName,
+      category: metaCategory,
+      language: template.language || "en",
+      components,
+    });
+  } catch (error) {
+    return res.status(error.status || 502).json({ error: error.code || "META_TEMPLATE_SUBMIT_FAILED", message: error.message });
+  }
+
+  template.name = metaName;
+  template.body = numberedBody;
+  template.components = components;
+  template.category = normalizeCategory(metaCategory);
+  template.providerTemplateId = result.providerTemplateId;
+  template.status = result.status;
+  template.updatedBy = req.user.sub;
+  try {
+    await template.save();
+  } catch (error) {
+    // Meta already accepted the submission (result.providerTemplateId is real) by the time this
+    // could happen - a name collision with another template on the same account/language here
+    // would otherwise report success while silently failing to persist the real id/status.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        error: "DUPLICATE_TEMPLATE_NAME",
+        message: `Meta accepted the submission as "${metaName}", but another template with that name already exists for this account and language.`,
+      });
+    }
+    throw error;
+  }
+
   res.json({ data: serializeTemplate(template) });
 });
 
