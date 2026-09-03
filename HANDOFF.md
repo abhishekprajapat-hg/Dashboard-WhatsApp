@@ -1,10 +1,83 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (morning, continued after push): AI cost-isolation fix + a real API-key system for external CRM/billing integration
+
+After pushing the overnight commits, the user asked for two more concrete things: (1) whatever AI
+integration work doesn't need them, and (2) a real API for this app to talk to a client's own
+custom-built CRM/billing software. Scoped both with an Explore agent first rather than guessing -
+full findings and reasoning below, code done and verified live.
+
+**AI Assistant cost-isolation fix.** The client-facing Assistant tab (Analyze/Draft Reply/Stream)
+was calling OpenAI/Gemini/Claude using **Nemnidhi's own server-side env-var API keys for every
+tenant**, regardless of what a workspace configured in Settings > Integrations > AI Providers - that
+per-workspace key already existed and already worked correctly for automation flow AI nodes, it just
+was never wired to the Assistant subsystem. Meant Nemnidhi silently paid for and had zero visibility
+into any tenant's Assistant usage. Fixed in `services/aiAssistant.js` (`resolveApiKey()` - workspace's
+own key first, Nemnidhi's env var as fallback so it still works for workspaces that haven't
+configured one) and `routes/assistant.js`'s `/overview` (the `providers: {...}` availability flags
+now reflect the workspace's own key too, not just env vars).
+
+**Real API-key system - the "API Keys" admin panel was previously decorative, not a real gap
+fix but a from-scratch build.** Confirmed via the Explore agent: `requireAuth` only ever verifies a
+JWT, and the old `apiKeys` field in `Workspace.settings` was a client-supplied array (the user typed
+their own fake "token" string) that **nothing anywhere ever checked against an incoming request** -
+looked like a working feature, did nothing. Built for real:
+- `models/ApiKey.js` - hashed-key storage (SHA-256, not the slow scrypt used for user passwords -
+  wrong tool for a high-entropy random token that gets checked on every request), per-workspace,
+  scoped.
+- `middleware/apiKeyAuth.js` - `requireApiKey(...scopes)`, checks an `X-API-Key` header, sets
+  `req.apiKeyAuth` (organizationId/workspaceId/scopes) parallel to `req.user` for JWT routes.
+- `routes/admin.js` - real `POST/DELETE /admin/api-keys` (the plaintext key is shown exactly once,
+  at creation, never retrievable again - same convention every real API-key product uses), replacing
+  the fake settings-object CRUD entirely. Also removed a related real gap found in the same file
+  while stripping the fake `apiKeys` field out of `PUT /admin/settings`: that same route let
+  **any workspace admin set `Organization.plan`/`billingStatus` directly** via `{billing: {plan,
+  status}}` in the request body - a second, separate bypass of the platform-owner gate already
+  applied to the dedicated `/admin/entitlements/plan` route earlier tonight. Now silently ignored;
+  only cosmetic billing-display fields (`nextInvoiceAt`/`mrr`) pass through this route.
+- `routes/publicApi.js` - the first real inbound route for a third party: `POST /api/public/leads`,
+  upserts a Contact by phone (idempotent - a CRM retry or a genuine detail change updates, doesn't
+  error), scoped entirely to the calling key's own workspace.
+- Client: a real `ApiKeysPanel` in Admin > Access (`AdminView.tsx`) - generate with a name + scope
+  picker, one-time-reveal of the real key with a copy button, list with live status/last-used, revoke.
+
+**A real bug found and fixed while verifying this live, not just typechecked**: the API-key lookup
+(`ApiKey.findOne({..., revokedAt: { $exists: false } })`) threw a Mongoose `CastError` on every
+single request - Mongoose's Date type rejects a bare `{ $exists: false }` without `mongoose.trusted()`
+wrapping it, a convention this codebase already uses elsewhere (`conversations.js`'s `deletedAt`
+checks) that got missed here. Every request, including ones with a completely invalid key, was
+failing with a 500 instead of the intended 401 until this was fixed. **Full live verification after
+the fix**: generated a real key through the actual UI, called `POST /api/public/leads` with no key
+(401), a fake key (401), the real key (201, real Contact created with correct workspace scoping,
+tags, and source), revoked the key through the UI, confirmed the same key then gets 401 - the entire
+lifecycle proven end to end, not just each piece in isolation.
+
+**Explicitly not built tonight, out of scope by design**: Vega and BillStack's own repos were not
+touched - reusing `notifyVega()` for a third-party client's CRM would mean rewriting it (it's
+correctly hardcoded to one global Vega instance, since Vega is Nemnidhi's own single internal system
+managing every client's relationship, not a per-tenant integration point - see
+[[nemnidhi-ecosystem-map]]). If "our own custom built CRM and billing software" in the user's ask
+meant Vega/BillStack specifically rather than a hypothetical future client's own external system,
+the next real step is a session with those repos open, not more work here. `apiTokens` (separate
+from `apiKeys`, in the same admin settings blob) has the exact same "decorative, no real auth behind
+it" problem - not fixed, flagged so it isn't mistaken for real by a future session.
+
+`check:server`/`check:client` clean throughout. Committed locally; not yet pushed as of this entry -
+same reasoning as the overnight batch, confirm with the user before pushing further changes without
+them present, even though the previous batch was explicitly authorized.
+
+---
+
 ## 2026-09-04 (overnight session, wrap-up): full session summary - read this one first, it indexes everything below
 
 The user went to sleep partway through tonight's plan and asked for everything gap-filled and made
-production-ready that doesn't need them personally. Six commits landed, all **local only, not
-pushed** (see "why not pushed" at the bottom - deliberate, not an oversight). In order:
+production-ready that doesn't need them personally. Eight commits landed; held back from
+`origin/main` overnight on purpose (deploy cron auto-deploys from there, and nobody was awake to
+watch it), then **pushed the next morning on the user's explicit "push it"** - `afe65af..5ea38ba`.
+The deploy cron will pick this up on its next tick; check `deploy.log`/`pm2 status dashboard-api`
+to confirm it landed clean, especially given past sessions have hit real deploy issues (root-owned
+files, stale Turbopack cache) that needed manual intervention - don't assume "pushed" means "live"
+without checking. In order:
 
 1. `06b23ee` - platform-owner RBAC fix (a client's own admin could reach global feature flags and a
    billing-bypassing plan override; also could mint "super_admin" in their own workspace).
@@ -43,11 +116,11 @@ unverifiable risk:**
 - `instagram.js`'s webhook self-heal single-account assumption (see its own entry below) - deferred
   deliberately, needs a real second Instagram account to verify a fix against.
 
-**Why nothing got pushed to `origin/main`**: this repo's deploy cron pulls and auto-deploys from
-`origin/main` on every tick. Pushing six commits' worth of changes - including two real security
-fixes and a route restructuring - overnight with nobody awake to watch the deploy or catch a break
-before a real paying client tries to onboard this morning was the wrong risk to take unattended.
-**Review the six commits above, then push when someone's actually watching the result.**
+**Update: pushed.** The above was held back overnight on purpose (deploy cron auto-deploys from
+`origin/main`, nobody was awake to watch it); the user explicitly said "push it" the next morning,
+so it went out - `afe65af..5ea38ba`. **Check the deploy actually landed clean** (`deploy.log`/`pm2
+status dashboard-api` on the VPS) before assuming it's live - this project has hit real deploy
+issues before (root-owned files, stale build caches) that needed manual fixing after a clean push.
 
 ---
 
