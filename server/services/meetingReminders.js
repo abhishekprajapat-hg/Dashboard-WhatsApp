@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { Contact, Conversation, Message, WhatsAppAccount } from "../models/index.js";
+import { Contact, Conversation, Message, Organization, WhatsAppAccount, Workspace } from "../models/index.js";
 import { fetchUpcomingVegaMeetings, markVegaMeetingReminded } from "./vegaIntegration.js";
 import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { logger } from "./logger.js";
@@ -25,15 +25,38 @@ function phoneLookupValues(phone) {
   return [...values].filter(Boolean);
 }
 
-// A Vega meeting only carries a raw contactPhone, not a workspace/conversation reference (Vega
-// has no concept of either) - this is the reverse lookup, phone -> the real WhatsApp thread to
-// send the reminder into. Picks the contact's most recently active conversation, same
-// "most recent wins" convention as findReusableContactAndConversation in whatsapp.js.
+// Vega itself has no concept of workspaces - it's Nemnidhi's own single internal system (see
+// Organization.isPlatformOwner), not a per-tenant integration. Every meeting it returns belongs to
+// whichever workspace(s) the platform owner operates, never a paying client's own workspace.
+// Cached briefly since this runs on every reminder in every sweep tick, not once per process -
+// still cheap enough (a handful of workspace IDs) to just re-fetch on every sweep rather than
+// invalidate a longer-lived cache when a platform-owner workspace is added/removed.
+async function platformOwnerWorkspaceIds() {
+  const platformOwnerOrgs = await Organization.find({ isPlatformOwner: true }).select("_id");
+  if (!platformOwnerOrgs.length) return [];
+  const workspaces = await Workspace.find({ organizationId: { $in: platformOwnerOrgs.map((org) => org._id) } }).select("_id");
+  return workspaces.map((workspace) => workspace._id);
+}
+
+// A Vega meeting only carries a raw contactPhone, not a workspace/conversation reference - this is
+// the reverse lookup, phone -> the real WhatsApp thread to send the reminder into. Scoped to
+// platform-owner workspaces only (see above) - without this, a phone number that happens to match
+// a contact in a completely unrelated paying client's own workspace would have Nemnidhi's own
+// meeting reminder sent through that client's WhatsApp account into that client's conversation, a
+// real cross-tenant message-misdelivery risk once a second workspace exists in this database.
+// Picks the contact's most recently active conversation, same "most recent wins" convention as
+// findReusableContactAndConversation in whatsapp.js.
 async function findConversationForPhone(phone) {
   const values = phoneLookupValues(phone);
   if (!values.length) return null;
 
-  const contact = await Contact.findOne({ phone: mongoose.trusted({ $in: values }) }).sort({ lastMessageAt: -1, updatedAt: -1 });
+  const workspaceIds = await platformOwnerWorkspaceIds();
+  if (!workspaceIds.length) return null;
+
+  const contact = await Contact.findOne({
+    phone: mongoose.trusted({ $in: values }),
+    workspaceId: mongoose.trusted({ $in: workspaceIds }),
+  }).sort({ lastMessageAt: -1, updatedAt: -1 });
   if (!contact) return null;
 
   const conversation = await Conversation.findOne({ workspaceId: contact.workspaceId, contactId: contact._id }).sort({
