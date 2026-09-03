@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import { AiDocument, AiMemory, Contact, Conversation, Lead, Message } from "../models/index.js";
+import { getWorkspaceIntegrations } from "./integrations.js";
 
 const providerConfig = {
   openai: {
@@ -163,12 +164,26 @@ function fallbackCompletion({ task, messages = [], contact = {}, knowledge = [],
   return payload;
 }
 
-async function callProvider({ provider, system, prompt, stream = false }) {
+async function resolveApiKey(config, workspaceId, provider) {
+  // A workspace's own key (Settings > Integrations > AI Providers - the same key automation flow
+  // AI nodes already use) takes priority over Nemnidhi's own server-side env var. Without this, the
+  // Assistant tab (Analyze/Draft Reply/Stream) silently ran every tenant's usage through Nemnidhi's
+  // own account and billing regardless of what a client configured - a real cost-isolation gap that
+  // matters now that a second real paying client is using this feature, not just Nemnidhi's own team.
+  if (workspaceId) {
+    const integrations = await getWorkspaceIntegrations(workspaceId);
+    const workspaceProvider = integrations?.aiProviders?.[provider];
+    if (workspaceProvider?.enabled && workspaceProvider?.apiKey) return workspaceProvider.apiKey;
+  }
+  return process.env[config.envKey];
+}
+
+async function callProvider({ provider, system, prompt, stream = false, workspaceId }) {
   const selected = providerConfig[provider] ? provider : "local";
   if (selected === "local" || stream) return null;
 
   const config = providerConfig[selected];
-  const apiKey = process.env[config.envKey];
+  const apiKey = await resolveApiKey(config, workspaceId, selected);
   if (!apiKey || typeof fetch !== "function") return null;
 
   if (selected === "openai") {
@@ -262,7 +277,7 @@ export async function runAssistantTask({ workspaceId, conversationId, provider =
 
   let result = fallbackCompletion({ task, messages, contact, knowledge, prompt });
   try {
-    const providerText = await callProvider({ provider, system, prompt: aiPrompt });
+    const providerText = await callProvider({ provider, system, prompt: aiPrompt, workspaceId });
     if (providerText) {
       const parsed = JSON.parse(providerText.replace(/^```json|```$/g, "").trim());
       result = { ...result, ...parsed, provider };

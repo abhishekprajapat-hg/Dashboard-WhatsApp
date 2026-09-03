@@ -171,6 +171,23 @@ export function updateAdminSettings<T>(settings: Record<string, unknown>) {
   });
 }
 
+export function getApiKeyScopes<T>() {
+  return request<T>("/admin/api-keys/scopes");
+}
+
+export function createApiKey<T>(payload: { name: string; scopes: string[] }) {
+  return request<T>("/admin/api-keys", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function revokeApiKey<T>(id: string) {
+  return request<T>(`/admin/api-keys/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function getAuditLogExportUrl(params: { from?: string; to?: string } = {}) {
   const query = new URLSearchParams();
   if (params.from) query.set("from", params.from);

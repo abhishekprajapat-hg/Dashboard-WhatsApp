@@ -33,12 +33,15 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import {
+  createApiKey,
   getAdminOverview,
+  getApiKeyScopes,
   getAuditLogExportUrl,
   getEntitlementsAdmin,
   getFeatureFlagsAdmin,
   pruneAuditLog,
   resetFeatureFlag,
+  revokeApiKey,
   updateAdminSettings,
   updateFeatureFlag,
   updatePackTier,
@@ -286,6 +289,159 @@ function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; 
                         {displayValue(column.key, row[column.key])}
                       </td>
                     ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ApiKeyScope {
+  key: string;
+  label: string;
+  gatesRealBehavior: boolean;
+}
+
+// Real key management, not a read-only mock - generates a real server-issued secret (shown exactly
+// once, matching how Stripe/every real API-key product handles this), and can revoke a key.
+function ApiKeysPanel({ apiKeys, onChanged }: { apiKeys: AdminRow[]; onChanged: () => void }) {
+  const [scopes, setScopes] = useState<ApiKeyScope[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  const [newKey, setNewKey] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getApiKeyScopes<{ data: ApiKeyScope[] }>()
+      .then((response) => setScopes(response.data))
+      .catch(() => undefined);
+  }, []);
+
+  async function handleCreate() {
+    if (!name.trim() || selectedScopes.length === 0) {
+      setError("Name and at least one scope are required.");
+      return;
+    }
+    setCreating(true);
+    setError("");
+    try {
+      const response = await createApiKey<{ data: { key: string } }>({ name: name.trim(), scopes: selectedScopes });
+      setNewKey(response.data.key);
+      setName("");
+      setSelectedScopes([]);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create API key.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRevoke(id: string) {
+    await revokeApiKey(id);
+    onChanged();
+  }
+
+  return (
+    <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
+        <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
+        <Badge variant="outline" className="text-[10px]">{apiKeys.length} records</Badge>
+      </CardHeader>
+      <CardContent className="space-y-3 px-4 pb-4">
+        <p className="text-xs text-muted-foreground">
+          For a client's own external system (their CRM, billing software, etc.) to call into this workspace's API. Send the key in an <code>X-API-Key</code> header.
+        </p>
+
+        {newKey && (
+          <div className="rounded-md border border-primary/30 bg-primary/10 p-3">
+            <p className="mb-1.5 text-xs font-medium text-primary">Copy this key now - it will not be shown again.</p>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-background/80 px-2 py-1.5 text-xs">{newKey}</code>
+              <Button size="sm" variant="outline" className="h-7 shrink-0 text-xs" onClick={() => navigator.clipboard?.writeText(newKey)}>
+                Copy
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 shrink-0 text-xs" onClick={() => setNewKey("")}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 rounded-md border border-border/70 bg-background/40 p-3 sm:flex-row sm:items-end">
+          <label className="min-w-0 flex-1 space-y-1">
+            <span className="text-[11px] font-medium text-muted-foreground">Key name</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Our CRM integration"
+              className="h-9 w-full rounded-md border border-border bg-background/80 px-3 text-xs text-foreground outline-none focus:border-primary/50"
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {scopes.map((scope) => (
+              <label key={scope.key} className="flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1.5 text-xs">
+                <input
+                  type="checkbox"
+                  checked={selectedScopes.includes(scope.key)}
+                  onChange={(event) =>
+                    setSelectedScopes((current) =>
+                      event.target.checked ? [...current, scope.key] : current.filter((item) => item !== scope.key)
+                    )
+                  }
+                />
+                {scope.label}
+              </label>
+            ))}
+          </div>
+          <Button size="sm" className="h-9 shrink-0 text-xs" disabled={creating} onClick={handleCreate}>
+            <KeyRound size={13} className="mr-1.5" /> Generate key
+          </Button>
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <div className="overflow-x-auto rounded-md border border-border/80">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Key</th>
+                <th className="px-3 py-2 font-medium">Scopes</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Last used</th>
+                <th className="px-3 py-2 font-medium" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {apiKeys.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-6 text-center text-sm text-muted-foreground" colSpan={6}>No API keys yet.</td>
+                </tr>
+              ) : (
+                apiKeys.map((row) => (
+                  <tr key={String(row.id)} className="bg-card/70">
+                    <td className="px-3 py-2 text-foreground">{text(row.name)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{text(row.token)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{text(row.scopes)}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant="outline" className={statusClass(row.status)}>
+                        <span className="size-1.5 rounded-full bg-current" />
+                        {text(row.status)}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{text(row.lastUsedAt)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {row.status !== "revoked" && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={() => handleRevoke(String(row.id))}>
+                          Revoke
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -567,7 +723,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   <SectionHeader icon={<LockKeyhole size={17} />} title="Roles, Permissions and API Tokens" detail="Least-privilege controls for admins, agents, integrations, and automation." />
                   <div className="grid gap-4 xl:grid-cols-2">
                     <DataTable title="Roles" rows={overview.roles} columns={[{ key: "name", label: "Role" }, { key: "key", label: "Key" }, { key: "tenant", label: "Tenant" }, { key: "permissions", label: "Permissions" }, { key: "isSystemRole", label: "System" }]} />
-                    <DataTable title="API Keys" rows={overview.apiKeys} columns={[{ key: "name", label: "Name" }, { key: "token", label: "Key" }, { key: "scopes", label: "Scopes" }, { key: "status", label: "Status" }, { key: "createdAt", label: "Created" }]} />
+                    <ApiKeysPanel apiKeys={overview.apiKeys} onChanged={loadOverview} />
                     <DataTable title="API Tokens" rows={overview.apiTokens} columns={[{ key: "name", label: "Token" }, { key: "token", label: "Value" }, { key: "expiresAt", label: "Expires" }, { key: "status", label: "Status" }]} />
                     <Card className="rounded-lg border-border/70">
                       <CardHeader className="px-4 pt-4">

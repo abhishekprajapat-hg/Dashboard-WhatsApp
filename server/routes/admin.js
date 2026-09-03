@@ -2,6 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import {
+  ApiKey,
   AuditLog,
   AutomationFlow,
   Campaign,
@@ -14,6 +15,7 @@ import {
   Workspace,
 } from "../models/index.js";
 import { requirePermission, requirePlatformOwner } from "../middleware/auth.js";
+import { generateApiKey } from "../utils/apiKey.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { pruneAuditLogs } from "../services/auditLogRetention.js";
 import { getEntitlements, PACK_TIERS } from "../services/entitlements.js";
@@ -43,15 +45,6 @@ export const packTierUpdateSchema = z.object({
 
 const auditLogCsvHeaders = ["id", "createdAt", "actor", "action", "entityType", "entityId", "ipAddress", "userAgent", "before", "after"];
 
-const apiKeySchema = z.object({
-  id: z.string().optional(),
-  name: z.string().trim().optional().default(""),
-  token: z.string().optional().default(""),
-  scopes: z.array(z.string()).optional().default([]),
-  status: z.string().optional().default("active"),
-  createdAt: z.string().optional(),
-});
-
 const apiTokenSchema = z.object({
   id: z.string().optional(),
   name: z.string().trim().optional().default(""),
@@ -76,7 +69,6 @@ export const adminSettingsSchema = z.object({
     primaryColor: z.string().optional(),
     customDomain: z.string().optional(),
   }).partial().optional(),
-  apiKeys: z.array(apiKeySchema).optional(),
   apiTokens: z.array(apiTokenSchema).optional(),
   webhooks: z.record(z.unknown()).optional(),
   departments: z.array(z.record(z.unknown())).optional(),
@@ -146,6 +138,7 @@ adminRouter.get("/overview", requirePermission("admin:read"), async (req, res) =
     campaigns,
     webhookEvents,
     auditLogs,
+    apiKeyDocs,
   ] = await Promise.all([
     Organization.findById(organizationId),
     Workspace.find({ _id: workspaceId, organizationId }).sort({ createdAt: 1 }),
@@ -157,6 +150,7 @@ adminRouter.get("/overview", requirePermission("admin:read"), async (req, res) =
     Campaign.find({ workspaceId }).sort({ updatedAt: -1 }).limit(100),
     WebhookEvent.find({ workspaceId }).sort({ createdAt: -1 }).limit(50),
     AuditLog.find({ workspaceId }).sort({ createdAt: -1 }).limit(80),
+    ApiKey.find({ workspaceId }).sort({ createdAt: -1 }).limit(50),
   ]);
 
   const workspace = workspaces.find((item) => item._id.toString() === workspaceId) || workspaces[0];
@@ -169,13 +163,17 @@ adminRouter.get("/overview", requirePermission("admin:read"), async (req, res) =
     nextInvoiceAt: orgSettings.billing?.nextInvoiceAt || "",
     mrr: orgSettings.billing?.mrr || 0,
   };
-  const apiKeys = (workspaceSettings.apiKeys || orgSettings.apiKeys || []).map((key, index) => ({
-    id: key.id || `api_key_${index}`,
-    name: key.name || `API Key ${index + 1}`,
-    token: maskSecret(key.token || key.value),
-    scopes: key.scopes || ["admin:read"],
-    status: key.status || "active",
+  // Real ApiKey documents now (see POST/DELETE /admin/api-keys below) - only the prefix is ever
+  // shown again after creation, never a masked reconstruction of a real secret since the full key
+  // is never stored anywhere, hashed or not.
+  const apiKeys = apiKeyDocs.map((key) => ({
+    id: key._id.toString(),
+    name: key.name,
+    token: `${key.keyPrefix}••••••••••••••••••••••••`,
+    scopes: key.scopes,
+    status: key.revokedAt ? "revoked" : "active",
     createdAt: compactDate(key.createdAt),
+    lastUsedAt: key.lastUsedAt ? compactDate(key.lastUsedAt) : "Never used",
   }));
   const apiTokens = (workspaceSettings.apiTokens || []).map((token, index) => ({
     id: token.id || `api_token_${index}`,
@@ -353,7 +351,8 @@ adminRouter.put("/settings", requirePermission("admin:write"), validateBody(admi
     ...current,
     ...(incoming.security ? { security: { ...(current.security || {}), ...incoming.security } } : {}),
     ...(incoming.whiteLabelBranding ? { whiteLabelBranding: { ...(current.whiteLabelBranding || {}), ...incoming.whiteLabelBranding } } : {}),
-    ...(incoming.apiKeys ? { apiKeys: incoming.apiKeys } : {}),
+    // apiKeys is deliberately no longer settable here - it used to be a client-supplied array with
+    // no real auth behind it (see the real ApiKey model + POST/DELETE /admin/api-keys below).
     ...(incoming.apiTokens ? { apiTokens: incoming.apiTokens } : {}),
     ...(incoming.webhooks ? { webhooks: incoming.webhooks } : {}),
     ...(incoming.departments ? { departments: incoming.departments } : {}),
@@ -362,11 +361,16 @@ adminRouter.put("/settings", requirePermission("admin:write"), validateBody(admi
   workspace.markModified("settings");
 
   if (incoming.billing) {
-    organization.plan = incoming.billing.plan || organization.plan;
-    organization.billingStatus = incoming.billing.status || organization.billingStatus;
+    // Deliberately never touches organization.plan/billingStatus here - those are the real
+    // enforcement fields (entitlements.js gates capabilities off `plan` directly), and this is a
+    // generic workspace-settings route reachable by any tenant's own admin. The only legitimate
+    // ways to change them are the real Razorpay flow (billing.js) or the platform-owner-gated
+    // PUT /admin/entitlements/plan - a `plan`/`status` key sent here is silently ignored rather
+    // than accepted, so this stays only cosmetic display metadata (nextInvoiceAt/mrr etc).
+    const { plan: _ignoredPlan, status: _ignoredStatus, ...cosmeticBilling } = incoming.billing;
     organization.settings = {
       ...settingsObject(organization.settings),
-      billing: { ...(settingsObject(organization.settings).billing || {}), ...incoming.billing },
+      billing: { ...(settingsObject(organization.settings).billing || {}), ...cosmeticBilling },
     };
     organization.markModified("settings");
     await organization.save();
@@ -374,6 +378,68 @@ adminRouter.put("/settings", requirePermission("admin:write"), validateBody(admi
 
   await workspace.save();
   res.json({ ok: true, settings: workspace.settings, billing: { plan: organization.plan, status: organization.billingStatus } });
+});
+
+// Real server-to-server API keys for a client's own external system (their CRM, billing software,
+// etc.) to call into this app - see middleware/apiKeyAuth.js and routes/publicApi.js for the
+// consumer side. `gatesRealBehavior` per scope, same honesty convention as featureFlags.js's
+// definitions - only scopes with a real route behind them should ever be issuable.
+export const API_KEY_SCOPES = [{ key: "leads:write", label: "Create leads", gatesRealBehavior: true }];
+
+const createApiKeySchema = z.object({
+  name: z.string().trim().min(1, "Name is required.").max(120),
+  scopes: z.array(z.string()).min(1, "At least one scope is required."),
+});
+
+adminRouter.get("/api-keys/scopes", requirePermission("admin:read"), (req, res) => {
+  res.json({ data: API_KEY_SCOPES });
+});
+
+adminRouter.post("/api-keys", requirePermission("admin:write"), validateBody(createApiKeySchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const knownScopeKeys = API_KEY_SCOPES.map((scope) => scope.key);
+  const invalidScopes = req.body.scopes.filter((scope) => !knownScopeKeys.includes(scope));
+  if (invalidScopes.length) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: `Unknown scope(s): ${invalidScopes.join(", ")}` });
+  }
+
+  const { key, keyPrefix, keyHash } = generateApiKey();
+  const apiKeyDoc = await ApiKey.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    name: req.body.name,
+    keyPrefix,
+    keyHash,
+    scopes: req.body.scopes,
+    createdByUserId: req.user.sub,
+  });
+
+  res.status(201).json({
+    data: {
+      id: apiKeyDoc._id.toString(),
+      name: apiKeyDoc.name,
+      scopes: apiKeyDoc.scopes,
+      // The only time the real plaintext key is ever returned - the full key is never stored
+      // anywhere, hashed or not, so there is no way to show it again after this response.
+      key,
+    },
+  });
+});
+
+adminRouter.delete("/api-keys/:id", requirePermission("admin:write"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "API key not found." });
+  }
+  const apiKeyDoc = await ApiKey.findOneAndUpdate(
+    { _id: req.params.id, workspaceId: req.user.workspaceId },
+    { $set: { revokedAt: new Date() } },
+    { new: true }
+  );
+  if (!apiKeyDoc) return res.status(404).json({ error: "NOT_FOUND", message: "API key not found." });
+  res.json({ ok: true });
 });
 
 // Deliberately richer than GET /overview's 5-field auditTrail (that endpoint is untouched) - this

@@ -26,7 +26,7 @@ export const updateContactSchema = createContactSchema.extend({
   status: z.string().optional().default("active"),
 });
 
-async function ensureTags({ organizationId, workspaceId, names }) {
+export async function ensureTags({ organizationId, workspaceId, names }) {
   const tags = [];
 
   for (const name of names) {

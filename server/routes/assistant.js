@@ -7,6 +7,7 @@ import { AutomationFlow, Conversation, Lead, Message, Organization } from "../mo
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
 import { hasEntitlement } from "../services/entitlements.js";
+import { getWorkspaceIntegrations } from "../services/integrations.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const assistantRouter = Router();
@@ -59,13 +60,15 @@ function dbUnavailable(res) {
 assistantRouter.get("/overview", requirePermission("assistant:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) return dbUnavailable(res);
 
-  const [conversationCount, aiEnabledCount, flowCount, leadCount, organization] = await Promise.all([
+  const [conversationCount, aiEnabledCount, flowCount, leadCount, organization, integrations] = await Promise.all([
     Conversation.countDocuments({ workspaceId: req.user.workspaceId }),
     Conversation.countDocuments({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) }),
     AutomationFlow.countDocuments({ workspaceId: req.user.workspaceId }),
     Lead.countDocuments({ workspaceId: req.user.workspaceId, status: "open" }),
     Organization.findById(req.user.organizationId).select("plan"),
+    getWorkspaceIntegrations(req.user.workspaceId),
   ]);
+  const workspaceAiProviders = integrations?.aiProviders || {};
 
   const recent = await Conversation.find({ workspaceId: req.user.workspaceId, "metadata.ai": mongoose.trusted({ $exists: true }) })
     .populate("contactId", "name phone waName")
@@ -81,9 +84,12 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
       aiAssistant: hasEntitlement(organization?.plan, "aiAssistant"),
     },
     providers: {
-      openai: Boolean(process.env.OPENAI_API_KEY),
-      gemini: Boolean(process.env.GEMINI_API_KEY),
-      claude: Boolean(process.env.ANTHROPIC_API_KEY),
+      // "Available" if either this workspace configured its own key (Settings > Integrations) or
+      // Nemnidhi's own server-side key is set as a fallback - matches aiAssistant.js's own
+      // workspace-key-first resolution, so this badge never lies about what a real call will do.
+      openai: Boolean((workspaceAiProviders.openai?.enabled && workspaceAiProviders.openai?.apiKey) || process.env.OPENAI_API_KEY),
+      gemini: Boolean((workspaceAiProviders.gemini?.enabled && workspaceAiProviders.gemini?.apiKey) || process.env.GEMINI_API_KEY),
+      claude: Boolean((workspaceAiProviders.claude?.enabled && workspaceAiProviders.claude?.apiKey) || process.env.ANTHROPIC_API_KEY),
       local: true,
     },
     capabilities: [

@@ -24,6 +24,7 @@ import { settingsRouter } from "./routes/settings.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { teamRouter } from "./routes/team.js";
 import { templatesRouter } from "./routes/templates.js";
+import { publicApiRouter } from "./routes/publicApi.js";
 import { mediaRouter } from "./routes/media.js";
 import { infrastructureRouter } from "./routes/infrastructure.js";
 import { instagramPublicRouter, instagramRouter } from "./routes/instagram.js";
@@ -115,6 +116,9 @@ app.use("/api/team", requireAuth, requireWorkspaceContext, teamRouter);
 app.use("/api/tasks", requireAuth, requireWorkspaceContext, tasksRouter);
 app.use("/api/calendar-events", requireAuth, requireWorkspaceContext, calendarEventsRouter);
 app.use("/api/templates", requireAuth, requireWorkspaceContext, templatesRouter);
+// No requireAuth/requireWorkspaceContext - authenticated per-route via requireApiKey instead,
+// since a client's own external CRM/billing system calling in has no logged-in human session.
+app.use("/api/public", publicApiRouter);
 app.use("/api/events", eventsRouter);
 app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
 app.use("/api/billing", requireAuth, requireWorkspaceContext, billingRouter);
