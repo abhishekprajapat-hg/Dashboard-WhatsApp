@@ -46,7 +46,7 @@ export function CustomerProfileSidebar({
   ];
 
   return (
-    <aside className="hidden w-[336px] shrink-0 flex-col border-l border-border/80 bg-card/75 backdrop-blur-xl xl:flex">
+    <aside className="flex h-full w-full flex-col overflow-y-auto border-l border-border/80 bg-card/75 backdrop-blur-xl">
       <div className="border-b border-border/80 p-5 text-center">
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-teal-700 text-xl font-semibold text-primary-foreground shadow-[0_18px_42px_rgba(37,211,102,0.16)]">
           {initials(conversation.name)}
