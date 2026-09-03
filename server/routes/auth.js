@@ -21,7 +21,14 @@ export const authRouter = Router();
 // Public-signup abuse surface that doesn't exist anywhere else in this app - a tighter limit than
 // the global default (config.rateLimitMax, applied app-wide in index.js) on top of it, not instead
 // of it.
-const signupRateLimiter = rateLimiter({ limit: 5, windowMs: 60_000 });
+const signupRateLimiter = rateLimiter({ limit: 5, windowMs: 60_000, scope: "signup" });
+
+// The global default (600 req/min/IP, config.rateLimitMax) is nowhere near tight enough to block
+// password brute-forcing on login specifically - a real client's account is worth targeting in a
+// way most other endpoints aren't. Same rate-limiter, same per-IP keying, just a tighter budget
+// than signup since a real user retrying a mistyped password is a much more common case than a
+// mistyped signup form.
+const loginRateLimiter = rateLimiter({ limit: 10, windowMs: 60_000, scope: "login" });
 
 export const loginSchema = z.object({
   email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
@@ -185,7 +192,7 @@ authRouter.get("/me", async (req, res) => {
   res.json(session);
 });
 
-authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
+authRouter.post("/login", loginRateLimiter, validateBody(loginSchema), async (req, res) => {
   const { email, password } = req.body;
 
   if (mongoose.connection.readyState === 1) {
