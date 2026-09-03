@@ -1,5 +1,94 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (morning, continued): full built-vs-needed audit through a multi-tenant lens - one real cross-tenant fix landed, the rest is a punch list
+
+The user asked for a full pass on what's actually built vs what's missing, explicitly through a
+multi-tenant lens given a second real client is sharing this server now. Ran this as two parallel
+deep-dive audits (messaging/channels, and automation/CRM/analytics/realtime/jobs) rather than one
+broad pass - full findings below, condensed to what matters.
+
+**One real cross-tenant bug found and fixed (committed):** `services/meetingReminders.js`'s
+`findConversationForPhone` had **no workspace filter at all** - it searched every `Contact` across
+every tenant in the database for a phone-number match, on a server-wide sweep that runs every 15
+minutes (`jobs.js`'s `reminders.sweep`). Vega (the source of these meetings) has no concept of
+workspaces - it's Nemnidhi's own single internal system, not a per-tenant integration - so every
+meeting it returns is inherently Nemnidhi's own. Without scoping, a phone number that happened to
+also match a contact in a completely unrelated second client's own workspace would get **Nemnidhi's
+own meeting reminder sent through that client's WhatsApp account into that client's conversation** -
+real cross-tenant message misdelivery, not a hypothetical. Fixed by scoping the lookup to
+platform-owner workspaces only (reusing tonight's `Organization.isPlatformOwner` flag). Verified
+directly: two orgs, matching phone numbers in each, confirmed the non-owner org's contact is
+correctly excluded from the match.
+
+**Important design fact surfaced, not a bug to fix - a decision for whoever builds the new client's
+actual automation flow:** the `book_meeting`/`check_office_hours` automation node types both call
+this same single global Vega integration. If the new client's own workspace flow uses either node
+type, any meeting it books lands in **Nemnidhi's own Vega calendar**, mixed in with Nemnidhi's own
+leads - not a security leak (the reminder-scoping fix above prevents that direction), but definitely
+wrong behavior for a second tenant. **Don't use `book_meeting`/`check_office_hours` in the new
+client's flow** until a real per-tenant calendar/scheduling integration exists - there isn't one.
+
+**Everything else found, by area (full agent reports had exact file:line citations if needed later):**
+
+- **WhatsApp**: genuinely solid. Embedded Signup, manual connect, multi-account-per-workspace, all
+  four provider integrations (Meta/Twilio/Wati + local dev fallback), webhook normalization/dedup,
+  real template submission (built earlier tonight) - all correctly workspace-scoped. Two minor,
+  non-urgent gaps: no proactive 24h-session-window UI warning (relies on Meta's own rejection), and
+  `ads.js`'s `loadCampaignWithAccount` looks up a `MetaAdsAccount` by ID with no workspace filter
+  (not currently exploitable - the campaign itself is scoped first - but worth tightening later).
+- **Instagram**: DM/comments/insights/publish all real and working. The self-heal webhook bug
+  (assumes one Instagram account platform-wide, already known and documented earlier tonight) is
+  confirmed to degrade *safely* once a second account exists - silent message loss for the
+  mismatched account, not cross-tenant leakage. Still needs a real second account to fix properly.
+  Business Discovery (the Meta Graph feature used for lead-enrichment ideas discussed earlier
+  tonight) is confirmed **not implemented anywhere** - zero code references.
+- **Facebook/Messenger**: confirmed genuinely not built at all, no partial scaffolding either -
+  matches what was already believed.
+- **Campaigns**: real audience targeting, scheduling, A/B variants, approval workflow, BullMQ-backed
+  pacing with a graceful inline fallback when Redis is absent, real Meta Marketing API calls for
+  Click-to-WhatsApp specifically (not general Facebook/Instagram ad management - worth being
+  precise with the client about that scope). All workspace-scoped correctly.
+- **Automation engine core**: a real graph-traversal engine with genuine cycle guards, a real test
+  mode that creates and cleans up scratch data, and (aside from the Vega-node issue above) every
+  Contact/Conversation/Message/Lead query in `automationRunner.js`/`automationSender.js`/
+  `automationExecutors.js` is workspace-scoped. `resumeAutomationRun` fetches a run by bare `_id`
+  with no workspace re-check - not currently exploitable (job payloads always carry the right ID
+  internally) but worth adding as defense-in-depth eventually, not urgent.
+- **CRM core** (Contact/Lead/Task/CalendarEvent): real, workspace-scoped CRUD throughout.
+  `services/crm.js`'s owner-assignment/lead-upsert/lifecycle logic is substantial and correctly
+  scoped. One low-risk latent issue: `routes/contacts.js` falls back to a shared, module-level,
+  in-memory demo-data array when the DB is down or `workspaceId` is invalid - since that's synthetic
+  demo data (not real tenant data) the "leak" is cosmetic/data-integrity, not a real customer-data
+  exposure; only reconsider this if it actually gets hit in production, not just in theory.
+- **Analytics/dashboard**: most real numbers are genuine per-workspace aggregations, correctly
+  scoped. But several visible KPIs are **hardcoded, not computed** - `dashboard.js`'s "Avg. response
+  time" is a literal `"3.4 min"` string, the weekly message-volume chart only fills in one day (the
+  other six are hardcoded `0`), trend-delta arrows are hardcoded `"+0%"`, per-agent CSAT is hardcoded
+  `0`, and the "Excel" export is actually CSV with an `.xlsx` MIME type. None of this is a
+  multi-tenant risk, but a real paying client looking at their own dashboard will see fake numbers -
+  worth fixing before they notice, lower priority than anything else on this list but not zero.
+- **AI Assistant**: knowledge base/retrieval and per-workspace `AiDocument`/`AiMemory` scoping are
+  genuinely clean (verified no unscoped query exists). Sentiment/intent/lead-qualification are real
+  but simple keyword heuristics, not ML - that's what actually runs whenever no LLM key is
+  configured. Voice reply and transcription are pure stubs (return placeholder text, no real
+  speech pipeline). The "tool-call" workflow trigger reports `status: "queued"` without actually
+  queuing anything - decorative.
+- **Realtime (SSE + Socket.IO)**: both channels correctly scope every emit to one workspace - no
+  cross-tenant realtime leak found. One inert latent gap: a Socket.IO `conversation:join` handler
+  joins any room a socket asks for with no ownership check, but nothing currently emits into those
+  rooms, so it's dead code today - just don't wire a new feature through it without adding that
+  check first.
+- **Background jobs**: BullMQ payloads all carry `workspaceId` explicitly and every worker re-fetches
+  scoped by it - no stale-closure/wrong-tenant-credential risk found. The `reminders.sweep` job
+  (now fixed above) was the one exception. No per-workspace queue isolation/quota exists - one
+  tenant's large campaign could add latency to another's jobs sharing the same queue; not a
+  correctness bug, worth knowing before a second high-volume client signs.
+
+`check:server` clean throughout this pass. The `meetingReminders.js` fix is committed; not pushed
+yet as of this entry - confirm with the user before pushing anything further without them present.
+
+---
+
 ## 2026-09-04 (morning, continued after push): AI cost-isolation fix + a real API-key system for external CRM/billing integration
 
 After pushing the overnight commits, the user asked for two more concrete things: (1) whatever AI
