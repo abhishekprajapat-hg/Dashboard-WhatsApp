@@ -2,6 +2,17 @@
 
 ## 2026-09-04 (late night, continued): inbox redesign shipped + a full cross-tenant audit found and fixed two more real gaps - read the entry below this one first for context, this one continues it
 
+**Correction to the priority list's Tier 3 item "`FeatureFlag` staying global instead of
+per-workspace" - checked directly, it's a non-issue, don't spend time on it.** Read
+`services/entitlements.js` and `services/featureFlags.js` side by side: `FeatureFlag`'s 5 flags are
+all genuinely process-wide infra toggles (`queueProcessing`/`rabbitmqEvents`/etc.) that structurally
+can't vary per tenant on one running server - global is correct, not a gap. Per-client pack-tier
+gating already has its own, separate, already-per-organization system (`entitlements.js` -
+`Organization.plan` gates `messaging`/`campaigns`/`automationBuilder`/`analytics`/`aiAssistant`/`ads`
+via `requireEntitlement()`), built at some point after the 2026-08-15 note that first flagged this as
+a gap. That note is stale; corrected in memory too. If a new capability ever needs per-client gating,
+it goes in `entitlements.js`'s `CAPABILITY_DEFINITIONS`, not `FeatureFlag`.
+
 **Inbox redesign, done and verified live (commit `021981c`).** The flat, fixed-width 3-panel inbox
 (list/chat/profile, no resize, no collapse) is now a `ResizablePanelGroup` with drag handles between
 all three panes, and the conversation list is grouped into three collapsible channel sections -
