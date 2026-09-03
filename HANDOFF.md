@@ -1,5 +1,71 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-03: real estate qualifying flow root-caused and fixed for real — HEAD `3aab883`, deployed and verified live end-to-end on real WhatsApp
+
+**Read this section first if the previous entries below say the flow was "proven live" — that
+was true for the happy path only. The flow was silently stalling after the first question on
+almost every real reply (button tap or free text), and it took most of a session to find why.**
+
+**The actual bug**: `normalizeEdges()` in `server/routes/automation.js` built each edge object via
+`{ ...edge, id, source: String(edge.source), target: String(edge.target) }`. That works fine when
+`edge` is a plain JS object (e.g. freshly Zod-parsed from a save request), but the SAME function
+also ran on `flow.edges`, where `flow` is a live Mongoose document fetched via
+`AutomationFlow.findOneAndUpdate(..., {new: true})`. Spreading a real Mongoose subdocument with
+`{...edge}` silently drops custom schema fields — specifically `sourceHandle`/`targetHandle`, the
+field that tells the automation engine which branch to follow (Ask MCQ matched/AI-fallback,
+Condition true/false, Office Hours open/closed, Book Meeting outcome). Direct property access
+(`edge.sourceHandle`) worked fine; only the spread silently dropped it. Every branching node in the
+flow was affected — the moment anyone replied to the first question, the engine had no way to know
+which edge to follow next and the run just died, marked `"completed"` with no error anywhere.
+
+**Fix**: build the object explicitly instead of spreading — `{ id, source: String(edge.source),
+target: String(edge.target), sourceHandle: edge.sourceHandle ?? null, targetHandle:
+edge.targetHandle ?? null }`. One line, `3aab883`, deployed. A follow-up Explore agent checked the
+whole codebase for the same pattern (a real Mongoose sub-schema array spread with `{...x}`) — this
+was the *only* place it existed; `automationNodeSchema`/`automationEdgeSchema` are the only two real
+Mongoose sub-schemas anywhere in this codebase, every other array-of-objects field uses `Mixed`
+(stored as plain objects even inside a live document, so spreading those is safe).
+
+**How this was actually proven** (don't trust "the response looks right" again — that's exactly
+what fooled earlier sessions): direct network capture showed the browser sending correct
+`sourceHandle` values on save; a temporary `console.log` inserted into the live server right before
+the DB write showed the data correct there too; the PATCH *response* already showed it missing —
+narrowing the bug to serialization, not the write. Confirmed via a raw `mongosh` query against the
+live database (`sourceHandle: null` explicit, not undefined) before finding the actual line.
+**If something like this happens again**: don't trust the UI or the API response alone — capture the
+actual network payload, log server-side right at the DB call, and read the raw DB document directly.
+Each of those isolates a different half of the pipeline.
+
+**Real WhatsApp platform limit found and fixed in the same pass, unrelated bug**: several Ask MCQ
+option titles across the qualifying questions exceeded WhatsApp's actual button/list-title character
+limits (20 chars for reply buttons, 24 for list rows) and were being **silently truncated mid-word**
+by WhatsApp itself — e.g. "Small agency (2-10 people)" arrived as "Small agency (2-10 p". Not a code
+bug, a content-length bug. Shortened every option title that exceeded the limit (IDs unchanged, so
+no routing/matching logic was touched) — verified all 13 option titles across the 4 Ask MCQ nodes
+now fit, via the live API.
+
+**Fully verified live on real WhatsApp after both fixes**, every branch: Q1 (button-tap match) → Q2
+(free-typed "Mostly WhatsApp/call", correctly caught by the AI edge_case fallback and classified) →
+Q3 (free-typed, same AI path) → tagged/staged/assigned → "what would you like to do next?" menu, all
+three branches individually retested: **"Free business audit"** → correct link message,
+**"Talk to someone now"** → correctly checked live Office Hours and sent the hand-off message,
+**"Book a demo"** → pulled a real open slot from Vega ("Fri 4 Sep, 10:30 AM"), customer picked it,
+got a real booking confirmation. This is genuinely end-to-end proven now, not just the trigger.
+
+**Still not built**: the 3 satellite flows from the original build guide (fast-track/escape-hatch
+for someone who wants to skip straight to a human, reschedule, confirm) — not started this session,
+not blocking the ad launch since the core flow is proven. The reminder sweep (24h/1h,
+Confirm/Reschedule) was already built in an earlier session per the commit log
+(`e46eae3 Add meeting reminder sweep`) but the *flows* that process a tap on those Confirm/Reschedule
+buttons don't exist yet — that's most of what the satellite-flow work would be.
+
+**Deploy note for next time**: production was running stale in-memory code from before some earlier
+fix (git already showed "up to date" on pull, meaning the files were current but the running PM2
+process hadn't been restarted since). If something that was supposedly fixed still misbehaves live,
+restart the process before re-debugging the code — `sudo -u dashboard pm2 restart dashboard-api`
+(never plain `pm2 restart` as root, it can't see the `dashboard` user's own PM2 daemon).
+
+
 **Repo:** `D:\Whatsapp Dashboard\Dashboard-WhatsApp` (note: the *parent* folder `D:\Whatsapp Dashboard\` also contains an unrelated `New folder` with other client docs — the actual project is one level down).
 **Remote:** https://github.com/abhishekprajapat-hg/Dashboard-WhatsApp.git
 **Branch:** `main` — all work pushed directly to `main` (no PR workflow in use).
