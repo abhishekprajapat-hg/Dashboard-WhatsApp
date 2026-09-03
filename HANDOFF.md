@@ -1,5 +1,111 @@
 # Handoff — WhatsApp CRM engine work
 
+## PLAN OF ACTION — 2026-09-04: get the real WhatsApp Business API client production-ready + resubmit Meta App Review (Ads + Instagram together)
+
+**Why now**: a real client has signed for the WhatsApp Business API product and needs to go live -
+this is the actual "client #2" moment the 2026-08-15 strategy session anticipated (see
+[[nemnidhi-ecosystem-map]]'s "Sequencing" note: Messaging Mechanics stays internal-only until a
+real second client, at which point Workspace #1's own onboarding path needs to already be the same
+one a paying tenant goes through, no special-casing). Separately, the user reports the
+`ads_management`/`ads_read`/`pages_show_list`/`pages_read_engagement` App Review submission
+(submitted 2026-08-21, last known status here was "Review in progress") **came back rejected** -
+this session has no record of Meta's specific rejection reason, that's the first real action item
+below. Bundle the Instagram permissions resubmission (5 permissions + Human Agent tag, built and
+proven live back on 2026-08-23, blocked since 2026-08-25 on a Meta dashboard navigation dead-end,
+not a code problem - see [[dashboard-whatsapp-instagram-app-review-expansion]]) into the same
+resubmission pass rather than two separate review cycles.
+
+This entry is a **plan, not a completed session** - written to be picked up fresh in a new
+conversation. Ordered by what actually blocks the real client from going live vs. what's real but
+not blocking.
+
+### Phase 0 — facts to gather first, before deciding anything (needs the user's own Meta dashboard)
+
+1. **Read the actual rejection reason** for the Ads review (App Dashboard → App Review → Requests →
+   the rejected submission → Meta always gives written feedback on why). Don't guess a fix without
+   this - a rejection for "insufficient use-case demo" needs a different fix than one for "policy
+   violation" or "incomplete Data Use Checkup."
+2. **Re-check Instagram's use-case status page** (Instagram API → Permissions and features, not the
+   generic App Review → Requests page - see the 2026-08-25 memory entry for why these two pages
+   disagree). Confirm whether `instagram_business_manage_messages`/`instagram_business_basic` ever
+   flipped to "Completed" (last checked 2026-08-25, still raw call-counts, hypothesized
+   async-compliance-check lag, unconfirmed).
+3. **Confirm what WhatsApp number/WABA the new client will actually connect** - a genuinely
+   unclaimed number (the real proof case Embedded Signup has never had, see Phase 1) or a number
+   they're porting in.
+
+### Phase 1 — the one thing that actually matters most: prove real client onboarding works, not just Nemnidhi's own
+
+Everything built so far (public signup, Embedded Signup, entitlements/plan tiers, billing) has only
+ever been exercised by Nemnidhi's own team or in isolated/mocked tests. **Nobody has yet walked a
+genuinely new, external client through this app's real signup → WhatsApp connect → paying → sending
+path end to end.** That's the actual go-live risk, not any individual feature gap below.
+
+1. Do a real signup as if you were the client (or walk them through it live): `POST /api/auth/
+   register` path, confirm workspace/org/role creation has zero Nemnidhi-specific hardcoding
+   anywhere (a real audit, not the quick `grep` this session did that found nothing obvious -
+   check `server/services/onboarding*`, the workspace-creation code path itself, and
+   `entitlements.js`'s plan defaults).
+2. Connect the client's real WhatsApp number via Embedded Signup. This is the **first real test of
+   Embedded Signup's actual success path with a genuinely unclaimed number** - every prior session
+   either reused Nemnidhi's own already-claimed number or hit "Skip." If this breaks, it breaks the
+   entire product for this client, so test it before anything else here.
+3. Confirm the client lands on a real, correct entitlement/plan tier (not Nemnidhi's own
+   presumably-unlimited internal usage) - `Organization.plan`/`billingStatus`, and that
+   `FeatureFlag` (currently **global, not per-workspace** - a known gap flagged 2026-08-15, "needs
+   doing before a second pack tier is actually sold to a second client" - that moment is now) isn't
+   silently gating/ungating something incorrectly for them vs. Nemnidhi.
+4. Get Razorpay Subscriptions actually live-tested with real credentials - built and deployed
+   2026-08-26 but **never tested against real Razorpay**, only local dev with no live keys. A real
+   paying client needs real billing to actually work, not just render a plan-picker UI.
+
+### Phase 2 — Meta App Review resubmission, informed by Phase 0's findings
+
+1. Fix whatever Phase 0.1's rejection reason actually points to (can't be planned further until
+   that's known).
+2. Resubmit Ads (`ads_management`/`ads_read`/`pages_show_list`/`pages_read_engagement`) and
+   Instagram (5 permissions + Human Agent) together if Meta's submission flow allows batching, or
+   back-to-back if not - the point is not letting them sit as two separate stalled efforts again.
+3. Re-record the Instagram screencast only if Phase 0.2 shows the use case genuinely needs a fresh
+   one (the existing one from 2026-08-23 already proves all 5 permissions live end to end -
+   `docs/META_APP_REVIEW_INSTAGRAM.md` - re-check it's still accurate before re-recording from
+   scratch).
+4. Note: per [[dashboard-whatsapp-ctwa-readiness]], real Click-to-WhatsApp ad campaigns already
+   work pre-approval on this app's own ad account (Marketing API **Limited access** tier blocks
+   *other* businesses' ad accounts, not this one) - so tomorrow morning's Nemnidhi ad launch is not
+   blocked by any of this Ads review status, only *scaling to other advertisers'* ad accounts is.
+
+### Phase 3 — real open bugs worth closing before (or right after) the client goes live, not blocking Phase 1
+
+Re-verify each of these first - some of tonight's other "still open" claims turned out already
+resolved (see the pain_point-prompt entry above), don't assume stale status without checking.
+
+1. **Security, do this regardless of everything else**: a real Meta access token
+   (`catalog_management` scope) was exposed in a past chat session multiple times and was never
+   confirmed regenerated ([[dashboard-whatsapp-catalog-commerce]]). Rotate it.
+2. **WhatsApp Catalog/commerce SEND still fails** with a real Meta error pointing at a catalog-WABA
+   linkage problem, not a code bug - last concrete untried step was checking **WhatsApp Manager →
+   Account tools → Catalog** directly (Business Settings and Commerce Manager both dead-ended). Only
+   matters if the new client needs commerce/catalog messaging - confirm that before spending time
+   here.
+3. **Instagram account once vanished from production**, root cause never confirmed (human
+   disconnect vs. genuine bug) - check `Admin → Logs` for a `DELETE /api/instagram/accounts/:id`
+   audit entry before trusting this connection is stable for a client relying on it.
+4. Confirmed fixed tonight, just verify still holding: auto-deploy cron (all 3 jobs, including
+   MongoDB backups), the escape-hatch/Confirm/Reschedule satellite flows.
+
+### Phase 4 — infra reliability, worth a real decision now that real client traffic is coming
+
+This VPS (`srv1132041`) is a shared, single-vCPU box already hosting Vega, the Nemnidhi website,
+Dashboard-WhatsApp, and other unrelated apps - documented once already as a real capacity risk (a
+different app's crash loop starved CPU for everyone, [[vps-shared-infrastructure]]). Worth an
+explicit decision, not a default: is this box adequate for a real paying client's production
+traffic, or does this client (or Dashboard-WhatsApp generally, now that it's genuinely going
+commercial) need its own dedicated resources? Not a blocker for going live, but the kind of decision
+that's cheap to make deliberately now and expensive to revisit after an incident.
+
+---
+
 ## 2026-09-04: auto-deploy cron actually fixed — and two more cron jobs turned out silently broken the same way, including the MongoDB backup
 
 Closes the "auto-deploy cron is BROKEN" entry further down for real, plus a bigger finding: **all
