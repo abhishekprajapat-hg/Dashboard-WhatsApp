@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requirePermission } from "../middleware/auth.js";
+import { requirePermission, requirePlatformOwner } from "../middleware/auth.js";
 import { getFeatureFlags } from "../services/featureFlags.js";
 import { healthSnapshot } from "../services/health.js";
 import { enqueueJob, queueHealth } from "../services/jobs.js";
@@ -8,8 +8,12 @@ import { publishEvent } from "../services/messageBus.js";
 export const infrastructureRouter = Router();
 
 // No client UI calls this router at all - it's a backend-only ops/diagnostics surface (health,
-// feature flags, queue status, test job/event triggers). Reuses admin:read/admin:write rather than
-// inventing a dedicated infrastructure:* permission pair nothing else would reference.
+// feature flags, queue status, test job/event triggers) exposing shared platform internals
+// (Redis/RabbitMQ/queue health) that no tenant's own admin should see, not just Nemnidhi's.
+// requirePlatformOwner here on top of the existing admin:read/write checks, now that a second
+// real tenant shares this server.
+infrastructureRouter.use(requirePlatformOwner);
+
 infrastructureRouter.get("/status", requirePermission("admin:read"), async (req, res) => {
   const [health, flags, queues] = await Promise.all([
     healthSnapshot(),

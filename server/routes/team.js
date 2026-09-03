@@ -124,16 +124,19 @@ teamRouter.post("/", requirePermission("team:write"), validateBody(inviteMemberS
     key: role,
   });
 
-  const user = await User.findOneAndUpdate(
-    { email: normalizedEmail },
-    {
-      name: requiredString(name, 120) || normalizedEmail.split("@")[0],
-      email: normalizedEmail,
-      passwordHash: hashPassword(password),
-      status: "active",
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
+  // User is a global collection, not per-workspace - an email that already belongs to a real
+  // account (a member of this workspace already, or a completely different tenant sharing this
+  // server) must never have its password/name silently overwritten by whoever is doing the
+  // inviting here. Only a genuinely new email gets to have its password set by this route; an
+  // existing user just gains a membership on this workspace with their account untouched, same
+  // as auth.js's register/oauth-complete routes already refuse to touch an existing email.
+  const existingUser = await User.findOne({ email: normalizedEmail });
+  const user = existingUser || await User.create({
+    name: requiredString(name, 120) || normalizedEmail.split("@")[0],
+    email: normalizedEmail,
+    passwordHash: hashPassword(password),
+    status: "active",
+  });
 
   const membership = await Membership.findOneAndUpdate(
     { workspaceId: req.user.workspaceId, userId: user._id },

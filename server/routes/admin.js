@@ -450,7 +450,7 @@ adminRouter.put(
   }
 );
 
-adminRouter.delete("/feature-flags/:key", requirePermission("admin:write"), async (req, res) => {
+adminRouter.delete("/feature-flags/:key", requirePermission("admin:write"), requirePlatformOwner, async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
