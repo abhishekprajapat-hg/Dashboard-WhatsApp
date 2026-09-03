@@ -1,5 +1,41 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04: auto-deploy cron actually fixed — and two more cron jobs turned out silently broken the same way, including the MongoDB backup
+
+Closes the "auto-deploy cron is BROKEN" entry further down for real, plus a bigger finding: **all
+three of this box's cron jobs** (`crontab -l -u dashboard`) pointed at `/opt/dashboard-whatsapp`,
+which no longer exists - not just the deploy cron, but also the audit-log prune and, more
+seriously, **the MongoDB backup cron**. That means backups had been silently not running since
+whenever `/opt` was deleted (the deploy entry's own investigation dated that to on/before
+2026-08-24) - the 2026-08-21 "MongoDB backup cron — scheduled and verified" entry further down in
+this file was true when written, then silently stopped being true for two weeks with nothing
+surfacing it.
+
+**Fix**: `scripts/deploy-vps.sh` itself needed no code change - it already resolves its own paths
+relative to its own location (`cd "$(dirname "$0")/.."`), only its top-of-file *comment* still said
+`/opt/...` (fixed, so nobody re-derives the same wrong path from reading it again). The real fix
+was entirely on the VPS: `crontab -l -u dashboard | sed 's#/opt/dashboard-whatsapp#/home/dashboard/
+dashboard-whatsapp#g' | crontab -u dashboard -` repointed all three entries at once.
+
+**Real second bug found while verifying the fix, not assumed fixed**: the first real deploy attempt
+(both a manual test run and the cron's own first live tick, both logged in `deploy.log`) failed with
+`EACCES` trying to clear `client/dist/assets` - that directory and several files in `client/dist`
+were owned by `root:root` (`ls -la` confirmed), from some earlier manual build run as root, same
+class of mistake as the `.env`/`.next` root-ownership incidents documented for Vega and the website
+tonight. Fixed with `chown -R dashboard:dashboard client/dist` as root. **Verified for real, not
+just "should work now"**: `deploy.log` shows two failed attempts (18:59, 19:00) followed by the
+cron's own next tick succeeding on its own (19:05:02 → 19:05:17, `.last-deploy-sha` matching
+`origin/main` exactly) - the fix was proven by the actual scheduled cron firing and completing a
+real deploy unattended, not just a manual re-run. `pm2 status dashboard-api` afterward: still
+online, same restart count as before (this particular deploy only touched `scripts/`, not
+`server/`, so the script's own "only restart if server code changed" logic correctly left the
+running process alone) - no crash-loop, `/health` still 200.
+
+**Not verified this session, real follow-up**: the backup (`0 2 * * *`) and audit-log-prune
+(`0 3 * * *`) crons are repointed at the right path now but haven't actually fired yet at their
+scheduled times as of this entry - check `backup-cron.log`/`prune-audit-logs.log` after 2am/3am IST
+to confirm they're genuinely running again, not just correctly pointed.
+
 ## 2026-09-04: the 3 satellite flows built — escape hatch, meeting confirm, meeting reschedule
 
 Closes the "3 satellite flows from the original build guide" gap flagged in the 2026-09-03 entry
