@@ -38,6 +38,46 @@ export async function notifyVega(organizationId, event, data = {}) {
   }
 }
 
+// A WhatsApp conversation becoming a real lead - distinct from notifyVega above, which only ever
+// updates a Client that already exists in Vega (an established relationship). A brand-new
+// conversation has no Client yet by definition, so it needs its own endpoint that creates a real
+// Lead, not another event type on that one. Fire-and-forget like notifyVega - a Vega outage must
+// never block a real WhatsApp conversation, this is best-effort CRM sync, not part of messaging.
+export async function pushLeadToVega({ organizationId, conversationId, contactName, phone, campaign, ctwaClid, firstMessage }) {
+  if (!config.vega.apiUrl || !config.vega.integrationSecret) {
+    return { sent: false, reason: "not_configured" };
+  }
+
+  const { signal, clear } = withTimeout();
+  try {
+    const response = await fetch(`${config.vega.apiUrl}/api/integrations/dashboard-leads`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-integration-secret": config.vega.integrationSecret },
+      body: JSON.stringify({
+        dashboardOrganizationId: organizationId,
+        conversationId,
+        contactName,
+        phone,
+        campaign,
+        ctwaClid,
+        firstMessage,
+      }),
+      signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, conversationId }, "pushLeadToVega: Vega rejected the lead");
+      return { sent: false, reason: `http_${response.status}` };
+    }
+    const body = await response.json().catch(() => null);
+    return { sent: true, leadId: body?.data?.leadId, created: body?.data?.created };
+  } catch (error) {
+    logger.warn({ err: error, conversationId }, "pushLeadToVega: request failed");
+    return { sent: false, reason: "request_failed" };
+  } finally {
+    clear();
+  }
+}
+
 // Unlike notifyVega above, these three back real automation-flow branches (check_office_hours,
 // book_meeting) - a caller genuinely needs to know if the call failed, not just log it and move
 // on. Still never throws: an unreachable/unconfigured Vega degrades to "closed"/"no slots"

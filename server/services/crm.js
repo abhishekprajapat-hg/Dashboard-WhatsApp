@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { AuditLog, Lead, Membership, Role, Tag, WhatsAppAccount } from "../models/index.js";
 import { leadStages } from "../models/Lead.js";
 import { sendConversionEvent } from "./metaConversionsApi.js";
+import { pushLeadToVega } from "./vegaIntegration.js";
 import { logger } from "./logger.js";
 
 const requirementPattern = /\b(need|require|requirement|looking|interested|want|buy|purchase|price|pricing|quote|quotation|demo|plan|package|service|proposal|call back|callback)\b/i;
@@ -305,6 +306,21 @@ export async function ensureConversationInCrm({
       firstMessage,
     },
   });
+
+  // Only on this contact's first-ever CRM lead creation, not every subsequent message in the
+  // same conversation - crm.addedToCrmAt is the pre-update value captured above, so this is true
+  // exactly once per contact, same condition the AuditLog action distinction above already uses.
+  if (!crm.addedToCrmAt) {
+    pushLeadToVega({
+      organizationId: organizationId.toString(),
+      conversationId: conversation._id.toString(),
+      contactName: contact.waName || contact.name || "",
+      phone: contact.phone,
+      campaign,
+      ctwaClid,
+      firstMessage,
+    }).catch(() => undefined);
+  }
 
   return { contact, lead };
 }
