@@ -1,5 +1,63 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (morning, continued): per-workspace "Bill via BillStack" automation node - answers "how does every tenant's own CRM/billing plug in"
+
+The user clarified the real model after the earlier "build a generic outbound integration" framing:
+Nemnidhi is tenant #1 of its own platform (Vega/BillStack are what *that* tenant uses), but BillStack
+is *also* a real multi-tenant product other Dashboard-WhatsApp clients could use for their own
+billing - so every workspace needs its own configurable CRM/billing target, Nemnidhi's own workspace
+going through the exact same mechanism as anyone else, not a hardcoded special case.
+
+**Checked BillStack's actual code before building anything** (freshly pulled from
+github.com/AshishJatav09/billstack, prior local clone was 7 weeks stale) rather than guessing at its
+API. Real finding: BillStack already ships a genuine external-integration surface -
+`POST /api/integrations/orders`, authenticated by a per-tenant `X-Billstack-Api-Key` header
+(`IntegrationCredential` model, scoped to one `businessId`) - fully documented in its own
+`docs/production-readiness.md`. Nothing needed building on BillStack's side.
+
+**Also found this app already has the generic mechanism the user was asking for**: an `api`/
+`http_request` automation node (`callGenericApi`, `automationExecutors.js`) already lets any
+workspace's flow call an arbitrary URL with custom headers/body, with full `{{}}` token
+interpolation already applied to node config before execution (`automationEngine.js`'s
+`interpolateConfig`). A workspace could technically already wire BillStack's endpoint through this
+today. What was missing wasn't the mechanism - it was making it usable without a client needing to
+hand-write BillStack's exact JSON schema and auth header from scratch.
+
+**Built**: a proper `billstack_invoice` node type ("Bill via BillStack" in the palette) with real
+structured fields - API key, base URL (defaults to `config.billstack.baseUrl` if blank, for a
+workspace that hasn't self-hosted its own BillStack), customer name/email/phone (token-
+interpolatable, defaulting to the triggering contact), item name/rate/quantity, an optional "mark as
+paid" flag, and a result variable. `externalOrderId` is derived deterministically from the
+automation run+node id rather than left to the flow author - BillStack treats it as the idempotency
+key, so a resumed/retried run replays the same order instead of risking a duplicate invoice.
+`server/services/billstackIntegration.js` mirrors `vegaIntegration.js`'s exact defensive shape
+(timeout, never throws, structured ok/reason return) - same convention, new target.
+
+For "own CRM website" specifically: the existing generic `api`/`http_request` node is already the
+right answer there, deliberately not duplicated with a bespoke wrapper - every external CRM has a
+different shape, unlike BillStack which has one real, known schema worth building a proper form
+around. Nemnidhi's own workspace would configure its `billstack_invoice` nodes with Nemnidhi's own
+real BillStack credential through this exact same mechanism, once that credential exists - not
+built/wired for Nemnidhi specifically tonight, since no automation flow currently bills anyone.
+
+**Verification, two tiers**: live in a real browser against a real local dev server (dragged the new
+node onto an actual flow canvas via simulated HTML5 DnD events - the tool's plain drag simulation
+doesn't trigger React's dragover/drop handlers, dispatching real DragEvents did - configured it,
+saved, fetched the flow back via the API and confirmed the exact `config.apiKey`/`config.itemName`
+field names round-tripped correctly); and directly against the executor with a local mock HTTP
+server built to mirror BillStack's real response shape (`{data: {event: {invoiceId, ...}}}`) -
+proved the not-configured skip, missing-customer skip, unreachable-host graceful failure, and the
+full success path extracting a real `invoiceId` into the run's variables, all without ever throwing.
+Never tested against a real BillStack account - same "code-complete, logic-verified, not live-tested
+against the real external API" tier already accepted for this project's other integrations that need
+credentials this session doesn't have (Instagram's insights/publish, WhatsApp templates before
+Meta approval, etc.) - the natural next step whenever someone has a real BillStack integration key.
+
+`check:server`/`check:client` clean. Committed locally (`1098b8c`), not pushed - same standing
+practice this session: pushed only on the user's explicit "push it", not proactively.
+
+---
+
 ## 2026-09-04 (morning, continued): full built-vs-needed audit through a multi-tenant lens - one real cross-tenant fix landed, the rest is a punch list
 
 The user asked for a full pass on what's actually built vs what's missing, explicitly through a
