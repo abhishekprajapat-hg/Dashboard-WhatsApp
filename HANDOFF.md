@@ -1,5 +1,45 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (end of session): ad-launch readiness assessed, real Meta creative verified against real specs - no code changed, pure research/verification
+
+Closes out the day's session. Two things checked directly, neither touched any code:
+
+**1. "Are we ready to run ads" - a real, evidence-based yes, with honest caveats.** Confirmed
+against what's already verified live (not re-derived from scratch): the native Ask-MCQ qualifying
+flow, Nemnidhi's own WhatsApp number's real connected status, and the fact that Click-to-WhatsApp
+campaigns already work pre-App-Review-approval on this app's own ad account (the Marketing API
+"Limited access" tier only blocks *other* businesses' ad accounts, not this one - confirmed via
+direct testing in an earlier session, cited here not re-tested). Genuinely could not confirm from
+this session whether a real campaign is actually scheduled in Meta Ads Manager - that's a real
+action in Meta's own UI, outside this codebase's visibility entirely.
+
+**2. Real ad creative (professional shoot, "SAMVID OS Meta AD 01") verified against Meta's real
+video-ad specs - two exports checked, both pass.** Confirmed Meta's actual current Feed-placement
+spec via `facebook.com/business/ads-guide` (4:5 recommended, MP4/MOV/GIF, H.264, 1s-241min, 4GB max)
+- Reels/Stories-specific specs wouldn't render through a plain fetch (client-side JS), so those are
+general knowledge, not freshly re-verified, flagged as such to the user.
+
+**Real technique worth remembering**: no `ffprobe`/`ffmpeg`/`mediainfo` installed in this
+environment, and none should be installed just for this. Windows' own Shell.Application COM object
+(via PowerShell) reads real video metadata natively - resolution, duration, frame rate, bitrate,
+codec (as a GUID-wrapped FourCC, e.g. `{34363248-...}` decodes to `H264` reading the first 4 bytes
+little-endian) - without needing any external tool:
+```powershell
+$folder = (New-Object -ComObject Shell.Application).Namespace((Split-Path $path))
+$file = $folder.ParseName((Split-Path $path -Leaf))
+for ($i = 0; $i -le 320; $i++) {
+    $name = $folder.GetDetailsOf($null, $i); $value = $folder.GetDetailsOf($file, $i)
+    if ($value -and $name) { Write-Output "$name : $value" }
+}
+```
+Both real files checked this way: 2160×3840 (vertical 9:16, 4K), H.264/MP4, 60fps, ~78-79s, 163MB
+and 285MB respectively (the second a higher-bitrate export of the same cut, not a different edit).
+Both comfortably pass every real Meta limit checked - nothing here is a launch blocker.
+
+**How to apply**: if more creative assets need checking before this campaign or a future one, reuse
+the PowerShell technique above rather than trying to install ffprobe in this environment - it isn't
+available and doesn't need to be.
+
 ## 2026-09-04 (later still): the real cross-tenant admin surface got built, platform owner now has unconditional access, and a real client's catalog ask surfaced a genuine architecture gap - read this before touching admin.js, auth.js's entitlement functions, or the Admin panel's Companies tab
 
 Triggered by two real things arriving together: a real client (a wholesaler) asked to sell via
