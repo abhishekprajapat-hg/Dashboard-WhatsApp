@@ -44,6 +44,18 @@ export function requirePlatformOwner(req, res, next) {
 // Separate from requirePermission on purpose: permission is "can this role do this", entitlement
 // is "did this organization's plan even buy this". A dev-role user on a Basic-tier org should
 // still be blocked from the automation builder, independent of their role.
+//
+// The platform owner (Nemnidhi's own organization) always has every capability, regardless of
+// its own plan field - direct instruction, not inferred. Without this, Nemnidhi's own org would
+// need its plan manually kept in sync with "everything unlocked" forever, and a single wrong
+// value there would lock the platform owner out of its own automation/AI tooling with no
+// override. Exported so any route computing a *displayed* entitlement flag (not just gating an
+// API call) can apply the exact same rule - see assistant.js's /overview.
+export function hasEntitlementForActor(actor, plan, capability) {
+  if (actor?.isPlatformOwner) return true;
+  return hasEntitlement(plan, capability);
+}
+
 export function requireEntitlement(capability) {
   return async (req, res, next) => {
     if (mongoose.connection.readyState !== 1) return next();
@@ -52,7 +64,7 @@ export function requireEntitlement(capability) {
     if (!organization) {
       return res.status(403).json({ error: "FORBIDDEN", message: "No active organization found." });
     }
-    if (!hasEntitlement(organization.plan, capability)) {
+    if (!hasEntitlementForActor(req.user, organization.plan, capability)) {
       return res.status(403).json({
         error: "PLAN_LIMIT",
         message: `This workspace's plan does not include ${capability}.`,

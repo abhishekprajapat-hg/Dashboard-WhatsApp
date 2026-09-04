@@ -1,12 +1,11 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requireEntitlement, requirePermission } from "../middleware/auth.js";
+import { hasEntitlementForActor, requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { AutomationFlow, Conversation, Lead, Message, Organization } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
-import { hasEntitlement } from "../services/entitlements.js";
 import { getWorkspaceIntegrations } from "../services/integrations.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
@@ -81,7 +80,7 @@ assistantRouter.get("/overview", requirePermission("assistant:read"), async (req
       // can show an upsell state up front instead of waiting for a user to click something and
       // hit a 403 - the overview route itself stays ungated since these metrics have value on
       // any plan.
-      aiAssistant: hasEntitlement(organization?.plan, "aiAssistant"),
+      aiAssistant: hasEntitlementForActor(req.user, organization?.plan, "aiAssistant"),
     },
     providers: {
       // "Available" if either this workspace configured its own key (Settings > Integrations) or
