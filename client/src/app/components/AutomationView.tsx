@@ -65,6 +65,7 @@ import {
   Instagram,
   ShoppingBag,
   ListChecks,
+  Receipt,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -285,6 +286,7 @@ const nodeCatalog = [
   { kind: "ask_mcq", label: "Ask MCQ", icon: "ListChecks", color: "#fb923c", description: "In-chat buttons, AI handles edge cases" },
   { kind: "check_office_hours", label: "Office Hours", icon: "Clock", color: "#facc15", description: "Branch on Vega's live office-hours config" },
   { kind: "book_meeting", label: "Book Meeting", icon: "CalendarDays", color: "#34d399", description: "Show real Vega slots in-chat and book one" },
+  { kind: "billstack_invoice", label: "Bill via BillStack", icon: "Receipt", color: "#f59e0b", description: "Create a real invoice in this workspace's own BillStack account" },
   { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "#0ea5e9", description: "Send a catalog product" },
   { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
   { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
@@ -336,6 +338,7 @@ function iconFor(name: string, size = 15) {
     Instagram: <Instagram size={size} />,
     ShoppingBag: <ShoppingBag size={size} />,
     ListChecks: <ListChecks size={size} />,
+    Receipt: <Receipt size={size} />,
     Zap: <Zap size={size} />,
   };
   return icons[name] || <Zap size={size} />;
@@ -1021,6 +1024,106 @@ function BuilderCanvas({
             no separate scheduling logic here. &quot;✓&quot; continues once booked; &quot;✗&quot; fires if the slot was taken
             or Vega rejected the booking (wire back to this node to retry, or to a fallback message); &quot;∅&quot; fires if
             Vega has no open slots at all right now (e.g. MeetingAvailability isn&apos;t configured yet).
+          </p>
+        </>
+      );
+    }
+
+    if (node.data.kind === "billstack_invoice") {
+      return (
+        <>
+          <label className="block text-[10px] font-medium text-muted-foreground">BillStack API key</label>
+          <input
+            value={String(cfg.apiKey ?? "")}
+            onChange={(event) => updateSelectedConfig("apiKey", event.target.value)}
+            disabled={!canWrite}
+            placeholder="bs_live_..."
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">BillStack base URL (leave blank to use the default)</label>
+          <input
+            value={String(cfg.baseUrl ?? "")}
+            onChange={(event) => updateSelectedConfig("baseUrl", event.target.value)}
+            disabled={!canWrite}
+            placeholder="https://billstack.example.com"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Customer name / email / phone</label>
+          <input
+            value={String(cfg.customerName ?? "")}
+            onChange={(event) => updateSelectedConfig("customerName", event.target.value)}
+            disabled={!canWrite}
+            placeholder="{{contact.name}} (defaults to the contact's name)"
+            className={fieldClass}
+          />
+          <input
+            value={String(cfg.customerEmail ?? "")}
+            onChange={(event) => updateSelectedConfig("customerEmail", event.target.value)}
+            disabled={!canWrite}
+            placeholder="{{contact.email}} (optional)"
+            className={fieldClass}
+          />
+          <input
+            value={String(cfg.customerPhone ?? "")}
+            onChange={(event) => updateSelectedConfig("customerPhone", event.target.value)}
+            disabled={!canWrite}
+            placeholder="{{contact.phone}} (defaults to the contact's phone)"
+            className={fieldClass}
+          />
+          <label className="block text-[10px] font-medium text-muted-foreground">Item / service name</label>
+          <input
+            value={String(cfg.itemName ?? "")}
+            onChange={(event) => updateSelectedConfig("itemName", event.target.value)}
+            disabled={!canWrite}
+            placeholder="e.g. Business Audit Package"
+            className={fieldClass}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-medium text-muted-foreground">Rate</label>
+              <input
+                type="number"
+                value={String(cfg.amount ?? "")}
+                onChange={(event) => updateSelectedConfig("amount", event.target.value)}
+                disabled={!canWrite}
+                placeholder="4999"
+                className={fieldClass}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-muted-foreground">Quantity</label>
+              <input
+                type="number"
+                value={String(cfg.quantity ?? "1")}
+                onChange={(event) => updateSelectedConfig("quantity", event.target.value)}
+                disabled={!canWrite}
+                className={fieldClass}
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={cfg.markPaid === true || cfg.markPaid === "true"}
+              onChange={(event) => updateSelectedConfig("markPaid", event.target.checked ? "true" : "false")}
+              disabled={!canWrite}
+            />
+            Mark as already paid (only if payment was confirmed before this node runs)
+          </label>
+          <label className="block text-[10px] font-medium text-muted-foreground">Store result as variable</label>
+          <input
+            value={String(cfg.variable ?? "")}
+            onChange={(event) => updateSelectedConfig("variable", event.target.value)}
+            disabled={!canWrite}
+            placeholder="invoice_result"
+            className={fieldClass}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Creates a real invoice in <strong>this workspace&apos;s own</strong> BillStack account via BillStack&apos;s
+            official integration API - never Nemnidhi&apos;s. Generate an API key from inside BillStack itself
+            (Settings &gt; Integrations there, not here) and paste it above. Skips quietly (no invoice, no error branch)
+            if the API key, customer identity, or item/amount is missing - wire a fallback only if you need to know when
+            that happens.
           </p>
         </>
       );

@@ -134,6 +134,14 @@ export const config = {
     integrationSecret: process.env.VEGA_INTEGRATION_SECRET || "",
     requestTimeoutMs: numberFromEnv("VEGA_REQUEST_TIMEOUT_MS", 5000),
   },
+  // Default BillStack deployment a workspace's billstack_invoice automation node targets if it
+  // doesn't override baseUrl itself - Nemnidhi's own shared multi-tenant BillStack instance. A
+  // client self-hosting their own BillStack sets their own baseUrl on the node instead; the API
+  // key is always per-workspace (BillStack's own IntegrationCredential, never shared here).
+  billstack: {
+    baseUrl: process.env.BILLSTACK_BASE_URL || "",
+    requestTimeoutMs: numberFromEnv("BILLSTACK_REQUEST_TIMEOUT_MS", 8000),
+  },
 };
 
 export function validateProductionConfig() {

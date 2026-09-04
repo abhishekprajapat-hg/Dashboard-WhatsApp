@@ -11,6 +11,7 @@ import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
 import { bookVegaMeeting, cancelVegaMeeting, checkVegaOfficeHours, fetchVegaMeetingSlots } from "./vegaIntegration.js";
+import { sendBillstackOrder } from "./billstackIntegration.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { logger } from "./logger.js";
 import { httpUrlString } from "../utils/zodHelpers.js";
@@ -1144,6 +1145,94 @@ async function execCancelMeeting({ node, config: cfg, testMode }) {
   };
 }
 
+// Calls BillStack's own real external-integration API (billstackIntegration.js) with THIS
+// workspace's own apiKey/baseUrl - never Nemnidhi's. Every tenant that bills through BillStack
+// (whether Nemnidhi's own workspace or a future paying client with their own BillStack tenant)
+// configures its own credential here, same shape as the per-workspace AI provider keys. v1 scope
+// is deliberately a single line item per node (matching book_meeting's single-purpose design) -
+// a flow needing multiple items would use several of these nodes in sequence, not one node with a
+// dynamic item list, which the no-code flow builder has no UI for yet.
+async function execBillstackInvoice({ node, config: cfg, env, run, testMode }) {
+  const apiKey = String(cfg?.apiKey || "").trim();
+  const baseUrl = String(cfg?.baseUrl || "").trim();
+  const customerName = String(cfg?.customerName || env.contact?.name || "").trim();
+  const customerEmail = String(cfg?.customerEmail || "").trim();
+  const customerPhone = String(cfg?.customerPhone || env.contact?.phone || "").trim();
+  const itemName = String(cfg?.itemName || "").trim();
+  const amount = Number(cfg?.amount || 0);
+  const quantity = Math.max(1, Number(cfg?.quantity || 1));
+  const markPaid = cfg?.markPaid === true || cfg?.markPaid === "true";
+
+  if (!apiKey || !(baseUrl || config.billstack.baseUrl)) {
+    return {
+      status: "skipped",
+      action: { type: "billstack_invoice", status: "skipped", reason: "not_configured" },
+      logMessage: "Skipped billstack_invoice: no BillStack API key or base URL configured",
+      logLevel: "warn",
+    };
+  }
+  if (!customerName && !customerEmail && !customerPhone) {
+    return {
+      status: "skipped",
+      action: { type: "billstack_invoice", status: "skipped", reason: "missing_customer" },
+      logMessage: "Skipped billstack_invoice: no customer name, email, or phone",
+      logLevel: "warn",
+    };
+  }
+  if (!itemName || !(amount > 0)) {
+    return {
+      status: "skipped",
+      action: { type: "billstack_invoice", status: "skipped", reason: "missing_item" },
+      logMessage: "Skipped billstack_invoice: item name and a positive amount are required",
+      logLevel: "warn",
+    };
+  }
+
+  if (testMode) {
+    return { status: "ok", action: { type: "billstack_invoice", status: "skipped", skipped: true }, logMessage: "BillStack invoice skipped in test mode" };
+  }
+
+  // Deterministic per (run, node) rather than left to the flow author to supply - BillStack
+  // treats externalOrderId as the idempotency key, so a resumed/retried run naturally replays the
+  // exact same order instead of risking a duplicate invoice.
+  const externalOrderId = `whatscrm-${run._id.toString()}-${node.id}`;
+
+  const result = await sendBillstackOrder({
+    baseUrl,
+    apiKey,
+    order: {
+      externalOrderId,
+      source: "WHATSCRM",
+      customer: {
+        ...(customerName ? { name: customerName } : {}),
+        ...(customerEmail ? { email: customerEmail } : {}),
+        ...(customerPhone ? { phone: customerPhone } : {}),
+      },
+      items: [{ name: itemName, rate: amount, quantity }],
+      ...(markPaid ? { payment: { status: "CONFIRMED", amount: amount * quantity } } : {}),
+    },
+  });
+
+  if (!result.ok) {
+    logger.warn({ nodeId: node.id, reason: result.reason }, "execBillstackInvoice: order rejected");
+    return {
+      status: "ok",
+      action: { type: "billstack_invoice", status: "failed", reason: result.reason },
+      logMessage: `BillStack invoice failed: ${result.reason}`,
+      logLevel: "warn",
+    };
+  }
+
+  run.context.variables = run.context.variables || {};
+  run.context.variables[String(cfg?.variable || node.id)] = { invoiceId: result.invoiceId, externalOrderId };
+
+  return {
+    status: "ok",
+    action: { type: "billstack_invoice", status: "created", invoiceId: result.invoiceId, externalOrderId },
+    logMessage: result.idempotent ? "BillStack invoice already existed for this run (idempotent replay)" : "BillStack invoice created",
+  };
+}
+
 // Single Product messages only (v1 scope, matching whatsappCommerce.js) - synchronous, no queue,
 // same shape as execSendFlow above since both are Meta-only interactive-message sends outside the
 // bulk-campaign system. catalogId comes from the triggering WhatsAppAccount (a business connects
@@ -1273,6 +1362,7 @@ const executors = {
   check_office_hours: execCheckOfficeHours,
   book_meeting: execBookMeeting,
   cancel_meeting: execCancelMeeting,
+  billstack_invoice: execBillstackInvoice,
   send_product_message: execSendProductMessage,
   send_instagram: execSendInstagram,
   sms: execSms,
