@@ -1,5 +1,41 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-04 (later): a WhatsApp conversation now pushes a real lead into Vega - closes a real gap found while auditing the pipeline for today's ad launch
+
+While reviewing the whole ecosystem ahead of running real ads today, found that nothing in this app
+ever pushed a WhatsApp conversation into Vega as an actual Lead - `notifyVega()` only ever fires
+org-level events (`plan_changed`, `campaign_completed`, account health), never anything about an
+individual conversation. Every ad-driven (or organic) WhatsApp lead was invisible to Vega/sales
+outside the WhatsApp inbox itself.
+
+**Fixed, commit `5343ffd`**: new `pushLeadToVega()` (`vegaIntegration.js`), same fire-and-forget
+shape as `notifyVega` (a Vega outage must never block a real conversation). Wired into
+`ensureConversationInCrm` (`crm.js`) - the one place this app already decides "this contact just
+became a real lead" - gated on `!crm.addedToCrmAt` (the pre-update value, already used a few lines
+above for an `AuditLog` action split) so it fires exactly once per contact, not on every message in
+an ongoing conversation. Passes through the real `campaign`/`ctwaClid` this function already
+extracts, so Vega can tell a genuinely ad-sourced lead from an organic one rather than guessing.
+
+Vega's side (`POST /api/integrations/dashboard-leads`) is a new endpoint, not a new event on the
+existing `dashboard-events` route - that route can only ever update an existing `Client`, and a
+brand-new lead has no Client yet by definition. Full detail, including the idempotency design and
+the required-email-placeholder convention this route reuses from this app's own WhatsApp-OTP
+signup, is in Vega's own HANDOFF.md (2026-09-04 evening/night entry - read that first, this is only
+this app's half of the integration).
+
+**Verified live end-to-end**, from this side: a real POST against a real local Vega dev server
+(same production MongoDB Atlas cluster the deployed app uses) created a real Lead, a repeat push
+with the same `conversationId` returned the same lead unchanged (no duplicate), and a wrong secret
+was correctly rejected with 401. Test document deleted after.
+
+**Confirmed separately, worth remembering**: today's actual Click-to-WhatsApp ad launch does NOT
+depend on this fix at all - the qualifying automation flow (root-caused and fixed 2026-09-03,
+verified live end-to-end on real WhatsApp) is the real ad-facing path and works independently of
+whether a lead ever reaches Vega. This fix closes a real CRM-visibility gap, not a launch blocker -
+don't let it block today's launch if anything about it needs revisiting later.
+
+---
+
 ## 2026-09-04 (morning, continued): per-workspace "Bill via BillStack" automation node - answers "how does every tenant's own CRM/billing plug in"
 
 The user clarified the real model after the earlier "build a generic outbound integration" framing:
