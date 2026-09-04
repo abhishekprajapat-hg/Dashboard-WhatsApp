@@ -234,6 +234,36 @@ export function updatePackTier<T>(plan: string) {
   });
 }
 
+// The real cross-tenant admin surface - platform-owner only. See admin.js's own comment on these
+// four routes for why this is the one place in the app that reads/writes another organization.
+export function getAdminTenants<T>() {
+  return request<T>("/admin/tenants");
+}
+
+export function getAdminTenantDetail<T>(organizationId: string) {
+  return request<T>(`/admin/tenants/${organizationId}`);
+}
+
+export function createAdminTenant<T>(payload: {
+  businessName: string;
+  adminName: string;
+  adminEmail: string;
+  adminPassword: string;
+  plan: string;
+}) {
+  return request<T>("/admin/tenants", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateTenantPlan<T>(organizationId: string, plan: string) {
+  return request<T>(`/admin/tenants/${organizationId}/plan`, {
+    method: "PATCH",
+    body: JSON.stringify({ plan }),
+  });
+}
+
 export function getAssistantOverview<T>() {
   return request<T>("/assistant/overview");
 }

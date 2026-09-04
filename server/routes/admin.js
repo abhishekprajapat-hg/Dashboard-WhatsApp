@@ -10,6 +10,7 @@ import {
   Organization,
   Role,
   Template,
+  User,
   WebhookEvent,
   WhatsAppAccount,
   Workspace,
@@ -28,7 +29,10 @@ import {
 import { jsonCsv } from "../utils/csv.js";
 import { notifyVega } from "../services/vegaIntegration.js";
 import { allPermissions } from "../utils/rbac.js";
-import { optionalDateString } from "../utils/zodHelpers.js";
+import { optionalDateString, trimmedString } from "../utils/zodHelpers.js";
+import { hashPassword } from "../utils/password.js";
+import { isEmail, passwordPolicy } from "../utils/validation.js";
+import { provisionWorkspaceForNewUser } from "./auth.js";
 
 export const auditLogExportQuerySchema = z.object({
   from: optionalDateString(),
@@ -41,6 +45,14 @@ export const featureFlagUpdateSchema = z.object({
 
 export const packTierUpdateSchema = z.object({
   plan: z.enum(PACK_TIERS),
+});
+
+export const createTenantSchema = z.object({
+  businessName: trimmedString("Business name is required."),
+  adminName: trimmedString("Admin name is required."),
+  adminEmail: z.string().refine(isEmail, "A valid email is required."),
+  adminPassword: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+  plan: z.enum(PACK_TIERS).optional().default("basic"),
 });
 
 const auditLogCsvHeaders = ["id", "createdAt", "actor", "action", "entityType", "entityId", "ipAddress", "userAgent", "before", "after"];
@@ -553,6 +565,205 @@ adminRouter.put(
     // Fired after the response, not awaited by it - a slow or unreachable Vega must never delay
     // or fail this admin action. notifyVega already swallows its own errors; this catch is just
     // defense against something unexpected in the call itself.
+    notifyVega(organization._id.toString(), "plan_changed", { plan: organization.plan, previousPlan }).catch(() => undefined);
+  }
+);
+
+// Real cross-tenant surface - the first one in this app. Every other query anywhere in this
+// codebase scopes to the caller's own organizationId/workspaceId; these four routes are
+// deliberately the one place that reads/writes *other* tenants, which is exactly why they're
+// gated by requirePlatformOwner (Nemnidhi's own org only) on top of the normal admin permission,
+// not either alone. Before this, there was no way for the platform owner to see or create a
+// tenant at all - the only path was a client filling out the public signup form themselves.
+
+adminRouter.get("/tenants", requirePermission("admin:read"), requirePlatformOwner, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.json({ data: [] });
+  }
+  const organizations = await Organization.find({}).sort({ createdAt: -1 });
+  const data = await Promise.all(
+    organizations.map(async (organization) => {
+      const [workspaceCount, memberCount] = await Promise.all([
+        Workspace.countDocuments({ organizationId: organization._id }),
+        Membership.countDocuments({ organizationId: organization._id, status: "active" }),
+      ]);
+      return {
+        id: organization._id.toString(),
+        name: organization.name,
+        slug: organization.slug,
+        plan: organization.plan,
+        billingStatus: organization.billingStatus,
+        isPlatformOwner: organization.isPlatformOwner,
+        workspaceCount,
+        memberCount,
+        createdAt: organization.createdAt,
+      };
+    })
+  );
+  res.json({ data });
+});
+
+adminRouter.get("/tenants/:organizationId", requirePermission("admin:read"), requirePlatformOwner, async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+  if (!mongoose.Types.ObjectId.isValid(req.params.organizationId)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+  }
+
+  const organizationId = req.params.organizationId;
+  const organization = await Organization.findById(organizationId);
+  if (!organization) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+  }
+
+  const workspaces = await Workspace.find({ organizationId }).sort({ createdAt: 1 });
+  const workspaceIds = workspaces.map((workspace) => workspace._id);
+
+  const [memberships, templateCount, automationCount, campaignCount, whatsappAccountCount] = await Promise.all([
+    Membership.find({ organizationId, status: "active" })
+      .populate("userId", "name email")
+      .populate("roleId", "name key")
+      .populate("workspaceId", "name slug")
+      .sort({ createdAt: 1 }),
+    Template.countDocuments({ workspaceId: { $in: workspaceIds } }),
+    AutomationFlow.countDocuments({ workspaceId: { $in: workspaceIds } }),
+    Campaign.countDocuments({ workspaceId: { $in: workspaceIds } }),
+    WhatsAppAccount.countDocuments({ workspaceId: { $in: workspaceIds } }),
+  ]);
+
+  res.json({
+    data: {
+      organization: {
+        id: organization._id.toString(),
+        name: organization.name,
+        slug: organization.slug,
+        plan: organization.plan,
+        billingStatus: organization.billingStatus,
+        isPlatformOwner: organization.isPlatformOwner,
+        createdAt: organization.createdAt,
+      },
+      entitlements: getEntitlements(organization.plan),
+      workspaces: workspaces.map((workspace) => ({
+        id: workspace._id.toString(),
+        name: workspace.name,
+        slug: workspace.slug,
+        timezone: workspace.timezone,
+        businessCategory: workspace.businessCategory,
+        createdAt: workspace.createdAt,
+      })),
+      members: memberships.map((membership) => ({
+        id: membership._id.toString(),
+        name: membership.userId?.name || "",
+        email: membership.userId?.email || "",
+        role: membership.roleId?.name || membership.roleId?.key || "",
+        workspace: membership.workspaceId?.name || "",
+        joinedAt: membership.joinedAt,
+      })),
+      usage: {
+        templates: templateCount,
+        automations: automationCount,
+        campaigns: campaignCount,
+        whatsappAccounts: whatsappAccountCount,
+      },
+    },
+  });
+});
+
+adminRouter.post(
+  "/tenants",
+  requirePermission("admin:write"),
+  requirePlatformOwner,
+  validateBody(createTenantSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+
+    const { businessName, adminName, adminEmail, adminPassword, plan } = req.body;
+    const normalizedEmail = adminEmail.toLowerCase().trim();
+
+    // A brand-new tenant needs a brand-new admin user - unlike team.js's invite route (which
+    // correctly reuses an existing account across workspaces), an email already in use here means
+    // this isn't really "a new tenant", it's someone who already has an account on this server.
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(409).json({ error: "EMAIL_IN_USE", message: "A user with this email already exists on this server." });
+    }
+
+    const user = await User.create({
+      name: adminName,
+      email: normalizedEmail,
+      passwordHash: hashPassword(adminPassword),
+      status: "active",
+    });
+
+    const { organization, workspace } = await provisionWorkspaceForNewUser(user, businessName);
+
+    if (plan !== organization.plan) {
+      organization.plan = plan;
+      await organization.save();
+    }
+
+    await AuditLog.create({
+      organizationId: organization._id,
+      workspaceId: workspace._id,
+      actorUserId: req.user.sub,
+      action: "admin.tenant_created",
+      entityType: "Organization",
+      entityId: organization._id.toString(),
+      after: { name: organization.name, plan: organization.plan, adminEmail: normalizedEmail },
+    });
+
+    res.status(201).json({
+      data: {
+        organization: { id: organization._id.toString(), name: organization.name, slug: organization.slug, plan: organization.plan },
+        workspace: { id: workspace._id.toString(), name: workspace.name, slug: workspace.slug },
+        admin: { id: user._id.toString(), name: user.name, email: user.email },
+      },
+    });
+  }
+);
+
+adminRouter.patch(
+  "/tenants/:organizationId/plan",
+  requirePermission("admin:write"),
+  requirePlatformOwner,
+  validateBody(packTierUpdateSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.params.organizationId)) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+    }
+
+    const organization = await Organization.findById(req.params.organizationId);
+    if (!organization) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+    }
+    // AuditLog.workspaceId is required - an org-level action like this isn't tied to any one
+    // workspace, so it's logged against the tenant's oldest (primary) one.
+    const primaryWorkspace = await Workspace.findOne({ organizationId: organization._id }).sort({ createdAt: 1 });
+
+    const previousPlan = organization.plan;
+    organization.plan = req.body.plan;
+    await organization.save();
+
+    if (primaryWorkspace) {
+      await AuditLog.create({
+        organizationId: organization._id,
+        workspaceId: primaryWorkspace._id,
+        actorUserId: req.user.sub,
+        action: "admin.tenant_plan_changed",
+        entityType: "Organization",
+        entityId: organization._id.toString(),
+        before: { plan: previousPlan },
+        after: { plan: organization.plan },
+      });
+    }
+
+    res.json({ ok: true, data: getEntitlements(organization.plan) });
     notifyVega(organization._id.toString(), "plan_changed", { plan: organization.plan, previousPlan }).catch(() => undefined);
   }
 );

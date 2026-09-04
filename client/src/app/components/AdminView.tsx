@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity,
   BadgeCheck,
@@ -14,7 +14,9 @@ import {
   Link2,
   LockKeyhole,
   MessageSquareText,
+  Eye,
   Palette,
+  PlusCircle,
   ReceiptText,
   RefreshCcw,
   RotateCcw,
@@ -33,8 +35,11 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import {
+  createAdminTenant,
   createApiKey,
   getAdminOverview,
+  getAdminTenantDetail,
+  getAdminTenants,
   getApiKeyScopes,
   getAuditLogExportUrl,
   getEntitlementsAdmin,
@@ -45,6 +50,7 @@ import {
   updateAdminSettings,
   updateFeatureFlag,
   updatePackTier,
+  updateTenantPlan,
 } from "../lib/api";
 import { downloadFromUrl } from "../lib/download";
 
@@ -165,6 +171,52 @@ interface EntitlementsData {
   plan: string;
   normalized: boolean;
   capabilities: EntitlementCapability[];
+}
+
+interface TenantRow {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  billingStatus: string;
+  isPlatformOwner: boolean;
+  workspaceCount: number;
+  memberCount: number;
+  createdAt: string;
+}
+
+interface TenantDetail {
+  // Deliberately narrower than TenantRow - the detail route's organization object doesn't include
+  // workspaceCount/memberCount (workspaces/members are returned as their own full arrays below
+  // instead), so reusing TenantRow here would claim fields the server never actually sends.
+  organization: { id: string; name: string; slug: string; plan: string; billingStatus: string; isPlatformOwner: boolean; createdAt: string };
+  entitlements: EntitlementsData;
+  workspaces: { id: string; name: string; slug: string; timezone: string; businessCategory: string; createdAt: string }[];
+  members: { id: string; name: string; email: string; role: string; workspace: string; joinedAt: string }[];
+  usage: { templates: number; automations: number; campaigns: number; whatsappAccounts: number };
+}
+
+interface CreateTenantForm {
+  businessName: string;
+  adminName: string;
+  adminEmail: string;
+  adminPassword: string;
+  plan: string;
+}
+
+const emptyCreateTenantForm: CreateTenantForm = {
+  businessName: "",
+  adminName: "",
+  adminEmail: "",
+  adminPassword: "",
+  plan: "basic",
+};
+
+function formatDate(value: string | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function text(value: unknown, fallback = "-") {
@@ -484,6 +536,18 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
   const [entitlementsLoading, setEntitlementsLoading] = useState(true);
   const [entitlementsError, setEntitlementsError] = useState("");
   const [updatingPlan, setUpdatingPlan] = useState(false);
+  const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+  const [tenantsError, setTenantsError] = useState("");
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [tenantDetail, setTenantDetail] = useState<TenantDetail | null>(null);
+  const [tenantDetailLoading, setTenantDetailLoading] = useState(false);
+  const [tenantDetailError, setTenantDetailError] = useState("");
+  const [creatingTenant, setCreatingTenant] = useState(false);
+  const [createTenantForm, setCreateTenantForm] = useState<CreateTenantForm>(emptyCreateTenantForm);
+  const [createTenantSubmitting, setCreateTenantSubmitting] = useState(false);
+  const [createTenantError, setCreateTenantError] = useState("");
+  const [updatingTenantPlanId, setUpdatingTenantPlanId] = useState("");
 
   async function loadOverview() {
     setLoading(true);
@@ -526,10 +590,39 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
     }
   }
 
+  async function loadTenants() {
+    setTenantsLoading(true);
+    setTenantsError("");
+    try {
+      const response = await getAdminTenants<{ data: TenantRow[] }>();
+      setTenants(response.data);
+    } catch (nextError) {
+      setTenantsError(nextError instanceof Error ? nextError.message : "Tenants could not be loaded.");
+    } finally {
+      setTenantsLoading(false);
+    }
+  }
+
+  async function loadTenantDetail(organizationId: string) {
+    setSelectedTenantId(organizationId);
+    setTenantDetail(null);
+    setTenantDetailLoading(true);
+    setTenantDetailError("");
+    try {
+      const response = await getAdminTenantDetail<{ data: TenantDetail }>(organizationId);
+      setTenantDetail(response.data);
+    } catch (nextError) {
+      setTenantDetailError(nextError instanceof Error ? nextError.message : "Tenant detail could not be loaded.");
+    } finally {
+      setTenantDetailLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadOverview();
     loadFeatureFlags();
     loadEntitlements();
+    if (isPlatformOwner) loadTenants();
   }, []);
 
   async function handleChangePlan(plan: string) {
@@ -543,6 +636,35 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
       setEntitlementsError(nextError instanceof Error ? nextError.message : "Plan could not be updated.");
     } finally {
       setUpdatingPlan(false);
+    }
+  }
+
+  async function handleCreateTenant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreateTenantSubmitting(true);
+    setCreateTenantError("");
+    try {
+      await createAdminTenant(createTenantForm);
+      setCreateTenantForm(emptyCreateTenantForm);
+      setCreatingTenant(false);
+      await loadTenants();
+    } catch (nextError) {
+      setCreateTenantError(nextError instanceof Error ? nextError.message : "Tenant could not be created.");
+    } finally {
+      setCreateTenantSubmitting(false);
+    }
+  }
+
+  async function handleChangeTenantPlan(organizationId: string, plan: string) {
+    setUpdatingTenantPlanId(organizationId);
+    try {
+      await updateTenantPlan(organizationId, plan);
+      await loadTenants();
+      if (selectedTenantId === organizationId) await loadTenantDetail(organizationId);
+    } catch (nextError) {
+      setTenantsError(nextError instanceof Error ? nextError.message : "Plan could not be updated.");
+    } finally {
+      setUpdatingTenantPlanId("");
     }
   }
 
@@ -694,8 +816,214 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
 
               {activeTab === "Companies" && (
                 <>
-                  <SectionHeader icon={<Building2 size={17} />} title="Companies" detail="Organization-level billing, ownership, subscriptions, and tenant counts." />
-                  <DataTable title="Company Directory" rows={overview.companies} columns={[{ key: "name", label: "Name" }, { key: "slug", label: "Slug" }, { key: "ownerUserId", label: "Owner" }, { key: "plan", label: "Plan" }, { key: "billingStatus", label: "Status" }, { key: "createdAt", label: "Created" }]} />
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <SectionHeader icon={<Building2 size={17} />} title="Companies" detail="Every real tenant on this server - create one, see its plan, workspaces, and usage." />
+                    <Button size="sm" onClick={() => { setCreatingTenant((current) => !current); setCreateTenantError(""); }}>
+                      <PlusCircle size={14} className="mr-1.5" /> Create Tenant
+                    </Button>
+                  </div>
+
+                  {creatingTenant && (
+                    <Card className="rounded-lg border-border/70 bg-card/90">
+                      <CardHeader className="px-4 pt-4">
+                        <CardTitle className="text-sm font-semibold">New Tenant</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-0">
+                        <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateTenant}>
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-muted-foreground">Business Name</span>
+                            <input
+                              required
+                              value={createTenantForm.businessName}
+                              onChange={(event) => setCreateTenantForm((current) => ({ ...current, businessName: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-muted-foreground">Starting Plan</span>
+                            <select
+                              value={createTenantForm.plan}
+                              onChange={(event) => setCreateTenantForm((current) => ({ ...current, plan: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                            >
+                              {PACK_TIERS.map((tier) => (
+                                <option key={tier} value={tier}>{PACK_TIER_LABELS[tier]}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-muted-foreground">Admin Name</span>
+                            <input
+                              required
+                              value={createTenantForm.adminName}
+                              onChange={(event) => setCreateTenantForm((current) => ({ ...current, adminName: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-xs font-medium text-muted-foreground">Admin Email</span>
+                            <input
+                              required
+                              type="email"
+                              value={createTenantForm.adminEmail}
+                              onChange={(event) => setCreateTenantForm((current) => ({ ...current, adminEmail: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                            />
+                          </label>
+                          <label className="space-y-1 md:col-span-2">
+                            <span className="text-xs font-medium text-muted-foreground">Admin Password (share this with the client directly - there is no invite email)</span>
+                            <input
+                              required
+                              type="text"
+                              value={createTenantForm.adminPassword}
+                              onChange={(event) => setCreateTenantForm((current) => ({ ...current, adminPassword: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                            />
+                          </label>
+                          {createTenantError && (
+                            <p className="text-xs text-destructive md:col-span-2">{createTenantError}</p>
+                          )}
+                          <div className="flex gap-2 md:col-span-2">
+                            <Button type="submit" size="sm" disabled={createTenantSubmitting}>
+                              {createTenantSubmitting ? "Creating..." : "Create Tenant"}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => setCreatingTenant(false)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </form>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {tenantsError && <Badge variant="destructive">{tenantsError}</Badge>}
+
+                  <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+                    <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
+                      <CardTitle className="text-sm font-semibold">Tenant Directory</CardTitle>
+                      <Badge variant="outline" className="text-[10px]">{tenants.length} tenants</Badge>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                      <div className="overflow-x-auto rounded-md border border-border/80">
+                        <table className="w-full min-w-[720px] text-left text-sm">
+                          <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Name</th>
+                              <th className="px-3 py-2 font-medium">Plan</th>
+                              <th className="px-3 py-2 font-medium">Billing</th>
+                              <th className="px-3 py-2 font-medium">Workspaces</th>
+                              <th className="px-3 py-2 font-medium">Members</th>
+                              <th className="px-3 py-2 font-medium">Created</th>
+                              <th className="px-3 py-2 font-medium" />
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {tenantsLoading ? (
+                              <tr><td className="px-3 py-6 text-center text-sm text-muted-foreground" colSpan={7}>Loading tenants...</td></tr>
+                            ) : tenants.length === 0 ? (
+                              <tr><td className="px-3 py-6 text-center text-sm text-muted-foreground" colSpan={7}>No tenants yet.</td></tr>
+                            ) : (
+                              tenants.map((tenant) => (
+                                <tr key={tenant.id} className={tenant.id === selectedTenantId ? "bg-primary/5" : undefined}>
+                                  <td className="px-3 py-2">
+                                    {tenant.name}
+                                    {tenant.isPlatformOwner && <Badge variant="outline" className="ml-2 text-[10px]">Platform Owner</Badge>}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <select
+                                      value={tenant.plan}
+                                      disabled={updatingTenantPlanId === tenant.id}
+                                      onChange={(event) => handleChangeTenantPlan(tenant.id, event.target.value)}
+                                      className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+                                    >
+                                      {PACK_TIERS.map((tier) => (
+                                        <option key={tier} value={tier}>{PACK_TIER_LABELS[tier]}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <Badge variant="outline" className={statusClass(tenant.billingStatus === "active")}>
+                                      <span className="size-1.5 rounded-full bg-current" />
+                                      {tenant.billingStatus}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-3 py-2">{tenant.workspaceCount}</td>
+                                  <td className="px-3 py-2">{tenant.memberCount}</td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">{formatDate(tenant.createdAt)}</td>
+                                  <td className="px-3 py-2">
+                                    <Button size="sm" variant="outline" onClick={() => loadTenantDetail(tenant.id)}>
+                                      <Eye size={13} className="mr-1" /> View
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {selectedTenantId && (
+                    <Card className="rounded-lg border-border/70 bg-card/90">
+                      <CardHeader className="px-4 pt-4">
+                        <CardTitle className="text-sm font-semibold">
+                          {tenantDetail?.organization.name || "Tenant detail"}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-0">
+                        {tenantDetailLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+                        {tenantDetailError && <p className="text-sm text-destructive">{tenantDetailError}</p>}
+                        {tenantDetail && (
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Workspaces ({tenantDetail.workspaces.length})</p>
+                              <div className="space-y-1.5">
+                                {tenantDetail.workspaces.map((workspace) => (
+                                  <div key={workspace.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                    {workspace.name} <span className="text-xs text-muted-foreground">({workspace.slug})</span>
+                                  </div>
+                                ))}
+                                {tenantDetail.workspaces.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Members ({tenantDetail.members.length})</p>
+                              <div className="space-y-1.5">
+                                {tenantDetail.members.map((member) => (
+                                  <div key={member.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                    {member.name} <span className="text-xs text-muted-foreground">{member.email} · {member.role}</span>
+                                  </div>
+                                ))}
+                                {tenantDetail.members.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
+                              </div>
+                            </div>
+                            <div className="md:col-span-2">
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Usage</p>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                  <div className="text-lg font-semibold">{tenantDetail.usage.templates}</div>
+                                  <div className="text-xs text-muted-foreground">Templates</div>
+                                </div>
+                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                  <div className="text-lg font-semibold">{tenantDetail.usage.automations}</div>
+                                  <div className="text-xs text-muted-foreground">Automations</div>
+                                </div>
+                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                  <div className="text-lg font-semibold">{tenantDetail.usage.campaigns}</div>
+                                  <div className="text-xs text-muted-foreground">Campaigns</div>
+                                </div>
+                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                  <div className="text-lg font-semibold">{tenantDetail.usage.whatsappAccounts}</div>
+                                  <div className="text-xs text-muted-foreground">WhatsApp Numbers</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
                 </>
               )}
 

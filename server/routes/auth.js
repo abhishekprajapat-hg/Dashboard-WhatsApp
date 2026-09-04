@@ -63,7 +63,7 @@ export const whatsappOtpVerifySchema = z.object({
 // same Organization+Workspace+admin-Role+Membership sequence workspace.js's POST / already uses
 // for "an existing admin spins up another workspace", just starting from a freshly-created User
 // instead of req.user.sub.
-async function provisionWorkspaceForNewUser(user, workspaceName) {
+export async function provisionWorkspaceForNewUser(user, workspaceName) {
   const trimmedName = workspaceName.trim();
   const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
 
