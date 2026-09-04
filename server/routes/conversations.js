@@ -880,6 +880,12 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         error: isInstagram ? error.code || "INSTAGRAM_SEND_FAILED" : "WHATSAPP_SEND_FAILED",
         message: error.message || "Message could not be sent.",
         accountStatus: (isInstagram ? instagramAccount?.status : account?.status) || "missing",
+        // Meta's real raw error payload (fbtrace_id, error_subcode, error_user_msg) - already
+        // persisted to outboundMessage.metadata.meta above, but was never returned here, so
+        // diagnosing a real failure (e.g. the product/catalog-linkage error) meant querying the
+        // DB directly instead of just reading the failed request's own response. Internal tool,
+        // staff-only route - safe to surface the same detail already stored.
+        meta: error.meta,
       });
     }
 

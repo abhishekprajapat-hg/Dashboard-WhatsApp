@@ -19,7 +19,10 @@ export interface AuthSession {
   isNewAccount?: boolean;
 }
 
-export type ApiError = Error & { status?: number; code?: string };
+// meta carries the raw provider error payload (Meta's fbtrace_id/error_subcode/error_user_msg
+// for a failed WhatsApp/Instagram send) when the server includes one - see
+// conversations.js's send-message error handler.
+export type ApiError = Error & { status?: number; code?: string; meta?: unknown };
 
 const DEFAULT_API_URL = "http://localhost:4000/api";
 
@@ -93,6 +96,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const error = new Error(payload.message || "Request failed.") as ApiError;
     error.status = response.status;
     error.code = payload.error;
+    error.meta = payload.meta;
     if (response.status === 401) {
       clearToken();
       window.dispatchEvent(new CustomEvent("auth:invalid", { detail: { status: response.status, code: payload.error } }));
