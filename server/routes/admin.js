@@ -618,18 +618,24 @@ adminRouter.get("/tenants/:organizationId", requirePermission("admin:read"), req
   }
 
   const workspaces = await Workspace.find({ organizationId }).sort({ createdAt: 1 });
-  const workspaceIds = workspaces.map((workspace) => workspace._id);
+  const workspaceIds = workspaces.map((workspace) => workspace._id.toString());
 
-  const [memberships, templateCount, automationCount, campaignCount, whatsappAccountCount] = await Promise.all([
+  const [memberships, templateCount, automationFlows, campaignCount, whatsappAccounts, recentLogs] = await Promise.all([
     Membership.find({ organizationId, status: "active" })
       .populate("userId", "name email")
       .populate("roleId", "name key")
       .populate("workspaceId", "name slug")
       .sort({ createdAt: 1 }),
-    Template.countDocuments({ workspaceId: { $in: workspaceIds } }),
-    AutomationFlow.countDocuments({ workspaceId: { $in: workspaceIds } }),
-    Campaign.countDocuments({ workspaceId: { $in: workspaceIds } }),
-    WhatsAppAccount.countDocuments({ workspaceId: { $in: workspaceIds } }),
+    Template.countDocuments({ workspaceId: mongoose.trusted({ $in: workspaceIds }) }),
+    AutomationFlow.find({ workspaceId: mongoose.trusted({ $in: workspaceIds }) })
+      .select("name status version nodes updatedAt workspaceId")
+      .populate("workspaceId", "name")
+      .sort({ updatedAt: -1 }),
+    Campaign.countDocuments({ workspaceId: mongoose.trusted({ $in: workspaceIds }) }),
+    WhatsAppAccount.find({ workspaceId: mongoose.trusted({ $in: workspaceIds }) })
+      .select("displayName phoneNumber status provider workspaceId")
+      .populate("workspaceId", "name"),
+    WebhookEvent.find({ organizationId }).select("eventType provider status error createdAt").sort({ createdAt: -1 }).limit(20),
   ]);
 
   res.json({
@@ -662,10 +668,35 @@ adminRouter.get("/tenants/:organizationId", requirePermission("admin:read"), req
       })),
       usage: {
         templates: templateCount,
-        automations: automationCount,
+        automations: automationFlows.length,
         campaigns: campaignCount,
-        whatsappAccounts: whatsappAccountCount,
+        whatsappAccounts: whatsappAccounts.length,
       },
+      whatsappAccounts: whatsappAccounts.map((account) => ({
+        id: account._id.toString(),
+        displayName: account.displayName,
+        phoneNumber: account.phoneNumber,
+        status: account.status,
+        provider: account.provider,
+        workspace: account.workspaceId?.name || "",
+      })),
+      automationFlows: automationFlows.map((flow) => ({
+        id: flow._id.toString(),
+        name: flow.name,
+        status: flow.status,
+        version: flow.version,
+        nodeCount: flow.nodes?.length || 0,
+        workspace: flow.workspaceId?.name || "",
+        updatedAt: flow.updatedAt,
+      })),
+      recentLogs: recentLogs.map((log) => ({
+        id: log._id.toString(),
+        eventType: log.eventType,
+        provider: log.provider,
+        status: log.status,
+        error: log.error || "",
+        createdAt: log.createdAt,
+      })),
     },
   });
 });
@@ -765,5 +796,49 @@ adminRouter.patch(
 
     res.json({ ok: true, data: getEntitlements(organization.plan) });
     notifyVega(organization._id.toString(), "plan_changed", { plan: organization.plan, previousPlan }).catch(() => undefined);
+  }
+);
+
+export const billingStatusUpdateSchema = z.object({
+  billingStatus: z.enum(["trial", "active", "past_due", "suspended", "cancelled"]),
+});
+
+adminRouter.patch(
+  "/tenants/:organizationId/billing-status",
+  requirePermission("admin:write"),
+  requirePlatformOwner,
+  validateBody(billingStatusUpdateSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(req.params.organizationId)) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+    }
+
+    const organization = await Organization.findById(req.params.organizationId);
+    if (!organization) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found." });
+    }
+    const primaryWorkspace = await Workspace.findOne({ organizationId: organization._id }).sort({ createdAt: 1 });
+
+    const previousBillingStatus = organization.billingStatus;
+    organization.billingStatus = req.body.billingStatus;
+    await organization.save();
+
+    if (primaryWorkspace) {
+      await AuditLog.create({
+        organizationId: organization._id,
+        workspaceId: primaryWorkspace._id,
+        actorUserId: req.user.sub,
+        action: "admin.tenant_billing_status_changed",
+        entityType: "Organization",
+        entityId: organization._id.toString(),
+        before: { billingStatus: previousBillingStatus },
+        after: { billingStatus: organization.billingStatus },
+      });
+    }
+
+    res.json({ ok: true, data: { billingStatus: organization.billingStatus } });
   }
 );

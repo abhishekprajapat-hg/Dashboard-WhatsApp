@@ -50,6 +50,7 @@ import {
   updateAdminSettings,
   updateFeatureFlag,
   updatePackTier,
+  updateTenantBillingStatus,
   updateTenantPlan,
 } from "../lib/api";
 import { downloadFromUrl } from "../lib/download";
@@ -194,6 +195,9 @@ interface TenantDetail {
   workspaces: { id: string; name: string; slug: string; timezone: string; businessCategory: string; createdAt: string }[];
   members: { id: string; name: string; email: string; role: string; workspace: string; joinedAt: string }[];
   usage: { templates: number; automations: number; campaigns: number; whatsappAccounts: number };
+  whatsappAccounts: { id: string; displayName: string; phoneNumber: string; status: string; provider: string; workspace: string }[];
+  automationFlows: { id: string; name: string; status: string; version: number; nodeCount: number; workspace: string; updatedAt: string }[];
+  recentLogs: { id: string; eventType: string; provider: string; status: string; error: string; createdAt: string }[];
 }
 
 interface CreateTenantForm {
@@ -632,6 +636,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
     try {
       const response = await updatePackTier<{ data: EntitlementsData }>(plan);
       setEntitlements(response.data);
+      await loadOverview();
     } catch (nextError) {
       setEntitlementsError(nextError instanceof Error ? nextError.message : "Plan could not be updated.");
     } finally {
@@ -663,6 +668,19 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
       if (selectedTenantId === organizationId) await loadTenantDetail(organizationId);
     } catch (nextError) {
       setTenantsError(nextError instanceof Error ? nextError.message : "Plan could not be updated.");
+    } finally {
+      setUpdatingTenantPlanId("");
+    }
+  }
+
+  async function handleChangeTenantBillingStatus(organizationId: string, billingStatus: string) {
+    setUpdatingTenantPlanId(organizationId);
+    try {
+      await updateTenantBillingStatus(organizationId, billingStatus);
+      await loadTenants();
+      if (selectedTenantId === organizationId) await loadTenantDetail(organizationId);
+    } catch (nextError) {
+      setTenantsError(nextError instanceof Error ? nextError.message : "Billing status could not be updated.");
     } finally {
       setUpdatingTenantPlanId("");
     }
@@ -966,10 +984,27 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
 
                   {selectedTenantId && (
                     <Card className="rounded-lg border-border/70 bg-card/90">
-                      <CardHeader className="px-4 pt-4">
+                      <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
                         <CardTitle className="text-sm font-semibold">
                           {tenantDetail?.organization.name || "Tenant detail"}
                         </CardTitle>
+                        {tenantDetail && (
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            Billing status
+                            <select
+                              value={tenantDetail.organization.billingStatus}
+                              disabled={updatingTenantPlanId === tenantDetail.organization.id}
+                              onChange={(event) => handleChangeTenantBillingStatus(tenantDetail.organization.id, event.target.value)}
+                              className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"
+                            >
+                              <option value="trial">Trial</option>
+                              <option value="active">Active</option>
+                              <option value="past_due">Past Due</option>
+                              <option value="suspended">Suspended</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                          </label>
+                        )}
                       </CardHeader>
                       <CardContent className="p-4 pt-0">
                         {tenantDetailLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
@@ -1017,6 +1052,42 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                                   <div className="text-lg font-semibold">{tenantDetail.usage.whatsappAccounts}</div>
                                   <div className="text-xs text-muted-foreground">WhatsApp Numbers</div>
                                 </div>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">WhatsApp Numbers ({tenantDetail.whatsappAccounts.length})</p>
+                              <div className="space-y-1.5">
+                                {tenantDetail.whatsappAccounts.map((account) => (
+                                  <div key={account.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                    {account.displayName} <span className="text-xs text-muted-foreground">{account.phoneNumber} · {account.status} · {account.workspace}</span>
+                                  </div>
+                                ))}
+                                {tenantDetail.whatsappAccounts.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Automation Flows ({tenantDetail.automationFlows.length})</p>
+                              <div className="space-y-1.5">
+                                {tenantDetail.automationFlows.map((flow) => (
+                                  <div key={flow.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                    {flow.name} <span className="text-xs text-muted-foreground">v{flow.version} · {flow.status} · {flow.nodeCount} nodes · {flow.workspace}</span>
+                                  </div>
+                                ))}
+                                {tenantDetail.automationFlows.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
+                              </div>
+                            </div>
+                            <div className="md:col-span-2">
+                              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Recent Webhook Logs ({tenantDetail.recentLogs.length})</p>
+                              <div className="space-y-1.5">
+                                {tenantDetail.recentLogs.map((log) => (
+                                  <div key={log.id} className="flex items-center justify-between rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                    <span>{log.eventType} <span className="text-xs text-muted-foreground">({log.provider})</span></span>
+                                    <span className={`text-xs ${log.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+                                      {log.status}{log.error ? ` · ${log.error}` : ""} · {formatDate(log.createdAt)}
+                                    </span>
+                                  </div>
+                                ))}
+                                {tenantDetail.recentLogs.length === 0 && <p className="text-xs text-muted-foreground">None.</p>}
                               </div>
                             </div>
                           </div>

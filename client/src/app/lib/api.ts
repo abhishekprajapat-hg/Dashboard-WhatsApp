@@ -264,6 +264,13 @@ export function updateTenantPlan<T>(organizationId: string, plan: string) {
   });
 }
 
+export function updateTenantBillingStatus<T>(organizationId: string, billingStatus: string) {
+  return request<T>(`/admin/tenants/${organizationId}/billing-status`, {
+    method: "PATCH",
+    body: JSON.stringify({ billingStatus }),
+  });
+}
+
 export function getAssistantOverview<T>() {
   return request<T>("/assistant/overview");
 }
