@@ -1173,26 +1173,28 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   <SectionHeader icon={<ShieldCheck size={17} />} title="Security and Compliance" detail="Tenant security posture, session policy, retention, and network controls." />
                   <Card className="rounded-lg border-border/70">
                     <CardContent className="grid gap-4 p-4 md:grid-cols-2">
-                      <label className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+                      <label className="flex items-center justify-between gap-3 rounded-md border border-border p-3 opacity-60">
                         <span>
-                          <span className="block text-sm font-medium">Require MFA</span>
-                          <span className="text-xs text-muted-foreground">Apply to all tenant users.</span>
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            Require MFA
+                            <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+                          </span>
+                          <span className="text-xs text-muted-foreground">Not enforced at login yet - stored for a future release, has no effect today.</span>
                         </span>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(security.mfaRequired)}
-                          onChange={(event) => setSecurity((current) => ({ ...current, mfaRequired: event.target.checked }))}
-                          className="size-4 accent-primary"
-                        />
+                        <input type="checkbox" checked={Boolean(security.mfaRequired)} disabled className="size-4 accent-primary" />
                       </label>
-                      <label className="space-y-1">
-                        <span className="text-xs font-medium text-muted-foreground">Session Timeout Minutes</span>
+                      <label className="space-y-1 opacity-60">
+                        <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          Session Timeout Minutes
+                          <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+                        </span>
                         <input
                           type="number"
                           value={security.sessionTimeoutMinutes || 480}
-                          onChange={(event) => setSecurity((current) => ({ ...current, sessionTimeoutMinutes: Number(event.target.value) }))}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                          disabled
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
                         />
+                        <span className="block text-[11px] text-muted-foreground">Not applied to real sessions yet - JWT expiry is fixed in config today.</span>
                       </label>
                       <label className="space-y-1">
                         <span className="text-xs font-medium text-muted-foreground">Data Retention Days</span>
@@ -1202,15 +1204,20 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                           onChange={(event) => setSecurity((current) => ({ ...current, dataRetentionDays: Number(event.target.value) }))}
                           className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
                         />
+                        <span className="block text-[11px] text-muted-foreground">Real - drives the audit log pruning job.</span>
                       </label>
-                      <label className="space-y-1">
-                        <span className="text-xs font-medium text-muted-foreground">IP Allowlist</span>
+                      <label className="space-y-1 opacity-60">
+                        <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          IP Allowlist
+                          <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+                        </span>
                         <input
                           value={(security.ipAllowlist || []).join(", ")}
-                          onChange={(event) => setSecurity((current) => ({ ...current, ipAllowlist: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+                          disabled
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
                           placeholder="203.0.113.10, 198.51.100.4"
                         />
+                        <span className="block text-[11px] text-muted-foreground">Not enforced on requests yet - has no effect today.</span>
                       </label>
                     </CardContent>
                   </Card>
@@ -1245,23 +1252,24 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
               {activeTab === "Branding" && (
                 <>
                   <SectionHeader icon={<Palette size={17} />} title="White Label Branding and Settings" detail="Customer-facing brand identity and tenant domain controls." />
-                  <Card className="rounded-lg border-border/70">
+                  <Badge variant="outline" className="text-[10px]">Coming soon - not applied anywhere in the app yet</Badge>
+                  <Card className="rounded-lg border-border/70 opacity-60">
                     <CardContent className="grid gap-4 p-4 md:grid-cols-2">
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><BadgeCheck size={14} /> Brand Name</span>
-                        <input value={branding.brandName || ""} onChange={(event) => setBranding((current) => ({ ...current, brandName: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" />
+                        <input value={branding.brandName || ""} onChange={(event) => setBranding((current) => ({ ...current, brandName: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none" />
                       </label>
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Globe2 size={14} /> Custom Domain</span>
-                        <input value={branding.customDomain || ""} onChange={(event) => setBranding((current) => ({ ...current, customDomain: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" />
+                        <input value={branding.customDomain || ""} onChange={(event) => setBranding((current) => ({ ...current, customDomain: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none" />
                       </label>
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Palette size={14} /> Primary Color</span>
-                        <input type="color" value={branding.primaryColor || "#22c55e"} onChange={(event) => setBranding((current) => ({ ...current, primaryColor: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-2" />
+                        <input type="color" value={branding.primaryColor || "#22c55e"} onChange={(event) => setBranding((current) => ({ ...current, primaryColor: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-2" />
                       </label>
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Link2 size={14} /> Logo URL</span>
-                        <input value={branding.logoUrl || ""} onChange={(event) => setBranding((current) => ({ ...current, logoUrl: event.target.value }))} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" />
+                        <input value={branding.logoUrl || ""} onChange={(event) => setBranding((current) => ({ ...current, logoUrl: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none" />
                       </label>
                       <div className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-center md:col-span-2">
                         <div className="flex size-11 items-center justify-center rounded-md text-white" style={{ backgroundColor: branding.primaryColor || "#22c55e" }}>
@@ -1272,7 +1280,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                           <div className="text-xs text-muted-foreground">{branding.customDomain || "No custom domain configured"}</div>
                         </div>
                         <Badge className="sm:ml-auto" variant="outline">
-                          Live Preview
+                          Preview only, not live
                         </Badge>
                       </div>
                     </CardContent>

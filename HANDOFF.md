@@ -231,12 +231,45 @@ this same session**:
    active" in real time, confirmed Campaigns & templates / Automation builder flip from Locked to
    Enabled correctly, reverted back to Basic to leave test data clean.
 
-**Still not started tonight**: Users tab per-company scoping (partially covered by the Members list
-already shown in tenant detail, but the flat top-level Users tab is untouched), Security/Branding
-real-vs-decorative decision (user hadn't decided by end of session - leaning "Coming Soon" label
-rather than real enforcement tonight, but not actually done either way), Feature Flags decision
-(answer already given to user - 3 of 5 flags are decorative - but no code change made), and
-Access/Permissions (explicitly deferred to tomorrow per the user).
+**Real re-scoping of the punch list, found by reading the actual code rather than assuming - don't
+redo this investigation**:
+
+- **The flat Users/Access/WhatsApp/Automation/Logs tabs were never actually a cross-tenant leak risk
+  at all.** `GET /admin/overview` (`routes/admin.js:140`) scopes every query to `req.user.workspaceId`
+  specifically - `Membership.find({ workspaceId })`, `WhatsAppAccount.find({ workspaceId })`,
+  `AutomationFlow.find({ workspaceId })`, etc. These tabs only ever show the **logged-in admin's own
+  workspace's** data - they're a single-tenant operational dashboard for whoever's logged in, not a
+  cross-tenant view. The repeated "Tenant" column value on every row is cosmetic redundancy, not a
+  data-mixing bug - a "filter by tenant" control would have nothing to filter, since only one
+  tenant's rows are ever fetched here in the first place. **Don't build tenant-filtering UI for these
+  tabs** - there's no real problem to solve there.
+- **The actual cross-tenant surface is the Companies → View drill-down**, which is exactly what got
+  extended tonight (item 3 above, WhatsApp/Automation/Logs real lists instead of counts). That was
+  already the correct fix for the underlying concern - nothing further needed here tonight.
+- **Feature Flags (#13) is already honestly built**, not a decorative-toggle problem needing a fix -
+  `FEATURE_FLAG_DEFINITIONS` (`services/featureFlags.js`) already has a `gatesRealBehavior` field per
+  flag, and the frontend already labels each one "Live" vs "No current effect" accordingly (visible in
+  screenshots from earlier tonight). Nothing to build here either.
+
+6. **Security/Branding (#9, #11) - decided and shipped, "Coming Soon" not real enforcement.**
+   Deliberate call, not the user's explicit instruction either way: real MFA login-checks and
+   request-level IP filtering mean touching the live authentication path on a production multi-tenant
+   system - not something to rush at 1am regardless of "keep going" instructions, that's exactly the
+   kind of risk worth pausing on. **Security tab**: `mfaRequired`/`sessionTimeoutMinutes`/`ipAllowlist`
+   inputs now disabled with a "Coming soon" badge each and honest inline text ("Not enforced at login
+   yet", "Not applied to real sessions yet - JWT expiry is fixed in config today", "Not enforced on
+   requests yet"). `dataRetentionDays` stays fully live/editable, explicitly marked "Real - drives the
+   audit log pruning job" - the one field that's genuinely not decorative. **Branding tab**: all four
+   fields (brandName/customDomain/primaryColor/logoUrl) disabled under a top-level "Coming soon - not
+   applied anywhere in the app yet" badge; the bottom swatch's misleading "Live Preview" badge (it was
+   never live - just a local render of the entered values, no actual theming applied anywhere else in
+   the app) renamed to "Preview only, not live". Verified live in both tabs after a fresh re-login
+   (session had expired again mid-session, same 15-minute JWT lifetime as before - not a bug).
+
+**Genuinely still open, unchanged**: Access/Permissions (explicitly deferred to tomorrow per the
+user) - the only remaining item from tonight's original 13-point list. Everything else either got
+built, got found to already be a non-issue on closer inspection, or got a deliberate honest-labeling
+fix instead of a rushed real implementation.
 
 **Not pushed to `main` yet as of this checkpoint** - the WhatsApp/Automation/Logs drill-down (item 3),
 the billing-status control (item 4), and the Plan-tab header-refresh fix (item 5) are all commit-ready
