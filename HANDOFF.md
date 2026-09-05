@@ -1,5 +1,83 @@
 # Handoff — WhatsApp CRM engine work
 
+## PLAN OF ACTION — 2026-09-06: build the real Lead Management System on top of the CRM backend that already exists — READ THIS FIRST, this is the actual next job
+
+**Why this exists**: the CRM audit two entries below this one (2026-09-06, "CRM section audit") found
+that the backend for a real lead-management system is already built and solid, but the screen a
+salesperson actually opens is a plain contacts table with dead buttons. The user's own framing:
+"suppose someone wants a lead management system, it should have the functionality" - not a bug-fix
+ask, a real feature build. **Don't re-run that audit** - every file:line citation below was already
+confirmed by reading the actual code, not guessed.
+
+**What already exists and should be reused, not rebuilt**:
+- `server/models/Lead.js` - real stages (`leadStages`: new_lead/contacted/qualified/proposal_sent/
+  won/lost), `score`, `ownerUserId`, `source`, `campaign`, `followUpAt`, `timeline: [Mixed]` (capped
+  200, already pushed to by `services/crm.js:270-274` on every stage change).
+- `server/services/crm.js` - `normalizeLeadStage()`, `ensureConversationInCrm()`, `chooseOwner()`
+  (auto-assignment), `detectWhatsAppLead()` - the whole capture/scoring/ownership engine already
+  works, verified by its own test file `server/tests/crm.test.js`.
+- `TasksView.tsx` + `server/routes/tasks.js`/`calendarEvents.js` - complete, tested, separate feature.
+  Reuse this for follow-ups, don't build a second task system.
+- Tonight's three fixes already shipped and live: `PATCH /contacts/:id/owner` (real assign endpoint,
+  `server/routes/contacts.js`), CSV Export (`ContactsView.tsx`'s `handleExportCsv`), and the
+  `normalizeLeadStage()` validation fix in `assistant.js`. Build on top of these, don't duplicate.
+- `getTeamMembers()`/`/team` (`client/src/app/lib/api.ts`) - already used for the Assign picker,
+  reuse for any other owner-picker UI.
+
+**What's missing - build in this order, each phase is independently shippable**:
+
+1. **A real `/api/leads` backend surface - doesn't exist at all today.** `server/index.js:110-117`
+   mounts `contactsRouter`/`tasksRouter`/`calendarEventsRouter` but no leads router - Lead records can
+   currently only be touched via `POST /conversations/:id/add-to-crm` (create/advance) or the AI
+   tool-call route, never listed/filtered/paginated as their own resource. Build:
+   - `GET /api/leads` - real pagination (skip/limit, unlike `contacts.js`'s hardcoded `.limit(100)`),
+     filter by stage/owner/source, populate contact + owner name.
+   - `PATCH /api/leads/:id` - update stage (through `normalizeLeadStage()`), owner, `followUpAt`; push
+     a real timeline entry on every change, same shape `crm.js:270-274` already uses.
+   - `GET /api/leads/:id` - full detail including the real `timeline` array (currently maintained,
+     never returned to any client).
+2. **A real pipeline/kanban view** in a new component (don't bolt this onto `ContactsView.tsx` - that
+   stays the plain contacts table for non-lead records) - columns per `leadStages`, cards show
+   name/score/owner/source, click opens the lead detail panel from phase 3. Drag-to-change-stage is
+   nice-to-have; click-to-change-stage (a dropdown, same pattern `CustomerProfileSidebar.tsx:76-100`
+   already uses in the inbox) is the real requirement.
+3. **A real lead detail panel** - render the actual `Lead.timeline` (never shown anywhere today,
+   both `ContactsView.tsx` and `CustomerProfileSidebar.tsx` currently show hardcoded 3-line fake
+   timelines), a working "add note" action (decide: push to `Lead.timeline` directly, or a proper
+   `Note` sub-collection - the former is faster and consistent with how timeline already works), a
+   `followUpAt` date picker wired to the new PATCH endpoint, and an inline "Tasks for this lead" list
+   (query `GET /tasks?contactId=...`, already supported per the audit - confirm exact query param name
+   in `tasks.js` before wiring) with a quick "add task" shortcut reusing `TasksView.tsx`'s create form
+   logic rather than duplicating it.
+4. **Fix the owner-consistency gap**: `PATCH /conversations/:id/assignment`
+   (`conversations.js:588-618`) reassigns only the conversation's `assignedToUserId`, never touches
+   `Lead.ownerUserId`/`Contact.ownerUserId` - a lead's recorded owner silently drifts from who's
+   actually handling it. Fix by having that route also update the linked Lead/Contact owner when one
+   exists.
+5. **Decide and either build or remove the dead `Contact.customFields` stubs**
+   (`notes`/`deals`/`internalComments`/`customerHistory`/`orderHistory`/`paymentHistory`, initialized
+   empty by `crm.js:193-201`, never written to by anything) - ask the user whether any of these are
+   worth building real writers for (this pass's real note-taking from phase 3 may make some of them
+   redundant) rather than leaving them as a silent trap.
+6. **Only after 1-4 are real**: the smaller dead buttons from tonight's audit - Filter (needs a
+   decision on filter fields: stage/source/owner/tag), Import (CSV upload + column mapping, the
+   biggest lift of the remaining items), real pagination on the plain Contacts list itself (backend
+   skip/limit, `contacts.js`'s `GET /` route).
+
+**Discipline to carry forward, same as every session before this one**:
+- Verify locally before pushing - `npm run check:server`/`check:client`, then a real live click-through
+  in the browser (login as `test-admin@local.test` / `TestPass123!` against local MongoDB, or create a
+  fresh test account) - not just a typecheck pass. This session's own sanitizeFilter/`mongoose.trusted()`
+  bug (see the 2026-09-05 admin-panel entry) was invisible to typecheck and only caught by a real click.
+- This repo auto-deploys within ~5 minutes of any push to `main` - confirm before pushing, same as
+  every prior session.
+- Don't touch the automation/message-handling engine (`automationEngine.js`/`automationExecutors.js`/
+  webhook handlers) for any of this - the Lead/Contact data model is shared with it, but no UI work
+  here should need to change that code.
+- `sanitizeFilter` is on globally (`server/db.js:5`) - any new `$in`/`$gt`/etc. filter in a Mongoose
+  query needs `mongoose.trusted(...)` around it or it will silently misbehave, not error clearly. See
+  the 2026-09-05 admin-panel entry for the full story if this bites again.
+
 ## 2026-09-05: Enterprise Admin Dashboard multi-tenant audit — real gaps found, fix in progress, PAUSED mid-investigation (context checkpoint, not a stopping point)
 
 User walked through the live `dashboard.nemnidhi.com/#admin` panel tab-by-tab (Overview, Companies,
