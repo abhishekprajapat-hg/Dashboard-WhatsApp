@@ -6,6 +6,7 @@ import { validateBody, validateQuery } from "../middleware/validate.js";
 import { AutomationFlow, Conversation, Lead, Message, Organization } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
+import { normalizeLeadStage } from "../services/crm.js";
 import { getWorkspaceIntegrations } from "../services/integrations.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
@@ -232,7 +233,7 @@ assistantRouter.post("/tool-call", requirePermission("assistant:write"), require
     const lead = await Lead.findOneAndUpdate(
       { workspaceId: req.user.workspaceId, conversationId: conversation._id, status: "open" },
       {
-        stage: args.stage || "qualified",
+        stage: normalizeLeadStage(args.stage || "qualified"),
         score: Number(args.score || 50),
         lastActivityAt: new Date(),
         $push: { timeline: { type: "ai_tool_call", label: "AI updated lead stage", at: new Date(), data: args } },

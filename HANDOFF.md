@@ -271,6 +271,82 @@ user) - the only remaining item from tonight's original 13-point list. Everythin
 built, got found to already be a non-issue on closer inspection, or got a deliberate honest-labeling
 fix instead of a rushed real implementation.
 
+## 2026-09-06 (same night, continued): CRM section audit - "lying dormant" confirmed accurate, three
+real fixes shipped, much bigger gap documented for a future session
+
+User asked to check the main app's CRM tab (`ContactsView.tsx`, not the admin panel) since it "much
+happens in there" but is rarely touched - specifically: would this hold up if a real client wanted a
+genuine lead-management system. Ran a full read-only survey first (backend models/routes, frontend,
+automation integration) before touching anything - full findings below, condensed to what matters.
+
+**Verdict, confirmed by reading the actual code**: the backend CRM engine is real and solid - a proper
+`Lead` model (`server/models/Lead.js`) with a stage enum, scoring, timeline, dedup, an automatic
+WhatsApp-message lead-detection pipeline (`server/services/crm.js`'s `detectWhatsAppLead()`/
+`ensureConversationInCrm()`), owner auto-assignment, Google Sheets sync, and Meta Conversions API
+integration on a won deal. Tasks/Calendar (`TasksView.tsx`, `server/routes/tasks.js`/
+`calendarEvents.js`) are a fully separate, complete, already-tested feature. **But the actual "CRM"
+tab a salesperson opens is just a plain Contacts table, not a lead-management screen** - no
+pipeline/kanban view, no per-lead activity feed, no way to add a note or set a follow-up from a lead's
+profile, and several visible buttons (Import, Export, Filter, bulk Assign, pagination) had no click
+handlers at all before tonight - a client demoing this tab would hit obvious dead ends.
+
+**Fixed and verified live tonight, all three commit-ready**:
+
+1. **Real correctness bug**: `server/routes/assistant.js`'s `updateLeadStage` AI tool-call handler
+   wrote `args.stage` straight to `Lead.stage` with no validation and no `runValidators` - a value
+   like `hot_lead`/`nurture` (real values the AI heuristic in `aiAssistant.js`'s `leadQualification()`
+   produces) doesn't exist in `Lead.js`'s `leadStages` enum and would silently persist as a stage the
+   CRM's own stage dropdown doesn't recognize. Fixed by reusing `normalizeLeadStage()`
+   (`services/crm.js`) - already used correctly everywhere else in the codebase except this one spot.
+2. **Export button, `ContactsView.tsx`** - was rendered with no `onClick` at all. Built a real
+   client-side CSV export (`handleExportCsv`) over the currently filtered/searched contact list - no
+   backend endpoint needed, name/phone/email/stage/source/assignee/tags/last-activity columns,
+   disabled when the list is empty. Verified live - no console errors, confirmed it's genuinely
+   inert-safe (pure `Blob`/anchor-click, no network call) by checking the console showed nothing but
+   pre-existing session noise right at click time.
+3. **Bulk "Assign" button, `ContactsView.tsx`** - same dead-button problem, plus the backend genuinely
+   had no endpoint for it: `PUT /contacts/:id` only ever accepted name/phone/email/tags/status, never
+   an owner field. Added a real, narrow endpoint instead of overloading the full update route -
+   `PATCH /contacts/:id/owner` (`server/routes/contacts.js`, `assignContactSchema` reusing
+   `optionalObjectIdString`, empty string means "unassign" - same convention
+   `conversations.js`'s `PATCH /:id/assignment` already uses). Frontend fetches real team members via
+   the existing `getTeamMembers()`/`/team` endpoint, renders a small dropdown, bulk-PATCHes every
+   selected contact. **Verified live end-to-end, not just optimistically**: created a real test
+   contact, assigned it to "Test Admin", confirmed the "Assigned" column updated, then did a full page
+   reload and confirmed the assignment persisted from a fresh fetch (not just local state) - a genuine
+   `PATCH .../owner` 200 in the server log, not a client-side illusion. Test contact deleted after.
+
+**Explicitly NOT attempted tonight - a real design/scope decision needed, not a quick fix**:
+- **Filter button** - there's already a working 3-way lifecycle filter (All/Leads/Customers); what
+  the separate "Filter" button should actually filter by (tags? source? owner? stage?) needs a real
+  answer before building it, not a guess at 2am.
+- **Import button** (CSV upload) - genuinely the biggest of the dead buttons: file parsing, column
+  mapping, duplicate handling, error reporting. A real feature build, not a quick wire-up.
+- **Real pagination** - `GET /contacts` hardcodes `.limit(100)` server-side with no skip/page
+  parameter at all; the frontend's Previous/Next/page-number controls are decorative on top of that.
+  Needs a backend change, not just a frontend fix.
+- **No lead-specific UI at all** - no kanban/pipeline board, no per-lead notes, no visible activity
+  timeline (the backend already maintains `Lead.timeline` and `Contact.customFields.timeline` -
+  neither is ever rendered anywhere), no "upcoming follow-ups" shown near a lead despite Tasks being a
+  complete feature elsewhere in the app. This is the real gap behind "lying dormant" - closing it
+  properly is a multi-day feature build (a real Lead/pipeline view), not a bug-fix pass. Worth scoping
+  as its own dedicated session if a real client is actually going to be sold on this as a lead-
+  management system, not squeezed into a "few more fixes" pass.
+- **Dead schema stub**: `Contact.customFields.{notes,deals,internalComments,customerHistory,
+  orderHistory,paymentHistory}` are all initialized empty by `crm.js:193-201` and never written to by
+  any route anywhere - looks like a fuller CRM (deals/order/payment history) was scoped once and never
+  built out. Either build real writers for these or stop initializing them - leaving them as
+  permanently-empty stubs is its own quiet trap for whoever picks this up assuming they're live.
+- **Owner-consistency gap, not fixed tonight**: reassigning a conversation's agent
+  (`PATCH /conversations/:id/assignment`) does not update the linked `Lead.ownerUserId`/
+  `Contact.ownerUserId` - a lead's recorded owner can silently drift from who's actually handling the
+  conversation. Worth fixing alongside a real lead-detail UI, not in isolation tonight.
+
+**How to apply**: the three fixes above are genuinely done, tested, and safe to ship. The much bigger
+finding - there is no real lead-management screen anywhere in this app despite a fully-built backend
+for one - needs its own planning conversation with the user before more work goes into it, not another
+ad-hoc fix pass.
+
 **Not pushed to `main` yet as of this checkpoint** - the WhatsApp/Automation/Logs drill-down (item 3),
 the billing-status control (item 4), and the Plan-tab header-refresh fix (item 5) are all commit-ready
 (typecheck clean, all verified live locally) but sitting as uncommitted local changes pending the

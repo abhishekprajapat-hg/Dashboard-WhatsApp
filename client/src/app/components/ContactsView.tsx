@@ -21,7 +21,7 @@ import { Card, CardContent } from "./ui/card";
 import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
-import { createContact, deleteContact, getContacts } from "../lib/api";
+import { assignContactOwner, createContact, deleteContact, getContacts, getTeamMembers } from "../lib/api";
 import { demoContacts } from "../lib/demoData";
 
 interface Contact {
@@ -110,6 +110,9 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   const [form, setForm] = useState({ name: "", phone: "", email: "", tags: "" });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [teamMembers, setTeamMembers] = useState<{ userId: string; name: string }[]>([]);
+  const [showAssignMenu, setShowAssignMenu] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -130,6 +133,18 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
       active = false;
     };
   }, [crmFilter]);
+
+  useEffect(() => {
+    let active = true;
+    getTeamMembers<{ data: { userId: string; name: string }[] }>()
+      .then((response) => {
+        if (active) setTeamMembers(response.data.filter((member) => member.userId));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -195,8 +210,45 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
     await Promise.all(ids.map((id) => deleteContact(id).catch(() => undefined)));
   }
 
+  async function handleAssignSelected(member: { userId: string; name: string }) {
+    const ids = selectedIds;
+    setShowAssignMenu(false);
+    setAssigning(true);
+    try {
+      await Promise.all(ids.map((id) => assignContactOwner(id, member.userId).catch(() => undefined)));
+      setContacts((items) => items.map((contact) => (ids.includes(contact.id) ? { ...contact, assignedTo: member.name } : contact)));
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   function openContact(contact: Contact) {
     setSelectedContactId(contact.id);
+  }
+
+  function handleExportCsv() {
+    const headers = ["Name", "Phone", "Email", "Stage", "Source", "Assigned To", "Tags", "Last Activity"];
+    const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = filtered.map((contact) => [
+      contact.name,
+      contact.phone,
+      contact.email,
+      stageLabel(contact),
+      contact.source,
+      contact.assignedTo,
+      (contact.tags || []).join("; "),
+      contact.lastActivity,
+    ]);
+    const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `contacts-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -218,7 +270,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
               <Upload size={14} />
               Import
             </Button>
-            <Button variant="outline" size="sm" className="hidden sm:inline-flex">
+            <Button variant="outline" size="sm" className="hidden sm:inline-flex" disabled={filtered.length === 0} onClick={handleExportCsv}>
               <Download size={14} />
               Export
             </Button>
@@ -326,7 +378,25 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                 <MessageCircle size={13} />
                 Message
               </Button>
-              <Button variant="outline" size="sm">Assign</Button>
+              <div className="relative">
+                <Button variant="outline" size="sm" disabled={assigning || teamMembers.length === 0} onClick={() => setShowAssignMenu((current) => !current)}>
+                  {assigning ? "Assigning..." : "Assign"}
+                </Button>
+                {showAssignMenu && (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-border bg-card p-1 shadow-xl">
+                    {teamMembers.map((member) => (
+                      <button
+                        key={member.userId}
+                        type="button"
+                        className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-secondary"
+                        onClick={() => handleAssignSelected(member)}
+                      >
+                        {member.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleDeleteSelected}>
                 Delete
               </Button>

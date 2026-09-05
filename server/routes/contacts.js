@@ -6,7 +6,7 @@ import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Contact, Conversation, Message, Tag } from "../models/index.js";
 import { serializeContact } from "../utils/serializers.js";
-import { trimmedString } from "../utils/zodHelpers.js";
+import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const contactsRouter = Router();
 
@@ -24,6 +24,12 @@ export const createContactSchema = z.object({
 
 export const updateContactSchema = createContactSchema.extend({
   status: z.string().optional().default("active"),
+});
+
+// Empty string means "unassign" - distinct from omitting the field, which leaves the current
+// owner untouched (matches conversations.js's PATCH /:id/assignment convention).
+export const assignContactSchema = z.object({
+  ownerUserId: optionalObjectIdString.default(""),
 });
 
 export async function ensureTags({ organizationId, workspaceId, names }) {
@@ -156,6 +162,24 @@ contactsRouter.put("/:id", requirePermission("contacts:write"), validateBody(upd
       tagIds,
       lifecycleStatus: status === "inactive" ? "inactive" : "active",
     },
+    { new: true }
+  ).populate("tagIds").populate("ownerUserId", "name");
+
+  if (!contact) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
+  }
+
+  res.json({ data: serializeContact(contact) });
+});
+
+contactsRouter.patch("/:id/owner", requirePermission("contacts:write"), validateBody(assignContactSchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
+  }
+
+  const contact = await Contact.findOneAndUpdate(
+    { _id: req.params.id, workspaceId: req.user.workspaceId },
+    { ownerUserId: req.body.ownerUserId || null },
     { new: true }
   ).populate("tagIds").populate("ownerUserId", "name");
 

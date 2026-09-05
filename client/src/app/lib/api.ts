@@ -382,6 +382,13 @@ export function deleteContact(id: string) {
   });
 }
 
+export function assignContactOwner<T>(id: string, ownerUserId: string) {
+  return request<T>(`/contacts/${id}/owner`, {
+    method: "PATCH",
+    body: JSON.stringify({ ownerUserId }),
+  });
+}
+
 export function getConversations<T>(params: { status?: string; search?: string; unread?: boolean; cursor?: string; limit?: number } = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
