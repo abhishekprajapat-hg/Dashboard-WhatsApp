@@ -29,7 +29,13 @@ ALERT_STATE=".deploy-health-alerted"
 PM2_APP=dashboard-api
 
 send_alert() {
-  node "$(pwd)/server/scripts/sendDeployAlert.mjs" "$1"
+  # Run from inside server/, not the repo root this script itself cd's to - sendDeployAlert.mjs
+  # loads .env via plain "dotenv/config", which resolves relative to process.cwd() at the time
+  # node starts. Invoking it from the repo root silently loaded no .env at all (a real incident:
+  # DEPLOY_ALERT_PHONE was genuinely set in server/.env, but every cron-triggered alert still
+  # failed with "not set" because this cwd was wrong) - a subshell so it doesn't change this
+  # script's own cwd for anything running after it.
+  (cd "$(pwd)/server" && node scripts/sendDeployAlert.mjs "$1")
 }
 
 git fetch origin main --quiet

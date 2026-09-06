@@ -4,6 +4,15 @@ import { config } from "../config.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
 import { sendWhatsAppTemplate } from "../services/whatsappProvider.js";
 
+// "dotenv/config" resolves .env relative to process.cwd() at the time this process starts - it
+// MUST be invoked with cwd already inside server/ (see deploy-health-check.sh's send_alert(),
+// which cd's there before calling node) for this to find the real .env at all. A fix attempted
+// inline here (loading dotenv with an explicit path before importing config.js) does NOT work:
+// ES module static imports are hoisted and fully evaluated before any of this file's own
+// top-level code runs, so config.js (and anything importing it, like whatsappProvider.js below)
+// would already have read process.env by the time an inline dotenv.config() call executed - the
+// cwd is the only thing that can actually control this correctly.
+
 // Standalone ops alert, invoked by scripts/deploy-health-check.sh - deliberately NOT part of the
 // running Express app (so it still works if that process is the thing that's stale/down). Sends a
 // real WhatsApp message via a pre-approved UTILITY template (a freeform text send can't reach a
