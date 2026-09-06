@@ -46,7 +46,15 @@ echo "$(date -Iseconds) deploying $REMOTE_SHA (last deployed: ${LAST_DEPLOYED:-n
 # committed - always discard that before pulling so it never blocks a fast-forward.
 git checkout -- package-lock.json 2>/dev/null || true
 
-CHANGED_FILES=$(git diff --name-only HEAD "$REMOTE_SHA" || true)
+# Diffed against $LAST_DEPLOYED (the last commit this script itself fully finished deploying -
+# pull+build+restart+marker all succeeded), NOT against HEAD. HEAD can already equal $REMOTE_SHA
+# without this script ever having restarted the process for it - e.g. someone manually ran `git
+# pull` outside this script (a real incident, 2026-09-06: a stuck cron pull was fixed by hand,
+# HEAD collapsed to match origin, and the next run of this exact script diffed HEAD..REMOTE_SHA as
+# empty and silently skipped `pm2 restart` even though the running process was still hours stale).
+# Diffing against the marker instead means "what changed since we last KNOW we restarted for it",
+# which stays correct regardless of how HEAD got to its current position.
+CHANGED_FILES=$(git diff --name-only "${LAST_DEPLOYED:-HEAD}" "$REMOTE_SHA" || true)
 
 git pull origin main --quiet
 

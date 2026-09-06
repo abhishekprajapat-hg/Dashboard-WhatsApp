@@ -1,5 +1,70 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-06 morning: built the deploy health-check + WhatsApp alert the previous entry recommended, and found+fixed the real bug behind the "PM2 didn't restart" half of that incident
+
+**Why this exists**: the deploy pipeline had just broken 3 ways in one morning (see the entry right
+below this one) with zero alerting - the user asked to build the health check that entry's closing
+line proposed, rather than manually walking through another SSH diagnosis next time.
+
+**A real bug found while building this, not just the health check itself**: `scripts/
+deploy-vps.sh` decides whether to `pm2 restart` by diffing `git diff --name-only HEAD
+"$REMOTE_SHA"` for anything under `server/` - but it computed that diff against `HEAD`, not
+against `.last-deploy-sha` (the script's own marker for "the last commit I fully pulled, built,
+AND restarted for"). Under normal cron operation these are always equal, so the bug was invisible
+- but the moment `HEAD` moves out-of-band without the marker also moving (exactly what happened
+that morning: a stuck cron pull was fixed by hand, collapsing `HEAD` to match `origin/main`), the
+next run of this exact script would diff `HEAD..REMOTE_SHA` as **empty** and silently skip `pm2
+restart` even though the actually-running process was hours stale - which is precisely the "2h
+uptime after a clean build" symptom hit that morning. **Fixed**: diff against
+`${LAST_DEPLOYED:-HEAD}` instead of bare `HEAD` - falls back to `HEAD` only on the very first-ever
+run when the marker file doesn't exist yet.
+
+**New: `scripts/deploy-health-check.sh`**, meant to run on its own 5-minute cron tick alongside
+(not instead of) `deploy-vps.sh`. Checks two things, both against `.last-deploy-sha`:
+1. Is the marker stuck behind `origin/main` for longer than a 20-minute grace period (longer than
+   the 5-minute deploy cron interval, so one slow build never false-alarms)?
+2. Did the `dashboard-api` PM2 process's own last-restart timestamp (read via `pm2 jlist`, parsed
+   with a small inline Node one-liner) actually land at-or-after the marker file's last-write time
+   - catching the exact class of bug just fixed above, as a second line of defense in case it (or
+   something like it) recurs a different way.
+
+Alerts **at most once per incident** (tracked in `.deploy-health-alerted`, gitignored - cleared and
+followed by a "recovered" message once healthy again), not once per 5-minute tick.
+
+**New: `server/scripts/sendDeployAlert.mjs`**, the actual WhatsApp send, invoked by the health
+check. Deliberately a standalone script, not a route on the running Express app - it needs to keep
+working even if that app process is the thing that's stale/down. Sends via a real, pre-approved
+WhatsApp template (a freeform text send can't reach a number outside an open 24h session - same
+constraint [[whatsapp-24h-session-window]] already documents, and the same reason
+`services/otpService.js` sends OTP codes via a template instead of freeform text), reusing the same
+`isSystemAccount: true` WhatsApp number OTP sending already uses. New config:
+`config.deployAlert.phone`/`config.deployAlert.templateName` (env vars `DEPLOY_ALERT_PHONE`/
+`DEPLOY_ALERT_TEMPLATE_NAME`, both added to `.env.example` as blank placeholders - never commit a
+real phone number to source control).
+
+**Real, unavoidable next step before this can actually fire an alert in production**: a WhatsApp
+template named `deploy_health_alert` (UTILITY category, one text parameter, e.g. body "⚠️ {{1}}")
+needs to be created and approved in WhatsApp Manager (or via this app's own Templates tab) - Meta
+template review isn't instant, this session couldn't do it for the user. Until that's approved,
+`sendDeployAlert.mjs` fails loudly and clearly (logged, not silently swallowed) rather than
+pretending to have sent something. Also needs `DEPLOY_ALERT_PHONE=917000445463` set in the VPS's
+real `server/.env` (the user's own number, provided directly in chat - not written into this repo
+or any committed file).
+
+**Verified locally, not against production**: all three health-check outcomes (unhealthy+alert-
+sent, unhealthy+already-alerted-so-suppressed, and the alert script's three failure branches -
+missing phone config, missing system account, missing/unapproved template) exercised directly
+against a real local Mongo instance; the full success path also verified end-to-end against a
+scratch DB with a `provider: "local"` test WhatsApp account (short-circuits before any real network
+call, per `whatsappProvider.js`'s own `isLocalCredential` check) standing in for a real Meta send.
+**Not yet verified**: the actual cron entry hasn't been added on the VPS, and no real Meta template
+send has happened (blocked on template approval, see above). Add this cron line once the template
+is approved:
+```
+*/5 * * * * /home/dashboard/dashboard-whatsapp/scripts/deploy-health-check.sh >> /home/dashboard/dashboard-whatsapp/deploy-health.log 2>&1
+```
+
+## 2026-09-06 morning: deploy pipeline was silently stuck for 2+ hours - the security fixes below were pushed but NOT actually live until manually fixed. Read this if a future "push happened, is it really live" question comes up.
 ## 2026-09-06 morning: deploy pipeline was silently stuck for 2+ hours - the security fixes below were pushed but NOT actually live until manually fixed. Read this if a future "push happened, is it really live" question comes up.
 
 **What happened, in order**: after pushing the security fixes documented in the entry below this

@@ -64,6 +64,14 @@ export const config = {
   // number with no open 24h session). Name is env-overridable so a real approved template name can
   // differ from this default without a code change.
   whatsappOtpTemplateName: process.env.WHATSAPP_OTP_TEMPLATE_NAME || "signup_otp",
+  // Ops-only alert channel for scripts/deploy-health-check.sh (server/scripts/sendDeployAlert.mjs)
+  // - reuses the same isSystemAccount WhatsApp number as OTP sending above, and needs its own
+  // approved UTILITY-category template for the same "no open 24h session" reason. Not read
+  // anywhere in the request-handling app itself, only by that standalone ops script.
+  deployAlert: {
+    phone: process.env.DEPLOY_ALERT_PHONE || "",
+    templateName: process.env.DEPLOY_ALERT_TEMPLATE_NAME || "deploy_health_alert",
+  },
   // Single Nemnidhi-owned Razorpay account billing every client's subscription - a global
   // platform secret like meta/instagram above, not a per-tenant credential, so plain env vars are
   // the right pattern (not whatsappProvider.js's per-account AES-GCM encryption, which is for
