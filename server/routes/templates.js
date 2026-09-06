@@ -376,9 +376,28 @@ templatesRouter.post("/:id/submit", requirePermission("templates:write"), async 
     return res.status(error.status || 502).json({ error: error.code || "META_TEMPLATE_SUBMIT_FAILED", message: error.message });
   }
 
+  // Meta's create-template response never echoes back the components it actually generated - for
+  // AUTHENTICATION templates specifically, the BODY component sent above has no literal text of its
+  // own (Meta auto-generates it), so without this the stored record would keep a textless BODY
+  // component forever. buildTemplateComponents() (whatsappProvider.js, used at real send time) skips
+  // any component with no placeholder to fill, so a later send would silently drop the body
+  // parameter and Meta would reject it for a parameter-count mismatch. Re-fetching immediately and
+  // swapping in Meta's real component list (with its real auto-generated body text) closes that gap.
+  let finalComponents = components;
+  if (metaCategory === "AUTHENTICATION") {
+    try {
+      const synced = await fetchWhatsAppTemplates(account);
+      const match = synced.find((item) => item.providerTemplateId === result.providerTemplateId);
+      if (match?.components?.length) finalComponents = match.components;
+    } catch {
+      // Best-effort - Meta already accepted the template even if this re-fetch fails; the existing
+      // "Sync WhatsApp" button is still available as a manual fallback to pick up the real shape later.
+    }
+  }
+
   template.name = metaName;
-  template.body = numberedBody;
-  template.components = components;
+  template.body = metaCategory === "AUTHENTICATION" ? extractBody({ components: finalComponents }) : numberedBody;
+  template.components = finalComponents;
   template.category = normalizeCategory(metaCategory);
   template.providerTemplateId = result.providerTemplateId;
   template.status = result.status;
