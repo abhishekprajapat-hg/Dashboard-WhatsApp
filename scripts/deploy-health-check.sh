@@ -27,6 +27,7 @@ GRACE_PERIOD_SECONDS=1200 # 20 minutes - longer than deploy-vps.sh's own 5-minut
 MARKER=".last-deploy-sha"
 ALERT_STATE=".deploy-health-alerted"
 PM2_APP=dashboard-api
+LOCKFILE="$(pwd)/.deploy.lock"
 
 send_alert() {
   # Run from inside server/, not the repo root this script itself cd's to - sendDeployAlert.mjs
@@ -38,7 +39,17 @@ send_alert() {
   (cd "$(pwd)/server" && node scripts/sendDeployAlert.mjs "$1")
 }
 
-git fetch origin main --quiet
+# deploy-vps.sh runs on its own independent cron tick and holds .deploy.lock for the entire
+# duration of its own git fetch/pull (and the build/restart after it). Without sharing that same
+# lock here, this script's git fetch could start at the exact moment deploy-vps.sh's is mid-flight,
+# and both processes racing to update the same refs/remotes/origin/main ref fails with "cannot lock
+# ref" - confirmed hitting exactly this in deploy-cron.log. Wait up to 30s for the lock (long enough
+# to cover a normal build, short enough that a genuinely hung deploy - which would hold the lock
+# indefinitely - can't make this health check hang forever too); if it times out, fall back to
+# whatever origin/main was last fetched as, rather than skip the check entirely.
+if ! ( exec 200>"$LOCKFILE"; flock -w 30 200 && git fetch origin main --quiet ); then
+  echo "$(date -Iseconds) could not acquire deploy lock for git fetch within 30s - checking against last-known origin/main instead"
+fi
 REMOTE_SHA=$(git rev-parse origin/main)
 LAST_DEPLOYED=$(cat "$MARKER" 2>/dev/null || echo "")
 NOW=$(date +%s)
