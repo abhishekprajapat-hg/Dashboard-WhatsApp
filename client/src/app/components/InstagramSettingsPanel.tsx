@@ -15,6 +15,7 @@ interface InstagramAccount {
   username: string;
   status: string;
   lastError: string;
+  profilePictureUrl?: string;
 }
 
 interface InsightMetric {
@@ -282,6 +283,13 @@ export function InstagramSettingsPanel() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
+                  {account.profilePictureUrl && (
+                    <img
+                      src={account.profilePictureUrl}
+                      alt={`@${account.username || account.instagramUserId} profile picture`}
+                      className="h-8 w-8 rounded-full object-cover"
+                    />
+                  )}
                   <span className="text-sm font-medium text-foreground">@{account.username || account.instagramUserId}</span>
                   <Badge variant={statusVariant(account.status)}>{account.status}</Badge>
                 </div>
