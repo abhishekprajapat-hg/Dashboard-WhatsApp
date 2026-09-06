@@ -563,7 +563,16 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
 
   function handleExportCsv() {
     const headers = ["Name", "Phone", "Email", "Stage", "Source", "Assigned To", "Tags", "Last Activity"];
-    const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    // Neutralize CSV/formula injection (CWE-1236): a cell starting with =, +, -, @, tab, or CR
+    // can be interpreted as a formula by Excel/Sheets when this file is opened. This matters more
+    // now that Import lets external, attacker-controlled text (a contact's name/tags from an
+    // uploaded CSV) reach these same fields - prefixing with a single quote forces plain-text
+    // rendering instead of formula execution.
+    const csvEscape = (value: unknown) => {
+      let text = String(value ?? "");
+      if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
     const rows = filtered.map((contact) => [
       contact.name,
       contact.phone,

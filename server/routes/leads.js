@@ -19,8 +19,11 @@ export const listLeadsQuerySchema = z.object({
 });
 
 // Empty string means "clear the deal value" - same convention as optionalObjectIdString's empty
-// string meaning "unassign".
-const dealValueSchema = z.union([z.coerce.number().min(0, "Deal value must be zero or more."), z.literal("")]).optional();
+// string meaning "unassign". The literal("") branch MUST come first: z.coerce.number() happily
+// coerces "" to 0 (which then passes .min(0)), so if the number branch were tried first, z.union
+// would resolve "" to the number 0 and the literal branch would never be reached - "clear" would
+// silently become "set to zero" instead.
+const dealValueSchema = z.union([z.literal(""), z.coerce.number().min(0, "Deal value must be zero or more.")]).optional();
 
 // At least one field required - an empty patch is a no-op the client shouldn't be sending.
 export const patchLeadSchema = z

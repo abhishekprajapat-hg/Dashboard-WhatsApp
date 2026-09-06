@@ -124,10 +124,15 @@ contactsRouter.get("/", requirePermission("contacts:read"), validateQuery(listCo
     }
 
     if (search) {
+      // Escaped for all three fields, not just phone - an unescaped user-controlled regex (e.g.
+      // a catastrophic-backtracking pattern like "(a+)+$") let any authenticated team member with
+      // contacts:read cause a ReDoS against name/email search. Pre-existing gap found while
+      // auditing this route for the new filter params above; fixed here since it's the same line.
+      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
-        { name: new RegExp(search, "i") },
-        { phone: new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") },
-        { email: new RegExp(search, "i") },
+        { name: new RegExp(escapedSearch, "i") },
+        { phone: new RegExp(escapedSearch, "i") },
+        { email: new RegExp(escapedSearch, "i") },
       ];
     }
 

@@ -281,6 +281,59 @@ production** after the deploy - whoever next touches this area should do a real 
 the live site (not just trust the push succeeded) before assuming all six phases are actually
 serving real traffic correctly.
 
+**UPDATE, next morning: user explicitly asked "did you test the whole system for bugs, security
+leaks and other traits" after the push above - the honest answer was no, not a dedicated pass, only
+per-phase functional verification. Ran one now against the already-pushed code and found three real
+issues, all fixed, verified, and pushed** (`0d12b6d..<next>`):
+
+1. **Real bug, not just theoretical**: `server/routes/leads.js`'s `dealValueSchema` was
+   `z.union([z.coerce.number().min(0), z.literal("")])` - `z.coerce.number()` coerces an empty
+   string to `0` (which passes `.min(0)`), so the union always resolved to the *number* branch for
+   `""` and never reached the literal branch. The intended "send `dealValue: ""` to clear it back to
+   null" behavior from Phase 5 silently set it to `0` instead. Confirmed with a standalone zod
+   script before touching code, fixed by reordering the union (`literal("")` first), then
+   re-confirmed via a live disposable-server PATCH sequence: set 75000 → clear with `""` → now
+   correctly returns `null` (not 0) → explicit `0` still stays `0`, distinguishable from "cleared".
+2. **Real, exploitable security gap, made worse by tonight's own Import feature**: the CSV *export*
+   in `ContactsView.tsx`'s `handleExportCsv` only escaped quote characters, not a leading
+   `=`/`+`/`-`/`@` - classic CSV/formula-injection (CWE-1236). A contact name like
+   `=HYPERLINK("http://evil.com","click")` imported via tonight's new bulk-import feature, then
+   later exported and opened in Excel by an admin, would execute as a formula. Fixed by prefixing
+   any cell starting with those characters (or tab/CR) with a single quote before quoting, the
+   standard mitigation.
+3. **Pre-existing gap, not part of tonight's diff, found while re-auditing the same function**:
+   `server/routes/contacts.js`'s contact search built `new RegExp(search, "i")` directly from
+   `req.query.search` for the `name` and `email` fields - unescaped, while `phone` was already
+   correctly escaped. Any authenticated user with `contacts:read` could submit a catastrophic-
+   backtracking pattern (e.g. `(a+)+$`) as `search` and hang the request/Node event loop (ReDoS).
+   Confirmed with `git diff` that this exact line predates tonight's changes (not something this
+   session introduced) but fixed anyway since it's the same function this session was already
+   editing for the new stage/source/owner/tag filters - escaped all three fields identically.
+   Verified live afterward: normal search with special characters (parens/brackets in a name) still
+   matches correctly, and the same malicious pattern that would have hung the naive version now
+   returns instantly.
+
+Also ran the full non-e2e unit/integration suite (`node --test` across all `*.unit.test.js`/
+`*.test.js` files, 144 tests) to check for regressions from tonight's changes: 139 passed, 1
+pre-existing unrelated failure (`routeValidation.unit.test.js`'s `adminSettingsSchema` test - traced
+to `server/routes/admin.js`, untouched by this session's diff, confirmed via `git diff` showing zero
+changes to that file), and 3 `campaign.integration.test.js` failures that are the same known
+sandbox e2e-spawn limitation as [[dashboard-whatsapp-e2e-sandbox-limitation]], not a real failure.
+**Zero regressions caused by tonight's Lead Management System work.** Also explicitly re-verified
+IDOR/cross-tenant protection on the two newest endpoints (`/api/leads/:id/notes` and
+`/api/leads/:id/internal-comments`) with two separate seeded workspaces - workspace A's token
+correctly gets 404 on every one of workspace B's lead's endpoints, and the target lead's data was
+confirmed genuinely untouched in the database afterward, not just rejected client-side.
+
+**What this pass did NOT cover** (said honestly, not implied as done): no dependency/CVE scan, no
+review of the pre-existing auth/JWT/session code, no fuzzing, no load/performance testing of
+`bulk-import`'s per-row `ensureTags()` DB round-trips (could be slow for a 500-row CSV with many
+unique tags - a robustness concern, not a cross-user vulnerability), and no review of code outside
+what this session's own diff touched except where the audit happened to pass through it (the search
+regex above). A "did you test for bugs and security leaks" answer should always distinguish
+what was actually checked from what wasn't - this entry is that distinction, not a claim of a full
+security audit.
+
 ## 2026-09-05: Enterprise Admin Dashboard multi-tenant audit — real gaps found, fix in progress, PAUSED mid-investigation (context checkpoint, not a stopping point)
 
 User walked through the live `dashboard.nemnidhi.com/#admin` panel tab-by-tab (Overview, Companies,
