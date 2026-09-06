@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { config } from "../config.js";
 import { Template, VerificationCode, WhatsAppAccount } from "../models/index.js";
 import { hashPassword, verifyPassword } from "../utils/password.js";
@@ -53,8 +54,11 @@ export async function generateAndSendOtp(rawPhone) {
 
   // Invalidate any still-open code for this phone first - codes shouldn't stack, only the latest
   // one a person actually received should ever verify successfully.
+  // consumedAt's $exists check needs mongoose.trusted() - this app runs with sanitizeFilter: true
+  // (server/db.js), which otherwise casts the raw { $exists: false } object against consumedAt's
+  // own Date type as if it were a literal value, throwing a CastError instead of running the query.
   await VerificationCode.updateMany(
-    { phone, purpose: "signup", consumedAt: { $exists: false } },
+    { phone, purpose: "signup", consumedAt: mongoose.trusted({ $exists: false }) },
     { $set: { consumedAt: new Date() } }
   );
   await VerificationCode.create({
@@ -71,7 +75,7 @@ export async function generateAndSendOtp(rawPhone) {
 
 export async function verifyOtp(rawPhone, code) {
   const phone = normalizePhone(rawPhone);
-  const record = await VerificationCode.findOne({ phone, purpose: "signup", consumedAt: { $exists: false } }).sort({ createdAt: -1 });
+  const record = await VerificationCode.findOne({ phone, purpose: "signup", consumedAt: mongoose.trusted({ $exists: false }) }).sort({ createdAt: -1 });
 
   if (!record || record.expiresAt < new Date()) {
     return { verified: false, reason: "expired_or_missing" };
