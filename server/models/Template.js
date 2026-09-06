@@ -17,7 +17,7 @@ const templateSchema = new mongoose.Schema(
     language: { type: String, default: "en" },
     category: {
       type: String,
-      enum: ["marketing", "utility", "support", "sales", "payment", "appointment", "general", "MARKETING", "UTILITY", "AUTHENTICATION"],
+      enum: ["marketing", "utility", "authentication", "support", "sales", "payment", "appointment", "general", "MARKETING", "UTILITY", "AUTHENTICATION"],
       default: "utility",
       index: true,
     },
