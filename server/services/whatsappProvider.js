@@ -578,16 +578,18 @@ function buildTemplateComponents(template, parameters = []) {
 
     // An AUTHENTICATION template's OTP button is how Meta actually delivers the code (copy/one-tap),
     // not a body placeholder - it needs its own "button" component in the send request, carrying the
-    // same code already used above (or, for a pure-authentication template with no BODY placeholder
-    // of its own, the only code parameter this call received at all).
+    // same code already used above. Per Meta's own copy-code-button-authentication-templates docs,
+    // this is a "url"-subtype button (the copy-code UI is implemented as a URL button under the
+    // hood) with a plain "text" parameter - not "copy_code"/"coupon_code", despite the button's own
+    // otp_type being COPY_CODE at template-creation time.
     if (type === "BUTTONS") {
       (component.buttons || []).forEach((button, index) => {
         if (String(button.type || "").toUpperCase() !== "OTP") return;
         components.push({
           type: "button",
-          sub_type: "copy_code",
+          sub_type: "url",
           index: String(index),
-          parameters: [{ type: "coupon_code", coupon_code: String(parameters[0] ?? "") }],
+          parameters: [{ type: "text", text: String(parameters[0] ?? "") }],
         });
       });
       continue;
