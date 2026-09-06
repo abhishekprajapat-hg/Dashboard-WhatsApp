@@ -271,12 +271,15 @@ something else.
   and the scratch CSV file all torn down after. `npm run check:server`/`check:client` clean
   throughout.
 
-**This closes every phase in the original 2026-09-06 plan.** Nothing has been committed or pushed
-yet - all six phases are sitting as uncommitted working-tree changes, by the user's own choice
-earlier tonight ("don't commit yet, keep building Phase 6... commit everything together at the
-end"). The obvious next step is for the user to review the diff and decide on committing/pushing -
-this repo auto-deploys within ~5 minutes of any push to `main`, so that should be a deliberate,
-explicit go-ahead, not assumed.
+**This closes every phase in the original 2026-09-06 plan.** Committed locally as `58acd23`
+("Build the real Lead Management System (Phases 1-6)"), then **pushed to `origin/main` the next
+morning (2026-09-06) on the user's explicit go-ahead** (`c82d84b..58acd23`) - the deploy cron picks
+this up within ~5 minutes of the push, so production should now be running the real Pipeline tab,
+lead detail panel, deal tracking, internal comments, the conversation-assignment owner-sync fix, and
+the Filter/Import/pagination additions to Contacts. **Not yet independently re-verified live on
+production** after the deploy - whoever next touches this area should do a real click-through on
+the live site (not just trust the push succeeded) before assuming all six phases are actually
+serving real traffic correctly.
 
 ## 2026-09-05: Enterprise Admin Dashboard multi-tenant audit — real gaps found, fix in progress, PAUSED mid-investigation (context checkpoint, not a stopping point)
 
