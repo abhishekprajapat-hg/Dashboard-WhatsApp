@@ -1,5 +1,51 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-06 afternoon: deploy health-check saga closed out - two more real bugs found while actually testing it end-to-end, everything now verified working except Meta's template approval
+
+**Read the two entries below this one first** (system-account fix, then the original health-check
+build) for full context - this entry is the tail end of the same thread, closing it out.
+
+**Bug 1 - the exact same "stuck partial pull" pattern recurred a third time**, this time on
+`scripts/deploy-health-check.sh` itself: after manually `chmod +x`-ing that file directly on the
+VPS (before its own git-tracked-executable-bit fix, commit `f21e66f`, had been pulled), the working
+tree had a mode-only diff (`100644` tracked vs `100755` on disk, zero content difference - confirmed
+via `git diff` before touching anything) that blocked every subsequent `git pull` for well over an
+hour, silently. **The new health-check system itself correctly caught this** - `deploy-health.log`
+showed real "UNHEALTHY: Deploy stuck..." entries after the 20-minute grace period, proving the
+detection logic works. Fixed with `git checkout -- scripts/deploy-health-check.sh` (confirmed safe
+first via `git diff` showing mode-only) then `git pull`, which fast-forwarded cleanly all the way to
+`c9e23d4`.
+
+**Bug 2 - the health check's own alert never actually worked, for a different reason than expected**:
+even after Bug 1 was fixed and `DEPLOY_ALERT_PHONE`/`isSystemAccount` were both correctly configured,
+every alert attempt still failed with "DEPLOY_ALERT_PHONE is not set" - contradicting the confirmed
+contents of `server/.env`. Root cause: `deploy-health-check.sh` (which `cd`s to the repo ROOT at
+startup) invoked `node server/scripts/sendDeployAlert.mjs` from there, and that script's plain
+`import "dotenv/config"` resolves `.env` relative to `process.cwd()` at process start - the repo
+root has no `.env` (only `server/.env` does), so the cron-triggered process silently loaded no
+environment at all (not just the alert phone - `MONGODB_URI` was equally invisible, reproduced
+locally: the exact same wrong-cwd invocation fails to even connect to MongoDB). **A fix attempted
+inline inside `sendDeployAlert.mjs` itself (loading dotenv with an explicit path before importing
+`config.js`) does NOT work and was reverted** - ES module static imports are hoisted and fully
+evaluated before any of a file's own top-level code runs, so `config.js` (imported by
+`whatsappProvider.js`, imported by this script) would already have read `process.env` by the time
+an inline `dotenv.config()` call executed. The only thing that can actually control this is the
+process's cwd at start - fixed by having `deploy-health-check.sh`'s `send_alert()` run node from
+inside a `(cd server && ...)` subshell instead, matching exactly how this script already works when
+run manually. Pushed as `0803321`, confirmed live: the alert script now gets past both the
+system-account check and this cwd bug, landing precisely on "template not created/approved yet" -
+the one genuinely external, unfixable-by-code gap left.
+
+**Current real state, verified end to end**: deploy pipeline self-heals correctly (proven twice now
+- both `f21e66f` and `0803321` landed via the cron's own tick with zero manual `git pull`/`pm2
+restart` needed), health check detects drift and would alert correctly once the template exists,
+`isSystemAccount` is fixed. **Nothing left to build or fix here** - only Meta's review of the
+`deploy_health_alert` template (UTILITY category, one text parameter, name must match exactly)
+stands between this and a fully working WhatsApp alert. Once approved, re-run: `su - dashboard -c
+"cd /home/dashboard/dashboard-whatsapp/server && node scripts/sendDeployAlert.mjs '<message>'"` to
+confirm a real message lands.
+
+## 2026-09-06: found and fixed a real production bug while testing the deploy-alert script - `isSystemAccount` had no way to be set on an already-connected account, silently breaking WhatsApp OTP signup too
 ## 2026-09-06: found and fixed a real production bug while testing the deploy-alert script - `isSystemAccount` had no way to be set on an already-connected account, silently breaking WhatsApp OTP signup too
 
 **How this was found**: testing the new `sendDeployAlert.mjs` (see the deploy health-check entry
