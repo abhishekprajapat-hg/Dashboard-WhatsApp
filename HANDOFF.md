@@ -1,5 +1,60 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-06 morning: deploy pipeline was silently stuck for 2+ hours - the security fixes below were pushed but NOT actually live until manually fixed. Read this if a future "push happened, is it really live" question comes up.
+
+**What happened, in order**: after pushing the security fixes documented in the entry below this
+one, the user asked to verify they were actually live. `git log -1` on the VPS
+(`dashboard@srv1132041:/home/dashboard/dashboard-whatsapp`) showed `40f8054` - **two commits
+behind** `origin/main` (`ca16792`), meaning the most serious fixes (the OAuth account-takeover fix
+chief among them) were sitting unpushed-to-production for an unknown but real amount of time.
+
+**Root cause, confirmed step by step, not assumed**: `deploy-cron.log` showed the cron's own `git
+pull` had been failing on every single run with "local changes would be overwritten by merge" -
+the working tree had uncommitted modifications to the *exact* files changed by commit `f6c523f`
+(down to matching line counts) plus untracked copies of the new test files from that same commit.
+This means a **prior** cron run had already fetched and partially checked out those files onto disk
+without ever completing the merge/updating HEAD - a stuck partial pull, not a real conflicting edit.
+Fixed by stashing (`git stash push -u`, not discarding - see below) and retrying `git pull`, which
+then failed AGAIN on a *second* stuck partial pull (this time showing `ca16792`'s files instead of
+`f6c523f`'s - the same failure mode recurring), which then hit a **third**, different failure:
+`error: unable to unlink old '...usePopupOAuth.ts': Permission denied` - a working-tree file was not
+owned by the `dashboard` user (same root-cause family as the earlier documented `.git/objects`
+ownership incident, see [[dashboard-whatsapp-deploy-cron-broken]] - a different manifestation of
+"something wrote to this repo as `root` at some point and broke the `dashboard` user's ability to
+pull"). Fixed with `chown -R dashboard:dashboard /home/dashboard/dashboard-whatsapp` as root (safe,
+same precedent as before), then a second `git stash push -u` + `git pull`, which finally succeeded
+as a clean fast-forward to `ca16792`.
+
+**A genuinely useful discovery made while unwinding this**: the first stash's untracked-file backup
+included `server/scripts/tmp-inspect-flow.mjs` - a real, useful diagnostic script (dumps every
+AutomationFlow's nodes/edges/config to the console for debugging) that predates this session and
+was NOT part of anything pushed here. It would have been silently destroyed by a careless `git
+reset --hard` instead of a stash - **always stash-then-inspect, never hard-reset, when a production
+working tree has unexpected local state**, exactly the discipline this session followed. It's
+sitting safely in a stash on the VPS (`git stash list` as the `dashboard` user) - retrieve it if
+useful, don't just drop the stashes without checking first.
+
+**Even after `git pull` succeeded, the fixes still were NOT live** - running `scripts/deploy-vps.sh`
+manually rebuilt the client bundle successfully, but `pm2 describe dashboard-api` (as `dashboard`,
+not `root` - PM2's process list is per-user, same gotcha as a prior session) showed **2 hours of
+uptime** with no recent restart. A `git pull` + client rebuild does NOT reload a running Node
+process's in-memory code - the server was still executing the pre-fix `auth.js`/`whatsapp.js`/etc.
+the whole time despite the correct code being on disk. Fixed with `pm2 restart dashboard-api` as
+`dashboard`. Verified clean afterward: no errors in `pm2 logs`, graceful SIGINT drain + reconnect in
+the log, `/health` responding correctly both from the VPS itself and externally
+(`https://dashboard.nemnidhi.com/health`, confirmed from outside the VPS too).
+
+**How to apply, for any future "is my push actually live" question on this app**: a successful
+`git push` and even a clean `git pull`+build on the server are NOT sufficient proof - always also
+confirm (a) `git log -1` on the VPS matches the expected commit, AND (b) `pm2 describe
+dashboard-api` (as the `dashboard` user) shows a restart time AFTER that pull, not a stale uptime
+from before it. This deploy pipeline has now broken in three different specific ways across two
+sessions (`.git/objects` ownership, working-tree file ownership, and a cron `git pull` silently
+getting stuck mid-merge with zero alerting) - it is not self-healing the way it looked once before;
+someone should eventually add a health/alerting check on the deploy cron itself (e.g., alert if
+`git log -1`'s timestamp is older than N hours, or if `deploy-cron.log`'s last run wasn't clean)
+rather than relying on someone noticing and manually walking through this each time.
+
 ## 2026-09-06 morning: whole-system security review after the Lead Management System push - 4 real, confirmed-exploitable vulnerabilities found and fixed, all pushed
 
 **Why this exists**: after pushing the full Lead Management System build (see the plan entry below),
