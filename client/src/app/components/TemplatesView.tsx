@@ -47,7 +47,7 @@ const tabs = [
   { id: "lead_stage", label: "Lead stage" },
 ];
 
-const categories = ["all", "marketing", "utility", "support", "sales", "payment", "appointment", "general"];
+const categories = ["all", "marketing", "utility", "authentication", "support", "sales", "payment", "appointment", "general"];
 const statuses = ["all", "draft", "active", "archived", "approved", "pending", "rejected"];
 const languages = ["all", "en", "en_US", "hi", "es", "ar"];
 

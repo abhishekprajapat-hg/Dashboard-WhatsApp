@@ -65,7 +65,7 @@ export const syncWhatsappTemplatesSchema = z.object({
 });
 
 const templateTypes = ["whatsapp", "quick_reply", "automation", "campaign", "follow_up", "lead_stage"];
-const categories = ["marketing", "utility", "support", "sales", "payment", "appointment", "general"];
+const categories = ["marketing", "utility", "authentication", "support", "sales", "payment", "appointment", "general"];
 const statuses = ["draft", "active", "archived", "approved", "pending", "rejected"];
 
 function slugify(value = "") {
@@ -161,6 +161,7 @@ const metaCategoryByLocalCategory = {
   payment: "UTILITY",
   appointment: "UTILITY",
   general: "UTILITY",
+  authentication: "AUTHENTICATION",
 };
 
 function toMetaCategory(category) {
@@ -191,6 +192,19 @@ function buildMetaTemplateComponents(body = "", variables = []) {
     bodyComponent.example = { body_text: [variables.map((variable) => `Sample ${variable}`)] };
   }
   return { numberedBody, components: [bodyComponent] };
+}
+
+// Meta's AUTHENTICATION category is a fixed, non-freeform shape - Meta auto-generates the body text
+// itself (e.g. "{{1}} is your verification code.") from add_security_recommendation, and delivery
+// happens via a dedicated OTP button, not literal body placeholders. So unlike
+// buildMetaTemplateComponents above, this deliberately ignores the locally-authored body/variables
+// (kept only as local display copy) and always submits this same three-component shape.
+function buildAuthTemplateComponents() {
+  return [
+    { type: "BODY", add_security_recommendation: true },
+    { type: "FOOTER", code_expiration_minutes: 10 },
+    { type: "BUTTONS", buttons: [{ type: "OTP", otp_type: "COPY_CODE" }] },
+  ];
 }
 
 function renderPreview(body = "", variables = {}) {
@@ -345,7 +359,9 @@ templatesRouter.post("/:id/submit", requirePermission("templates:write"), async 
 
   const metaName = toMetaTemplateName(template.name);
   const metaCategory = toMetaCategory(template.category);
-  const { numberedBody, components } = buildMetaTemplateComponents(template.body, template.variables || []);
+  const { numberedBody, components } = metaCategory === "AUTHENTICATION"
+    ? { numberedBody: template.body, components: buildAuthTemplateComponents() }
+    : buildMetaTemplateComponents(template.body, template.variables || []);
 
   let result;
   try {

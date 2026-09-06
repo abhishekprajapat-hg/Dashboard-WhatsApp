@@ -575,6 +575,24 @@ function buildTemplateComponents(template, parameters = []) {
 
   for (const component of template.components || []) {
     const type = String(component.type || "").toUpperCase();
+
+    // An AUTHENTICATION template's OTP button is how Meta actually delivers the code (copy/one-tap),
+    // not a body placeholder - it needs its own "button" component in the send request, carrying the
+    // same code already used above (or, for a pure-authentication template with no BODY placeholder
+    // of its own, the only code parameter this call received at all).
+    if (type === "BUTTONS") {
+      (component.buttons || []).forEach((button, index) => {
+        if (String(button.type || "").toUpperCase() !== "OTP") return;
+        components.push({
+          type: "button",
+          sub_type: "copy_code",
+          index: String(index),
+          parameters: [{ type: "coupon_code", coupon_code: String(parameters[0] ?? "") }],
+        });
+      });
+      continue;
+    }
+
     if (!["HEADER", "BODY"].includes(type)) continue;
 
     const count = countPlaceholders(component.text || "");
