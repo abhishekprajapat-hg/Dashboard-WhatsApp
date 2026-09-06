@@ -580,11 +580,17 @@ function buildTemplateComponents(template, parameters = []) {
     // not a body placeholder - it needs its own "button" component in the send request, carrying the
     // same code already used above. Per Meta's own copy-code-button-authentication-templates docs,
     // this is a "url"-subtype button (the copy-code UI is implemented as a URL button under the
-    // hood) with a plain "text" parameter - not "copy_code"/"coupon_code", despite the button's own
-    // otp_type being COPY_CODE at template-creation time.
+    // hood) with a plain "text" parameter - not "copy_code"/"coupon_code".
+    // Confirmed against a real synced template: Meta only reports "type": "OTP" in the *creation*
+    // request; once approved/synced back, the button comes back as an ordinary "type": "URL" button
+    // whose url is Meta's own wa.me/whatsapp.com otp-code redirect (with a {{1}} placeholder baked
+    // into the query string) - so type alone can't distinguish it from a real business URL button
+    // (e.g. jmms_receipt_new's "View Receipt" link, which must NOT get a code parameter here).
     if (type === "BUTTONS") {
       (component.buttons || []).forEach((button, index) => {
-        if (String(button.type || "").toUpperCase() !== "OTP") return;
+        const buttonType = String(button.type || "").toUpperCase();
+        const isOtpButton = buttonType === "OTP" || /whatsapp\.com\/otp\/code\//i.test(button.url || "");
+        if (!isOtpButton) return;
         components.push({
           type: "button",
           sub_type: "url",
