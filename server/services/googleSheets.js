@@ -1,4 +1,5 @@
 import { Workspace } from "../models/index.js";
+import { safeFetch } from "./integrations.js";
 
 const sheetWebhookUrl = process.env.GOOGLE_SHEET_WEBHOOK_URL || "";
 const sheetWebhookSecret = process.env.GOOGLE_SHEET_WEBHOOK_SECRET || "";
@@ -100,7 +101,13 @@ export async function syncLeadToGoogleSheet({ contact, conversation, message, le
     leadId: lead?._id?.toString?.() || "",
   };
 
-  const response = await fetch(config.url, {
+  // config.url is a per-workspace, tenant-configurable field (Settings > Integrations > Google
+  // Sheets webhook URL, validated only for URL syntax at save time, not host/range) - routed
+  // through the same SSRF guard as every other tenant-configurable outbound URL, otherwise a
+  // workspace admin could point it at an internal-only address and have up to 500 chars of the
+  // response reflected back onto the contact/lead record, readable by any contacts:read/inbox:read
+  // user (a much lower bar than the settings:write needed to set the URL in the first place).
+  const response = await safeFetch(config.url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

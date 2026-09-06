@@ -86,14 +86,70 @@ cross-tenant data isolation and NoSQL injection found nothing reportable - every
 (never trusted bare from a token), and Zod validation blocks operator-injection shapes before they
 ever reach a Mongo filter.
 
-**What this pass explicitly did NOT cover** (say so honestly if asked again): no third-party
-dependency/CVE scan, no fuzzing, no dynamic/runtime exploitation against the live production
-instance (all findings were confirmed by independently re-reading the code twice, not by firing
-real exploits at prod), no review of the automation-engine execution sandbox specifically. All
-fixes verified via `npm run check:server`/`check:client` (clean), the full non-e2e unit suite
-(166 tests, 165 pass, the one pre-existing unrelated `routeValidation.unit.test.js` failure traced
-to untouched `admin.js` code), and live disposable-server checks for the two web-facing fixes
+**What this pass explicitly did NOT cover at the time** (see the two follow-up updates below - most
+of this list got covered later the same morning): no third-party dependency/CVE scan, no fuzzing,
+no dynamic/runtime exploitation against the live production instance (all findings were confirmed
+by independently re-reading the code twice, not by firing real exploits at prod), no review of the
+automation-engine execution sandbox specifically. All fixes verified via `npm run
+check:server`/`check:client` (clean), the full non-e2e unit suite (166 tests, 165 pass, the one
+pre-existing unrelated `routeValidation.unit.test.js` failure traced to untouched `admin.js` code),
+and live disposable-server checks for the two web-facing fixes
 (Twilio webhook, media upload) - not just static analysis.
+
+**UPDATE, same morning: user asked to "go deeper" - dependency/CVE scan and an automation-engine
+execution sandbox review, both done, 2 more real vulnerabilities found and fixed (same
+find-then-independently-verify discipline as above)**:
+
+- **Dependency/CVE scan**: `npm audit` on both workspaces. Server: 1 moderate (`qs` DoS advisory,
+  transitive via `express`/`body-parser`) - confirmed NOT actually exercised at runtime here
+  (Express 5 defaults to the non-`qs` `'simple'` query parser, and `express.urlencoded({ extended:
+  false })` also avoids `qs`), but fixed anyway via `npm audit fix` (0 vulnerabilities after).
+  Client: 2 high (`browserslist`, `nanoid`) - both build-time-only transitive deps
+  (`@babel/core`/`vite`→`postcss`), not shipped in the runtime browser bundle, real-world risk near
+  zero for this app. Fixed via `npm audit fix` too (0 vulnerabilities after). Only `package-lock.json`
+  changed in both cases - no source code touched, `check:server`/`check:client` stayed clean.
+- **Automation-engine execution sandbox** (`server/services/codeSandbox.js`,
+  `automationExecutors.js`, `automationEngine.js`, `automationRunner.js`): the `code_block` node's
+  actual sandbox is genuinely well-built - real `isolated-vm` V8 isolate (not `node:vm`/`vm2`), no
+  require/process/fs/network access, context is a deep copy of only the flow's own run-scoped data
+  (no credentials), real V8-level timeout+memory caps. **Not the risk.** The risk was two OTHER
+  integration executors that never got the SSRF treatment `callGenericApi`/`callOutboundWebhook`
+  already have:
+  1. **BillStack integration SSRF** (`server/services/billstackIntegration.js`'s
+     `sendBillstackOrder`): `baseUrl` comes straight from a tenant-authored automation flow node's
+     own config (any `automation:write` role, i.e. Manager - not admin-only), raw `fetch()`, no SSRF
+     guard. A workspace member could point it at an internal address and read back limited
+     status/reason fields via the flow's own Run History (readable by `automation:read`, even
+     Viewer). **Fix**: routed through `safeFetch`. Verified: refuses a private-IP/non-http(s)
+     baseUrl and returns a clean `request_failed` instead of ever making the request (unit tests in
+     `tests/billstackIntegration.unit.test.js`).
+  2. **Google Sheets webhook SSRF** (`server/services/googleSheets.js`'s
+     `syncLeadToGoogleSheet`): the per-workspace webhook URL (Settings → Integrations, gated by
+     `settings:write`, admin-only) is validated only for URL syntax at save time - the sync call
+     itself was a raw `fetch()`. Worse than #1: up to 500 chars of the raw response gets written
+     into `contact.customFields.googleSheet.response`, readable by ANY `contacts:read`/`inbox:read`
+     user - a much lower bar than the admin-only permission needed to set the malicious URL in the
+     first place, so this crossed a real privilege boundary within a tenant, not just
+     admin-can-hurt-themselves. **Fix**: routed through `safeFetch`. Verified live against a real
+     disposable server: a webhook URL pointed at the cloud metadata endpoint (169.254.169.254) is
+     now blocked (`"Blocked outbound request: ...resolves to a private or reserved address"`), and
+     a real public URL (`https://httpbin.org/post`) still syncs successfully afterward - confirming
+     no regression to the legitimate feature.
+  - **One candidate finding investigated and correctly excluded**: `assign_user`/`task`/`calendar`
+    automation nodes write an unvalidated `userId` (no check it belongs to the run's own workspace)
+    into `assignedToUserId` fields, and downstream `.populate()` calls don't re-scope the populated
+    User by workspace either - technically true, but independent verification found no way for a
+    cross-tenant attacker to actually discover another workspace's User ObjectId in the first place
+    (Mongo ObjectIds aren't practically guessable, and nothing exposes them across tenants), and the
+    only data that would leak is a bare `name` field - not enough real exploit path or impact to
+    count as a genuine finding. Left as-is; worth a defensive fix someday (verify the target user's
+    membership before writing `assignedToUserId`) but not urgent.
+
+**Still not done** (same honest list as before, now shorter): no fuzzing, no dynamic/runtime
+exploitation against the live production instance itself (everything above was verified against
+disposable servers/scratch databases, never the real prod system or its real data). All fixes
+verified via `check:server`/`check:client` (clean) and the full non-e2e suite (169 tests, 168 pass,
+same 1 pre-existing unrelated `admin.js`-schema failure).
 
 ## PLAN OF ACTION — 2026-09-06: build the real Lead Management System on top of the CRM backend that already exists — READ THIS FIRST, this is the actual next job
 

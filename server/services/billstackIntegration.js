@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { safeFetch } from "./integrations.js";
 import { logger } from "./logger.js";
 
 function withTimeout() {
@@ -22,7 +23,11 @@ export async function sendBillstackOrder({ baseUrl, apiKey, order }) {
 
   const { signal, clear } = withTimeout();
   try {
-    const response = await fetch(`${targetUrl}/api/integrations/orders`, {
+    // baseUrl is per-workspace, tenant-authored config (a flow node's own field) - routed through
+    // the same SSRF guard as every other tenant-configurable outbound URL in this codebase,
+    // otherwise a workspace member could point it at an internal-only address and read back
+    // limited response data via the flow's own Run History.
+    const response = await safeFetch(`${targetUrl}/api/integrations/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Billstack-Api-Key": apiKey },
       body: JSON.stringify(order),
