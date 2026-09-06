@@ -300,7 +300,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "tasks" && <TasksView canWrite={canWriteTasks} />}
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}
           {canAccessView(session, activeView) && activeView === "admin" && <AdminView isPlatformOwner={isPlatformOwnerSession} />}
-          {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} />}
+          {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} />}
         </div>
       </main>
     </div>

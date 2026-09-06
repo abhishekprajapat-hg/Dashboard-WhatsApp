@@ -1,5 +1,44 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-06: found and fixed a real production bug while testing the deploy-alert script - `isSystemAccount` had no way to be set on an already-connected account, silently breaking WhatsApp OTP signup too
+
+**How this was found**: testing the new `sendDeployAlert.mjs` (see the deploy health-check entry
+below) against production failed with "No connected isSystemAccount WhatsApp account configured".
+Direct query of the live `WhatsAppAccount` collection showed exactly one account, genuinely
+`status: "connected"`, but `isSystemAccount: false`. `isSystemAccount` was only ever settable at
+initial connection time (`POST /accounts`/`POST /accounts/embedded-signup`) - there was no route to
+flip it on an account that's already connected. Since `otpService.js`'s WhatsApp-OTP-signup lookup
+uses this exact same `{ isSystemAccount: true, status: "connected" }` query, **this almost
+certainly also silently broke WhatsApp OTP signup in production** - worth the user testing a real
+signup via WhatsApp OTP to confirm now that it's fixed.
+
+**Immediate fix, applied live**: a single targeted `updateOne` flipping the flag on the one existing
+account (`modifiedCount: 1`, confirmed). Unblocked the alert script (which then correctly reported
+the *next* real gap - the WhatsApp template isn't approved yet, expected and separate).
+
+**Real fix, built and pushed**: new `PATCH /api/whatsapp/accounts/:id/system-account`
+(`server/routes/whatsapp.js`), platform-owner-only (`requirePlatformOwner`, not the regular
+`settings:write` every workspace admin holds) - deliberately not workspace-scoped like every other
+account route in this file, because `isSystemAccount` is a genuinely global flag (`otpService.js`'s
+own lookup has no workspace filter, by design, since OTP signup must work before a brand-new
+tenant has a workspace of their own). Setting it on one account automatically unsets any other
+(enforced server-side via `updateMany`, wrapped in `mongoose.trusted()` for the `$ne` per this
+codebase's `sanitizeFilter` convention) - at most one system account can ever exist at a time,
+otherwise `otpService.js`'s unscoped `findOne()` would pick whichever one Mongo happens to return
+first. Frontend: a "Set as system account" / "Unset system account" button in Settings → WhatsApp,
+visible only to platform owners (`isPlatformOwner` now threaded through from `App.tsx` into
+`SettingsView`, which didn't receive it before).
+
+**Verified live** (disposable server, two seeded orgs - one flagged `isPlatformOwner`, one not):
+confirmed a non-platform-owner gets a real 403 even with `settings:write` on their own workspace,
+confirmed the platform owner can set it, and confirmed setting a new system account correctly
+auto-unset the previous one (exactly one system-account-flagged document at any time). Real e2e
+test added (`server/tests/whatsappSystemAccount.e2e.test.js`, same known sandbox-limitation caveat
+as every other e2e test in this repo - written and manually verified via a disposable-server
+script, not run through the test runner in this session). `npm run check:server`/`check:client`
+clean, full non-e2e suite unaffected (same 1 pre-existing unrelated failure as always).
+
+## 2026-09-06 morning: built the deploy health-check + WhatsApp alert the previous entry recommended, and found+fixed the real bug behind the "PM2 didn't restart" half of that incident
 ## 2026-09-06 morning: built the deploy health-check + WhatsApp alert the previous entry recommended, and found+fixed the real bug behind the "PM2 didn't restart" half of that incident
 
 **Why this exists**: the deploy pipeline had just broken 3 ways in one morning (see the entry right

@@ -13,7 +13,7 @@ import {
   WebhookEvent,
   WhatsAppAccount,
 } from "../models/index.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requirePlatformOwner } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
@@ -350,6 +350,10 @@ export const connectAccountSchema = z.object({
   isSystemAccount: z.boolean().optional().default(false),
 });
 
+export const setSystemAccountSchema = z.object({
+  isSystemAccount: z.boolean(),
+});
+
 export const embeddedSignupSchema = z.object({
   code: trimmedString("Authorization code is required."),
   wabaId: trimmedString("WhatsApp Business Account ID is required."),
@@ -501,6 +505,39 @@ whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), asyn
 
   await Template.deleteMany({ whatsappAccountId: account._id, workspaceId: req.user.workspaceId });
   res.sendStatus(204);
+});
+
+// isSystemAccount was previously only settable at connect-time (POST /accounts above) - an
+// already-connected account had no way to become "the" system account without a raw DB update
+// (hit for real: 2026-09-06, an account was connected without it, silently breaking both WhatsApp
+// OTP signup and the deploy-health-check alert, neither of which surfaced an obvious error pointing
+// back to this flag). Platform-owner-only, not workspace-scoped like every other account route
+// here - isSystemAccount is a genuinely global flag (otpService.js's own lookup has no workspace
+// filter, by design, since it must work before a brand-new signup has a workspace of its own), so
+// a regular client admin's settings:write must never be able to touch it.
+whatsappRouter.patch("/accounts/:id/system-account", requirePlatformOwner, validateBody(setSystemAccountSchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  const account = await WhatsAppAccount.findById(req.params.id);
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+
+  if (req.body.isSystemAccount) {
+    // At most one account should ever hold this flag - otherwise otpService.js's findOne() (no
+    // workspace filter) would pick whichever one Mongo happens to return first.
+    await WhatsAppAccount.updateMany(
+      { isSystemAccount: true, _id: mongoose.trusted({ $ne: account._id }) },
+      { $set: { isSystemAccount: false } }
+    );
+  }
+
+  account.isSystemAccount = req.body.isSystemAccount;
+  await account.save();
+
+  res.json({ data: serializeAccount(account) });
 });
 
 whatsappRouter.get("/templates", requirePermission("settings:read"), validateQuery(listWhatsappTemplatesQuerySchema), async (req, res) => {

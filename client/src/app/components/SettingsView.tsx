@@ -44,6 +44,7 @@ import {
   getCurrentWorkspace,
   getWhatsAppConsole,
   getSettings,
+  setWhatsAppSystemAccount,
   syncWhatsAppTemplates,
   testConversionEvent,
   testWhatsAppAccount,
@@ -267,9 +268,10 @@ const aiProviderMeta: { id: "openai" | "claude" | "gemini"; label: string; place
 
 interface SettingsViewProps {
   canWrite?: boolean;
+  isPlatformOwner?: boolean;
 }
 
-export function SettingsView({ canWrite = false }: SettingsViewProps) {
+export function SettingsView({ canWrite = false, isPlatformOwner = false }: SettingsViewProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("workspace");
   const [settings, setSettings] = useState<SettingsPayload>(initialSettings);
   const [whatsappConsole, setWhatsappConsole] = useState<WhatsAppConsolePayload>(initialConsole);
@@ -449,6 +451,27 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
     }));
     await deleteWhatsAppAccount(id).catch(() => undefined);
     await loadSettings().catch(() => undefined);
+  }
+
+  async function handleSetSystemAccount(id: string, nextValue: boolean) {
+    if (!isPlatformOwner) return;
+    try {
+      const response = await setWhatsAppSystemAccount<{ data: WhatsAppAccount }>(id, nextValue);
+      setSettings((current) => ({
+        ...current,
+        // Setting one account as the system account unsets any other - reflect that locally too,
+        // not just the one account the response describes, so the UI doesn't show two "system
+        // account" badges until the next full reload.
+        whatsappAccounts: current.whatsappAccounts.map((account) =>
+          account.id === response.data.id ? response.data : { ...account, isSystemAccount: nextValue ? false : account.isSystemAccount }
+        ),
+      }));
+    } catch (error) {
+      setAccountNotice((current) => ({
+        ...current,
+        [id]: error instanceof Error ? error.message : "Could not update the system account flag.",
+      }));
+    }
   }
 
   async function handleSyncTemplates(id: string) {
@@ -1147,6 +1170,17 @@ export function SettingsView({ canWrite = false }: SettingsViewProps) {
                       {account.conversionsDatasetId && (
                         <Button variant="outline" size="sm" className="h-8 text-xs border-border" onClick={() => handleTestConversionEvent(account.id)} disabled={conversionTesting === account.id}>
                           {conversionTesting === account.id ? "Sending" : "Send test conversion event"}
+                        </Button>
+                      )}
+                      {isPlatformOwner && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs border-border"
+                          onClick={() => handleSetSystemAccount(account.id, !account.isSystemAccount)}
+                          title="The system account is used platform-wide for OTP signup codes and ops alerts - not tied to any one client workspace."
+                        >
+                          {account.isSystemAccount ? "Unset system account" : "Set as system account"}
                         </Button>
                       )}
                       <Button variant="outline" size="sm" className="h-8 text-xs border-destructive/30 text-destructive" onClick={() => handleDeleteAccount(account.id)}>

@@ -12,6 +12,7 @@ import {
   connectAccountSchema,
   createWhatsappTemplateSchema,
   listWhatsappTemplatesQuerySchema,
+  setSystemAccountSchema,
 } from "../../routes/whatsapp.js";
 
 const TAGS = ["WhatsApp"];
@@ -63,6 +64,19 @@ registry.registerPath({
   request: { params: idParamSchema },
   responses: {
     204: { description: "Deleted." },
+    ...standardErrorResponses,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/whatsapp/accounts/{id}/system-account",
+  tags: TAGS,
+  summary: "Mark (or unmark) an account as the platform's system WhatsApp number, used for OTP/ops sends. Platform-owner only.",
+  security: bearerSecurity,
+  request: { params: idParamSchema, body: { content: { "application/json": { schema: setSystemAccountSchema } } } },
+  responses: {
+    200: jsonResponse("Updated account.", dataResponseSchema),
     ...standardErrorResponses,
   },
 });

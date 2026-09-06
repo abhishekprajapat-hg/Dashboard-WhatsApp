@@ -794,6 +794,13 @@ export function testWhatsAppAccount<T>(id: string) {
   });
 }
 
+export function setWhatsAppSystemAccount<T>(id: string, isSystemAccount: boolean) {
+  return request<T>(`/whatsapp/accounts/${id}/system-account`, {
+    method: "PATCH",
+    body: JSON.stringify({ isSystemAccount }),
+  });
+}
+
 export function getWhatsAppTemplates<T>() {
   return request<T>("/whatsapp/templates");
 }
