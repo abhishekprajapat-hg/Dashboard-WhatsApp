@@ -106,6 +106,7 @@ function serializeTemplate(template) {
     language: template.language || "en",
     body: extractBody(template),
     variables: template.variables || extractVariables(extractBody(template)),
+    components: template.components || [],
     status: template.status,
     providerTemplateId: template.providerTemplateId || "",
     whatsappAccountId: template.whatsappAccountId?.toString?.() || "",
