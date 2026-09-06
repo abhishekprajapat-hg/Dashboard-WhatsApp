@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { conversations } from "../data/demoData.js";
 import { AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
-import { InstagramAccount, WhatsAppAccount } from "../models/index.js";
+import { FacebookAccount, InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
@@ -11,6 +11,7 @@ import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js"
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { logger } from "../services/logger.js";
 import { sendInstagramMessage } from "../services/instagramProvider.js";
+import { sendFacebookMessage } from "../services/facebookPagesProvider.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "../services/whatsappCommerce.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
@@ -797,7 +798,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
     if (!messageBody && mediaAttachments.length === 0 && !productMessage) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Message content is required." });
     }
-    if (productMessage && conversation.channel === "instagram") {
+    if (productMessage && conversation.channel !== "whatsapp") {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Product messages are WhatsApp-only." });
     }
 
@@ -809,11 +810,13 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
     }
 
     const isInstagram = conversation.channel === "instagram";
-    const [account, instagramAccount, contact] = await Promise.all([
-      isInstagram
+    const isFacebook = conversation.channel === "facebook";
+    const [account, instagramAccount, facebookAccount, contact] = await Promise.all([
+      isInstagram || isFacebook
         ? null
         : WhatsAppAccount.findOne({ workspaceId: req.user.workspaceId, status: mongoose.trusted({ $in: ["connected", "needs_attention"] }) }).sort({ createdAt: -1 }),
       isInstagram ? InstagramAccount.findById(conversation.instagramAccountId) : null,
+      isFacebook ? FacebookAccount.findById(conversation.facebookAccountId) : null,
       Contact.findById(conversation.contactId),
     ]);
     const outboundMessage = await Message.create({
@@ -821,9 +824,10 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       workspaceId: req.user.workspaceId,
       conversationId: conversation._id,
       contactId: conversation.contactId,
-      channel: isInstagram ? "instagram" : "whatsapp",
-      whatsappAccountId: isInstagram ? undefined : conversation.whatsappAccountId || account?._id,
+      channel: isInstagram ? "instagram" : isFacebook ? "facebook" : "whatsapp",
+      whatsappAccountId: isInstagram || isFacebook ? undefined : conversation.whatsappAccountId || account?._id,
       instagramAccountId: isInstagram ? instagramAccount?._id : undefined,
+      facebookAccountId: isFacebook ? facebookAccount?._id : undefined,
       direction: "outbound",
       type: productMessage ? "product" : messageTypeForAttachments(mediaAttachments),
       body: messageBody,
@@ -832,7 +836,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       status: "queued",
       sentByUserId: req.user.sub,
       metadata: {
-        providerMode: isInstagram ? "instagram" : account?.provider || "meta",
+        providerMode: isInstagram ? "instagram" : isFacebook ? "facebook" : account?.provider || "meta",
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(replyToMessageId ? { replyToMessageId } : {}),
         ...(productMessage ? { product: productMessage } : {}),
@@ -865,6 +869,15 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         // bot-initiated sends.
         providerResult = await sendInstagramMessage({ account: instagramAccount, to: contact.instagramScopedId, body: messageBody, attachments: mediaAttachments, humanAgent: false });
         providerResult.mode = "instagram";
+      } else if (isFacebook) {
+        if (!facebookAccount || !contact?.facebookScopedId) {
+          const error = new Error("Facebook Page account or recipient is missing.");
+          error.code = "FACEBOOK_ACCOUNT_MISSING";
+          error.status = 400;
+          throw error;
+        }
+        providerResult = await sendFacebookMessage({ account: facebookAccount, to: contact.facebookScopedId, body: messageBody });
+        providerResult.mode = "facebook";
       } else if (productMessage) {
         providerResult = await sendWhatsAppProductMessage({
           account,
@@ -882,7 +895,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
         });
       }
     } catch (error) {
-      if (!isInstagram && account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
+      if (!isInstagram && !isFacebook && account && (error.status === 401 || error.status === 403 || error.code === 190 || /auth/i.test(error.message))) {
         account.status = "needs_attention";
         account.webhookStatus = "healthy";
         await account.save();
@@ -890,6 +903,10 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       if (isInstagram && instagramAccount && (error.status === 401 || error.status === 403 || /auth|oauth/i.test(error.message))) {
         instagramAccount.status = "needs_attention";
         await instagramAccount.save();
+      }
+      if (isFacebook && facebookAccount && (error.status === 401 || error.status === 403 || /auth|oauth/i.test(error.message))) {
+        facebookAccount.status = "needs_attention";
+        await facebookAccount.save();
       }
 
       outboundMessage.status = "failed";
@@ -909,9 +926,9 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       await publishConversationChanged(conversation._id);
 
       return res.status(error.status || 502).json({
-        error: isInstagram ? error.code || "INSTAGRAM_SEND_FAILED" : "WHATSAPP_SEND_FAILED",
+        error: isInstagram ? error.code || "INSTAGRAM_SEND_FAILED" : isFacebook ? error.code || "FACEBOOK_SEND_FAILED" : "WHATSAPP_SEND_FAILED",
         message: error.message || "Message could not be sent.",
-        accountStatus: (isInstagram ? instagramAccount?.status : account?.status) || "missing",
+        accountStatus: (isInstagram ? instagramAccount?.status : isFacebook ? facebookAccount?.status : account?.status) || "missing",
         // Meta's real raw error payload (fbtrace_id, error_subcode, error_user_msg) - already
         // persisted to outboundMessage.metadata.meta above, but was never returned here, so
         // diagnosing a real failure (e.g. the product/catalog-linkage error) meant querying the
@@ -927,9 +944,14 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), vali
       instagramAccount.status = "connected";
       await instagramAccount.save();
     }
+    if (isFacebook && facebookAccount && facebookAccount.status !== "connected") {
+      facebookAccount.status = "connected";
+      await facebookAccount.save();
+    }
 
-    outboundMessage.whatsappAccountId = isInstagram ? undefined : conversation.whatsappAccountId || account?._id;
+    outboundMessage.whatsappAccountId = isInstagram || isFacebook ? undefined : conversation.whatsappAccountId || account?._id;
     outboundMessage.instagramAccountId = isInstagram ? instagramAccount?._id : undefined;
+    outboundMessage.facebookAccountId = isFacebook ? facebookAccount?._id : undefined;
     outboundMessage.providerMessageId = providerResult.providerMessageId;
     outboundMessage.status = providerResult.status;
     outboundMessage.sentAt = new Date();

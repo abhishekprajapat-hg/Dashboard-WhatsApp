@@ -8,8 +8,9 @@ const contactSchema = new mongoose.Schema(
     // Optional, not required: an Instagram-only contact has no phone number. Every WhatsApp
     // contact still always has one (still enforced at the route level for that channel).
     phone: { type: String, trim: true, default: "" },
-    channel: { type: String, enum: ["whatsapp", "instagram"], default: "whatsapp", index: true },
+    channel: { type: String, enum: ["whatsapp", "instagram", "facebook"], default: "whatsapp", index: true },
     instagramScopedId: { type: String, trim: true, default: "" },
+    facebookScopedId: { type: String, trim: true, default: "" },
     email: { type: String, trim: true },
     waName: { type: String, trim: true },
     profilePhoto: String,
@@ -28,6 +29,7 @@ const contactSchema = new mongoose.Schema(
 // have phone === "" (the schema default), which a plain unique index would reject as duplicates.
 contactSchema.index({ workspaceId: 1, phone: 1 }, { unique: true, partialFilterExpression: { phone: { $type: "string", $ne: "" } } });
 contactSchema.index({ workspaceId: 1, instagramScopedId: 1 }, { unique: true, partialFilterExpression: { instagramScopedId: { $type: "string", $ne: "" } } });
+contactSchema.index({ workspaceId: 1, facebookScopedId: 1 }, { unique: true, partialFilterExpression: { facebookScopedId: { $type: "string", $ne: "" } } });
 contactSchema.index({ workspaceId: 1, waName: 1 });
 contactSchema.index({ name: "text", phone: "text", email: "text" });
 

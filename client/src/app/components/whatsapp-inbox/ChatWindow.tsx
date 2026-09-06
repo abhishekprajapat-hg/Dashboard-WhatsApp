@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { AnimatePresence } from "framer-motion";
-import { ArrowLeft, CheckCircle2, Info, Instagram, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Facebook, Info, Instagram, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
 import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import type { Conversation, PendingMedia, UploadState, WhatsAppMessage } from "./types";
@@ -163,6 +163,10 @@ export function ChatWindow({
             <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
               <Instagram size={8} />
             </span>
+          ) : conversation.channel === "facebook" ? (
+            <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-card bg-blue-500 text-white">
+              <Facebook size={8} />
+            </span>
           ) : (
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-primary" />
           )}
@@ -176,7 +180,9 @@ export function ChatWindow({
                 ? `Assigned to ${conversation.agent}`
                 : conversation.channel === "instagram"
                   ? "Instagram DM"
-                  : conversation.phone || "Online on WhatsApp"}
+                  : conversation.channel === "facebook"
+                    ? "Facebook DM"
+                    : conversation.phone || "Online on WhatsApp"}
           </div>
         </div>
         <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-primary/10 px-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 sm:flex" onClick={() => onAddToCrm()} disabled={crmSaving || isInCrm}>

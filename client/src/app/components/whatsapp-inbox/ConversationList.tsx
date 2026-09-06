@@ -77,6 +77,10 @@ function ConversationRow({
           <span className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
             <Instagram size={9} />
           </span>
+        ) : conversation.channel === "facebook" ? (
+          <span className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-card bg-blue-500 text-white">
+            <Facebook size={9} />
+          </span>
         ) : (
           <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-card bg-primary" />
         )}
@@ -93,6 +97,11 @@ function ConversationRow({
             <>
               <Instagram size={11} />
               <span className="truncate">Instagram DM</span>
+            </>
+          ) : conversation.channel === "facebook" ? (
+            <>
+              <Facebook size={11} />
+              <span className="truncate">Facebook DM</span>
             </>
           ) : (
             <>
@@ -219,8 +228,9 @@ export function ConversationList({
     return matchesFilter(conversation, filter, currentUserId) && (!search || text.includes(search.toLowerCase()));
   });
 
-  const whatsappConversations = filtered.filter((conversation) => conversation.channel !== "instagram");
+  const whatsappConversations = filtered.filter((conversation) => conversation.channel !== "instagram" && conversation.channel !== "facebook");
   const instagramConversations = filtered.filter((conversation) => conversation.channel === "instagram");
+  const facebookConversations = filtered.filter((conversation) => conversation.channel === "facebook");
 
   function toggleSection(key: keyof typeof openSections) {
     setOpenSections((current) => ({ ...current, [key]: !current[key] }));
@@ -303,14 +313,13 @@ export function ConversationList({
               label="Facebook"
               icon={<Facebook size={13} className="text-blue-400" />}
               accentClass="bg-blue-500/10"
-              conversations={[]}
+              conversations={facebookConversations}
               selectedId={selectedId}
               typingIds={typingIds}
               open={openSections.facebook}
               onToggle={() => toggleSection("facebook")}
               onSelect={onSelect}
-              emptyLabel="Facebook Page isn't connected yet - add one in Settings to bring Messenger conversations in here."
-              disabled
+              emptyLabel="No Facebook conversations match this view."
             />
           </>
         )}

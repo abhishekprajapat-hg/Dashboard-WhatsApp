@@ -29,6 +29,7 @@ import { publicApiRouter } from "./routes/publicApi.js";
 import { mediaRouter } from "./routes/media.js";
 import { infrastructureRouter } from "./routes/infrastructure.js";
 import { instagramPublicRouter, instagramRouter } from "./routes/instagram.js";
+import { facebookPagesPublicRouter, facebookPagesRouter } from "./routes/facebookPages.js";
 import { legalRouter } from "./routes/legal.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
 import { whatsappFlowsRouter } from "./routes/whatsappFlows.js";
@@ -131,6 +132,8 @@ app.use("/api/whatsapp-flows", requireAuth, requireWorkspaceContext, whatsappFlo
 app.use("/webhooks/whatsapp", whatsappWebhookRouter);
 app.use("/api/instagram", instagramRouter);
 app.use("/webhooks/instagram", instagramPublicRouter);
+app.use("/api/facebook", facebookPagesRouter);
+app.use("/webhooks/facebook", facebookPagesPublicRouter);
 app.use("/api/uploads", express.static(uploadRoot, {
   maxAge: "7d",
   immutable: true,

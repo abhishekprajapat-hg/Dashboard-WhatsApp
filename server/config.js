@@ -51,6 +51,13 @@ export const config = {
   facebookLogin: {
     redirectUri: process.env.META_FACEBOOK_LOGIN_REDIRECT_URI || "",
   },
+  // Facebook Page connect (Settings -> Facebook: pages_show_list/pages_messaging) - a third OAuth
+  // product on this same `meta` app/secret, own redirect URI and own webhook verify token, same
+  // reasoning as instagram's separate redirectUri/verifyToken above.
+  facebookPages: {
+    redirectUri: process.env.META_FACEBOOK_PAGES_REDIRECT_URI || "",
+    verifyToken: process.env.META_FACEBOOK_PAGES_VERIFY_TOKEN || "local-facebook-pages-verify-token",
+  },
   // Genuinely new - nothing in this repo talks to Google today. A real Google Cloud OAuth Client
   // must be created before this works; not provisionable by this app, same "manual one-time setup"
   // category as embeddedSignupConfigId above.

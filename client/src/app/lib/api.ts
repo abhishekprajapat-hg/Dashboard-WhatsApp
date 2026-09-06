@@ -1120,6 +1120,34 @@ export function getInstagramInsights<T>(id: string) {
   return request<T>(`/instagram/accounts/${id}/insights`);
 }
 
+export function getFacebookAuthorizeUrl<T>() {
+  return request<T>("/facebook/oauth/authorize-url");
+}
+
+export function getFacebookAccounts<T>() {
+  return request<T>("/facebook/accounts");
+}
+
+export function connectFacebookAccounts<T>(code: string) {
+  return request<T>("/facebook/accounts", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function deleteFacebookAccount(id: string) {
+  return request<void>(`/facebook/accounts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function sendFacebookTestMessage<T>(id: string, payload: { to: string; body: string }) {
+  return request<T>(`/facebook/accounts/${id}/send`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getBilling<T>() {
   return request<T>("/billing");
 }

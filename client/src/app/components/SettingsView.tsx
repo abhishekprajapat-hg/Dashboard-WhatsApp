@@ -31,10 +31,12 @@ import {
   Megaphone,
   Workflow,
   Instagram,
+  Facebook,
 } from "lucide-react";
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
 import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { InstagramSettingsPanel } from "./InstagramSettingsPanel";
+import { FacebookSettingsPanel } from "./FacebookSettingsPanel";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
@@ -59,7 +61,7 @@ import {
   updateCurrentWorkspace,
 } from "../lib/api";
 
-type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
+type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "facebook" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
 
 interface WhatsAppAccount {
   id: string;
@@ -168,6 +170,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "whatsapp", label: "WhatsApp", icon: <MessageCircle size={14} /> },
   { id: "flows", label: "Flows", icon: <Workflow size={14} /> },
   { id: "instagram", label: "Instagram", icon: <Instagram size={14} /> },
+  { id: "facebook", label: "Facebook", icon: <Facebook size={14} /> },
   { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
   { id: "api", label: "API Keys", icon: <Key size={14} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
@@ -1336,6 +1339,12 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
         {activeTab === "instagram" && (
           <div className="max-w-4xl">
             <InstagramSettingsPanel />
+          </div>
+        )}
+
+        {activeTab === "facebook" && (
+          <div className="max-w-4xl">
+            <FacebookSettingsPanel />
           </div>
         )}
 
