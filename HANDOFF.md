@@ -1,5 +1,100 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-06 morning: whole-system security review after the Lead Management System push - 4 real, confirmed-exploitable vulnerabilities found and fixed, all pushed
+
+**Why this exists**: after pushing the full Lead Management System build (see the plan entry below),
+the user asked "did you test the whole system for bugs, security leaks and other traits" -
+specifically the WHOLE app, not just the new feature. Ran a structured audit (four parallel
+identify-agents by area, then a separate skeptical verification agent per candidate finding,
+re-reading the actual code independently before counting anything as real) across auth, multi-
+tenant isolation/NoSQL injection, webhooks/SSRF/secrets, and file-upload/billing. **Don't re-run
+this audit from scratch** - every finding below was independently re-verified by re-reading the
+real code, not just trusted from the first pass.
+
+**Confirmed and fixed, all four at 9/10 confidence after independent verification, all pushed**:
+
+1. **Account takeover via OAuth signup completion, `server/routes/auth.js`**: `POST
+   /oauth/complete` used to accept `provider`/`providerId`/`name`/`avatarUrl` straight from the
+   request body with zero proof they came from a real provider exchange - unlike `GET
+   /oauth/:provider/callback`, which does a genuine token exchange. An attacker could plant a User
+   row under a real target's discoverable `providerId` (e.g. Instagram's numeric user_id, exposed
+   via Business Discovery), and the target's later *real* login would silently match into the
+   attacker's pre-planted account (`findOne({ instagramId: profile.providerId })`), handing the
+   real user a session for an attacker-controlled workspace. **Fix**: `server/utils/session.js`
+   gained `signOAuthContinuationToken`/`verifyOAuthContinuationToken` - the real `/callback` step
+   now mints a short-lived (10min) signed JWT binding the verified identity, and `/oauth/complete`
+   requires and verifies that token instead of re-accepting free-form identity fields (only `email`
+   still comes from the client). Also added a defense-in-depth check rejecting a `providerId`
+   that's already claimed. Frontend (`usePopupOAuth.ts`, `SignupPage.tsx`, `api.ts`) updated to pass
+   the token through instead of raw identity fields. Real unit test coverage added
+   (`tests/oauthContinuation.unit.test.js`) - forged tokens, wrong-secret tokens, expired tokens,
+   and a real session JWT replayed here are all correctly rejected.
+2. **WhatsApp webhook signature verification entirely absent for Twilio/Wati providers,
+   `server/routes/whatsapp.js`**: the only auth check was `if (provider === "meta" && account)` -
+   Twilio and Wati (both real, user-configurable provider options) had zero verification on their
+   webhook routes, so anyone who knew a connected workspace's WhatsApp number could POST a forged
+   inbound message and have it processed as genuine (contact/conversation creation, automations,
+   AI auto-replies, CRM lead sync). **Fix**: added `hasValidTwilioSignature()` (Twilio's documented
+   HMAC-SHA1-over-URL-plus-sorted-params scheme) and `hasValidWatiSecret()` (a shared-secret check
+   against the account's own stored `apiKey`, since Wati has no publicly documented per-request HMAC
+   scheme the way Twilio/Meta do - noted honestly as a weaker-but-real fix in the code comment).
+   `handleProviderWebhook` now checks the right one per provider. Verified live against a real
+   disposable server: a forged request with no signature -> 403, wrong signature -> 403, and a
+   signature computed with the account's real stored authToken -> 200 (confirming legitimate Twilio
+   traffic still works, not just that forgeries are blocked). Unit tests added to
+   `tests/webhookSignature.test.js`.
+3. **SSRF with full response exfiltration via outbound attachment URL, `server/services/
+   whatsappProvider.js`'s `attachmentBytes()`**: did a raw `fetch(attachment.url)` with zero host/
+   scheme validation, reachable by any `agent`-role user (lowest privilege, just `inbox:write`)
+   composing an outbound message. The codebase's own SSRF guard (`assertPublicUrl`/`safeFetch` in
+   `services/integrations.js`, already used by outbound webhooks/automation HTTP calls) was simply
+   never imported into `whatsappProvider.js`. An attacker could point `attachments[].url` at an
+   internal-only address (cloud metadata endpoint, another VPS-local service) and have the server
+   fetch it, upload the bytes to Meta, and deliver the full response back to their own WhatsApp as a
+   real message. **Fix**: exported `safeFetch` from `integrations.js`, routed `attachmentBytes`
+   through it. Unit tests added to `tests/whatsappProvider.test.js` (exported `attachmentBytes` for
+   testability) confirming a private-IP URL and a non-http(s) scheme both now resolve to `null`
+   instead of ever holding fetched bytes.
+4. **Stored XSS via extension/MIME-type mismatch in media upload, `server/services/
+   mediaStorage.js`'s `extensionFor()`**: derived the stored file's extension from the
+   caller-supplied `name` field (`path.extname(name)`) BEFORE the server-validated `mimeType` -
+   so `mimeType: "text/plain"` (allow-listed) paired with `name: "pwn.html"` (containing real
+   HTML/`<script>`) got written to disk and served as genuine `.html` via `express.static` (helmet's
+   CSP is disabled app-wide). Reachable by any `media:write` user (lowest write role) self-hosting
+   an XSS payload on the app's own origin and sharing/embedding the link. Same root cause affected
+   `resolveInboundMedia`'s use of a WhatsApp sender's document-caption filename. **Fix**:
+   `extensionFor()` now takes only `mimeType`, never `name` - the caller-supplied filename can no
+   longer influence the stored extension at all. Expanded `extensionMap` to cover the two
+   previously-unmapped-but-allow-listed Office document types (would otherwise have silently
+   regressed to `.bin`). Verified live: a `text/plain`+`pwn.html` upload now stores/serves as
+   `.txt`. Unit tests added (`tests/mediaStorage.unit.test.js`).
+
+**Also fixed, but NOT counted as a reportable finding** (independent verification scored it 3/10 -
+real code defect, but `Organization.billingStatus` doesn't gate anything functional anywhere in
+this codebase today, so there's no proven exploit impact): `server/services/razorpayProvider.js`'s
+`isValidRazorpayWebhookSignature` used to fail OPEN (`return true`) when
+`RAZORPAY_WEBHOOK_SECRET` was unset. Changed to fail CLOSED. Deliberately NOT added to
+`config.js`'s `validateProductionConfig()` hard-required-secrets list - unlike JWT_SECRET etc.,
+getting this wrong doesn't grant access to anything real today, and crashing the app on boot over
+an *unconfirmed* live deployment precondition (is the secret actually set in the real `.env`? -
+this review has no way to check) was judged riskier than the defect itself. Unit tests added
+(`tests/razorpayWebhookSignature.unit.test.js`).
+
+**Came back clean, no findings**: a dedicated pass over every `server/routes/*.js` file for
+cross-tenant data isolation and NoSQL injection found nothing reportable - every query is properly
+`workspaceId`-scoped, `req.user.workspaceId` is always re-derived from a live Membership lookup
+(never trusted bare from a token), and Zod validation blocks operator-injection shapes before they
+ever reach a Mongo filter.
+
+**What this pass explicitly did NOT cover** (say so honestly if asked again): no third-party
+dependency/CVE scan, no fuzzing, no dynamic/runtime exploitation against the live production
+instance (all findings were confirmed by independently re-reading the code twice, not by firing
+real exploits at prod), no review of the automation-engine execution sandbox specifically. All
+fixes verified via `npm run check:server`/`check:client` (clean), the full non-e2e unit suite
+(166 tests, 165 pass, the one pre-existing unrelated `routeValidation.unit.test.js` failure traced
+to untouched `admin.js` code), and live disposable-server checks for the two web-facing fixes
+(Twilio webhook, media upload) - not just static analysis.
+
 ## PLAN OF ACTION — 2026-09-06: build the real Lead Management System on top of the CRM backend that already exists — READ THIS FIRST, this is the actual next job
 
 **Why this exists**: the CRM audit two entries below this one (2026-09-06, "CRM section audit") found

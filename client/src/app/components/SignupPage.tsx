@@ -82,7 +82,7 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
     setLoading(true);
     setNotice("");
     try {
-      const session = await completeOauthSignup({ ...pendingIdentity, email: followUpEmail });
+      const session = await completeOauthSignup({ continuationToken: pendingIdentity.continuationToken, email: followUpEmail });
       onSignup(session);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not finish signing up.");

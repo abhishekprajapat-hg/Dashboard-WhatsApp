@@ -12,7 +12,7 @@ import { hashPassword, verifyPassword } from "../utils/password.js";
 import { roleDefinitionFor } from "../utils/rbac.js";
 import { isEmail, passwordPolicy } from "../utils/validation.js";
 import { trimmedString } from "../utils/zodHelpers.js";
-import { serializeUser, serializeWorkspace, signSession } from "../utils/session.js";
+import { serializeUser, serializeWorkspace, signOAuthContinuationToken, signSession, verifyOAuthContinuationToken } from "../utils/session.js";
 import { buildAuthorizeUrl, exchangeCodeForProfile, isKnownProvider, isProviderConfigured } from "../services/socialAuth.js";
 import { generateAndSendOtp, verifyOtp } from "../services/otpService.js";
 
@@ -42,11 +42,12 @@ export const registerSchema = z.object({
   workspaceName: trimmedString("Workspace name is required."),
 });
 
+// provider/providerId/name/avatarUrl are deliberately NOT accepted here as free-form body fields
+// anymore - they come only from the verified continuationToken (see /oauth/complete below).
+// Accepting them directly used to let anyone plant a User row under an arbitrary providerId they
+// don't control, which a real login for that identity would later silently match into.
 export const oauthCompleteSchema = z.object({
-  provider: z.enum(["google", "facebook", "instagram"]),
-  providerId: trimmedString("Provider identity is required."),
-  name: z.string().optional().default(""),
-  avatarUrl: z.string().optional().default(""),
+  continuationToken: trimmedString("A valid continuation token is required."),
   email: z.string().refine(isEmail, "A valid email is required."),
 });
 
@@ -316,9 +317,12 @@ authRouter.get("/oauth/:provider/callback", async (req, res) => {
       return renderOAuthCallbackPage(res, {
         provider,
         needsEmail: true,
-        providerId: profile.providerId,
-        name: profile.name,
-        avatarUrl: profile.avatarUrl,
+        continuationToken: signOAuthContinuationToken({
+          provider,
+          providerId: profile.providerId,
+          name: profile.name,
+          avatarUrl: profile.avatarUrl,
+        }),
       });
     }
 
@@ -347,13 +351,27 @@ authRouter.post("/oauth/complete", validateBody(oauthCompleteSchema), async (req
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
 
-  const { provider, providerId, name, avatarUrl, email } = req.body;
+  const identity = verifyOAuthContinuationToken(req.body.continuationToken);
+  if (!identity) {
+    return res.status(401).json({ error: "INVALID_CONTINUATION", message: "This sign-in link has expired - please try again." });
+  }
+
+  const { provider, providerId, name, avatarUrl } = identity;
+  const { email } = req.body;
   const providerIdField = `${provider}Id`;
   const normalizedEmail = email.toLowerCase();
 
   const existing = await User.findOne({ email: normalizedEmail });
   if (existing) {
     return res.status(409).json({ error: "EMAIL_TAKEN", message: "An account with this email already exists." });
+  }
+
+  // Defense in depth: the continuation token alone already prevents an attacker from planting an
+  // arbitrary providerId (it can only be minted by a real, verified provider exchange), but this
+  // also blocks a legitimate user from accidentally double-submitting the same completed identity.
+  const providerIdTaken = await User.findOne({ [providerIdField]: providerId });
+  if (providerIdTaken) {
+    return res.status(409).json({ error: "PROVIDER_ID_TAKEN", message: "This account is already linked to a different email. Try logging in instead." });
   }
 
   const user = await User.create({

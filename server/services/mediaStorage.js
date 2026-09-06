@@ -20,11 +20,20 @@ const extensionMap = {
   "audio/ogg": ".ogg",
   "application/pdf": ".pdf",
   "text/plain": ".txt",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 };
 
-export function extensionFor(name = "", mimeType = "") {
-  const fromName = path.extname(name).toLowerCase().replace(/[^.\w]/g, "");
-  if (fromName) return fromName;
+// Derives the stored extension SOLELY from the server-validated mimeType, never from the
+// caller-supplied `name` (a filename an uploader, or a WhatsApp sender's document caption,
+// fully controls). Trusting `name` here used to let a `text/plain`-declared upload be stored and
+// served as `pwn.html`/`pwn.svg` - both allow-listed mimeType checks upstream (media.js) verify
+// the type, not the extension, so this was the actual point content-sniffed to disk as executable
+// markup. `mimeType` is itself untrusted-but-allow-listed by the caller; unmapped-but-allowed
+// types fall back to the inert `.bin`, never to whatever extension `name` happened to carry.
+export function extensionFor(mimeType = "") {
   return extensionMap[mimeType] || ".bin";
 }
 
@@ -59,7 +68,7 @@ function getS3Client() {
 
 export async function saveMediaBuffer({ workspaceId, buffer, name = "attachment", mimeType = "application/octet-stream", baseUrl }) {
   const id = crypto.randomUUID();
-  const fileName = `${Date.now()}-${id}${extensionFor(name, mimeType)}`;
+  const fileName = `${Date.now()}-${id}${extensionFor(mimeType)}`;
   const key = `${workspaceId}/${fileName}`;
   const s3 = getS3Client();
 

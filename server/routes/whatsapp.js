@@ -150,6 +150,43 @@ export function hasValidMetaSignature(req, appSecret) {
   return headerBuffer.length === digestBuffer.length && crypto.timingSafeEqual(headerBuffer, digestBuffer);
 }
 
+// Twilio's documented scheme (https://www.twilio.com/docs/usage/webhooks/webhooks-security):
+// HMAC-SHA1 over the exact webhook URL followed by every POST param, sorted by key and
+// concatenated as key+value with no separator, keyed by the account's own authToken, base64
+// compared against X-Twilio-Signature. Same "no secret configured yet -> allow" precedent as
+// hasValidMetaSignature above - authToken is required for outbound sends to work at all, so any
+// real, functioning Twilio account already has one.
+export function hasValidTwilioSignature(req, authToken) {
+  if (!authToken) return true;
+  const header = String(req.headers["x-twilio-signature"] || "");
+  if (!header) return false;
+
+  const url = `${absoluteBaseUrl(req)}${req.originalUrl}`;
+  const params = req.body && typeof req.body === "object" ? req.body : {};
+  const dataString = Object.keys(params)
+    .sort()
+    .reduce((acc, key) => acc + key + params[key], url);
+  const digest = crypto.createHmac("sha1", authToken).update(Buffer.from(dataString, "utf-8")).digest("base64");
+  const headerBuffer = Buffer.from(header);
+  const digestBuffer = Buffer.from(digest);
+  return headerBuffer.length === digestBuffer.length && crypto.timingSafeEqual(headerBuffer, digestBuffer);
+}
+
+// Wati has no publicly documented per-request HMAC signing scheme (unlike Meta/Twilio) - this is
+// a shared-secret check against the account's own stored apiKey (the same credential already used
+// to authenticate this app's OUTBOUND calls to Wati), sent back as a Bearer/x-api-key header. Not
+// as strong as a payload-bound HMAC, but closes the "anyone can POST anything" gap this account
+// previously had zero verification against.
+export function hasValidWatiSecret(req, apiKey) {
+  if (!apiKey) return true;
+  const provided = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim() || String(req.headers["x-api-key"] || "").trim();
+  if (!provided) return false;
+
+  const providedBuffer = Buffer.from(provided);
+  const apiKeyBuffer = Buffer.from(apiKey);
+  return providedBuffer.length === apiKeyBuffer.length && crypto.timingSafeEqual(providedBuffer, apiKeyBuffer);
+}
+
 whatsappRouter.use(requireAuth, requireWorkspaceContext);
 
 function shortTime(date) {
@@ -701,9 +738,17 @@ async function findWebhookAccount(normalized, provider = "meta") {
 async function handleProviderWebhook({ normalized, provider, req, res }) {
   const account = await findWebhookAccount(normalized, provider);
 
-  if (provider === "meta" && account) {
+  if (account) {
     const credentials = decodeCredentials(account);
-    if (!hasValidMetaSignature(req, credentials.appSecret)) {
+    const signatureValid =
+      provider === "meta"
+        ? hasValidMetaSignature(req, credentials.appSecret)
+        : provider === "twilio"
+          ? hasValidTwilioSignature(req, credentials.authToken)
+          : provider === "wati"
+            ? hasValidWatiSecret(req, credentials.apiKey)
+            : true;
+    if (!signatureValid) {
       return res.status(403).json({ error: "INVALID_SIGNATURE", message: "WhatsApp webhook signature verification failed." });
     }
   }

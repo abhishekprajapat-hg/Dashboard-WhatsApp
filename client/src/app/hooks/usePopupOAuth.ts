@@ -8,17 +8,13 @@ interface SocialAuthCallbackPayload {
   provider: OAuthProvider;
   session?: AuthSession;
   needsEmail?: boolean;
-  providerId?: string;
-  name?: string;
-  avatarUrl?: string;
+  continuationToken?: string;
   error?: string;
 }
 
 export interface OAuthIdentity {
   provider: OAuthProvider;
-  providerId: string;
-  name: string;
-  avatarUrl: string;
+  continuationToken: string;
 }
 
 interface UsePopupOAuthOptions {
@@ -54,7 +50,11 @@ export function usePopupOAuth({ onSession, onNeedsEmail, onError }: UsePopupOAut
       return;
     }
     if (data.needsEmail) {
-      onNeedsEmail({ provider: data.provider, providerId: data.providerId || "", name: data.name || "", avatarUrl: data.avatarUrl || "" });
+      if (!data.continuationToken) {
+        onError("Sign-in could not be completed - please try again.");
+        return;
+      }
+      onNeedsEmail({ provider: data.provider, continuationToken: data.continuationToken });
       return;
     }
     if (data.session) {

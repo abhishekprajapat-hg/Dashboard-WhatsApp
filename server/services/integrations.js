@@ -95,7 +95,9 @@ const MAX_REDIRECTS = 5;
 // fetch() follows redirects by default, which would silently bypass assertPublicUrl on the very
 // first hop - a validated public URL can 302 to an internal address. Disables automatic
 // redirects and re-validates (DNS + range check) before following each one instead.
-async function safeFetch(url, options = {}) {
+// Exported for reuse by anywhere else that fetches a user/tenant-supplied URL (e.g.
+// whatsappProvider.js's outbound attachment upload) - don't duplicate this redirect-safe logic.
+export async function safeFetch(url, options = {}) {
   let currentUrl = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     await assertPublicUrl(currentUrl);

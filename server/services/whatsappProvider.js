@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import { config } from "../config.js";
 import { saveMediaBuffer, uploadRoot } from "./mediaStorage.js";
+import { safeFetch } from "./integrations.js";
 
 const encryptedCredentialPrefix = "v1";
 
@@ -275,7 +276,9 @@ function localUploadPath(attachment = {}) {
   return absolutePath;
 }
 
-async function attachmentBytes(attachment = {}) {
+// Exported for testability (SSRF regression coverage) - not intended as a general public API of
+// this module, everything else here still calls it internally.
+export async function attachmentBytes(attachment = {}) {
   const localPath = localUploadPath(attachment);
   if (localPath) {
     const buffer = await fs.readFile(localPath);
@@ -283,8 +286,12 @@ async function attachmentBytes(attachment = {}) {
   }
 
   if (!attachment.url) return null;
-  const response = await fetch(attachment.url);
-  if (!response.ok) return null;
+  // attachment.url is caller-supplied (an agent composing an outbound message) - routed through
+  // the same SSRF guard used for outbound webhooks/automation HTTP calls, since a raw fetch() here
+  // would let any authenticated user make the server request an arbitrary internal URL and have
+  // the response delivered back to them as a WhatsApp media message.
+  const response = await safeFetch(attachment.url).catch(() => null);
+  if (!response?.ok) return null;
   const buffer = Buffer.from(await response.arrayBuffer());
   return {
     buffer,

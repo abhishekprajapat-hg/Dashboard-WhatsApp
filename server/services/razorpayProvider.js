@@ -80,7 +80,14 @@ export function verifySubscriptionSignature({ paymentId, subscriptionId, signatu
 // keyed with the webhook secret - no "sha256=" prefix, unlike Meta's x-hub-signature-256, so this
 // is deliberately not a copy-paste of hasValidMetaSignature despite the same overall shape.
 export function isValidRazorpayWebhookSignature(rawBody, signatureHeader) {
-  if (!config.razorpay.webhookSecret) return true;
+  // Fail closed, not open: an unset webhook secret means this endpoint can't tell a real Razorpay
+  // event from a forged one, so it must reject rather than accept everything. (Not escalated to a
+  // hard boot-time requirement in config.js's validateProductionConfig() - unlike JWT_SECRET etc,
+  // getting this wrong doesn't grant access to anything, since nothing in this codebase currently
+  // gates a real capability on Organization.billingStatus; a silently-rejected webhook here is a
+  // billing-status-goes-stale bug, not a security hole, so it doesn't warrant crashing the app on
+  // boot over an unconfirmed deployment precondition.)
+  if (!config.razorpay.webhookSecret) return false;
   const header = String(signatureHeader || "");
   if (!header || !rawBody) return false;
 

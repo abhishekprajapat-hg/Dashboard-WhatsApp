@@ -135,7 +135,7 @@ export function getOauthAuthorizeUrl(provider: "google" | "facebook" | "instagra
   return request<{ url: string; state: string }>(`/auth/oauth/${provider}/authorize-url`);
 }
 
-export async function completeOauthSignup(payload: { provider: "google" | "facebook" | "instagram"; providerId: string; name: string; avatarUrl: string; email: string }) {
+export async function completeOauthSignup(payload: { continuationToken: string; email: string }) {
   const session = await request<AuthSession>("/auth/oauth/complete", {
     method: "POST",
     body: JSON.stringify(payload),
