@@ -21,7 +21,15 @@ import { Card, CardContent } from "./ui/card";
 import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
-import { assignContactOwner, createContact, deleteContact, getContacts, getTeamMembers } from "../lib/api";
+import {
+  assignContactOwner,
+  bulkImportContacts,
+  createContact,
+  deleteContact,
+  getContactFilterOptions,
+  getContacts,
+  getTeamMembers,
+} from "../lib/api";
 import { demoContacts } from "../lib/demoData";
 
 interface Contact {
@@ -64,6 +72,97 @@ const crmFilters = [
   { id: "customer", label: "Customers" },
 ];
 
+const PAGE_SIZE = 25;
+
+const STAGE_OPTIONS_FALLBACK = ["new_lead", "contacted", "qualified", "proposal_sent", "won", "lost"];
+
+interface FilterOptions {
+  stages: string[];
+  sources: string[];
+  tags: { id: string; name: string }[];
+}
+
+const EMPTY_FILTER_OPTIONS: FilterOptions = { stages: STAGE_OPTIONS_FALLBACK, sources: [], tags: [] };
+
+interface ContactFilters {
+  stage: string;
+  source: string;
+  ownerUserId: string;
+  tag: string;
+}
+
+const EMPTY_CONTACT_FILTERS: ContactFilters = { stage: "", source: "", ownerUserId: "", tag: "" };
+
+const IMPORT_FIELDS = [
+  { key: "name", label: "Name", required: true },
+  { key: "phone", label: "Phone", required: true },
+  { key: "email", label: "Email", required: false },
+  { key: "tags", label: "Tags", required: false },
+] as const;
+
+type ImportFieldKey = (typeof IMPORT_FIELDS)[number]["key"];
+
+// Minimal RFC4180-style parser: handles quoted fields, embedded commas/newlines inside quotes,
+// and "" as an escaped quote - a plain String.split(",") (used by this file's CSV *export*
+// already) is not safe for arbitrary uploaded CSVs on the way back in.
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"' && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(field);
+      field = "";
+      if (row.some((value) => value.trim() !== "")) rows.push(row);
+      row = [];
+    } else {
+      field += char;
+    }
+  }
+
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    if (row.some((value) => value.trim() !== "")) rows.push(row);
+  }
+
+  return rows;
+}
+
+function guessColumn(headers: string[], candidates: string[]) {
+  const lower = headers.map((header) => header.trim().toLowerCase());
+  for (const candidate of candidates) {
+    const index = lower.findIndex((header) => header === candidate);
+    if (index !== -1) return index;
+  }
+  for (const candidate of candidates) {
+    const index = lower.findIndex((header) => header.includes(candidate));
+    if (index !== -1) return index;
+  }
+  return -1;
+}
+
 interface ContactsViewProps {
   onOpenContactChat?: (contactId: string) => void;
   canWrite?: boolean;
@@ -100,11 +199,201 @@ function ContactAvatar({ contact, size = "md" }: { contact: Contact; size?: "sm"
   );
 }
 
+interface ImportResult {
+  created: number;
+  skipped: number;
+  errors: { row: string; message: string }[];
+}
+
+function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [step, setStep] = useState<"upload" | "map" | "result">("upload");
+  const [fileName, setFileName] = useState("");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<string[][]>([]);
+  const [columnMap, setColumnMap] = useState<Record<ImportFieldKey, number>>({ name: -1, phone: -1, email: -1, tags: -1 });
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [parseError, setParseError] = useState("");
+
+  function handleFile(file: File) {
+    setParseError("");
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseCsv(String(reader.result || ""));
+      if (parsed.length < 2) {
+        setParseError("This file doesn't look like a CSV with a header row and at least one data row.");
+        return;
+      }
+      const [headerRow, ...dataRows] = parsed;
+      setHeaders(headerRow);
+      setRows(dataRows);
+      setColumnMap({
+        name: guessColumn(headerRow, ["name", "full name", "contact name"]),
+        phone: guessColumn(headerRow, ["phone", "phone number", "mobile", "whatsapp"]),
+        email: guessColumn(headerRow, ["email", "email address"]),
+        tags: guessColumn(headerRow, ["tags", "tag", "labels"]),
+      });
+      setStep("map");
+    };
+    reader.onerror = () => setParseError("Could not read this file.");
+    reader.readAsText(file);
+  }
+
+  function mapRow(row: string[]) {
+    const value = (key: ImportFieldKey) => (columnMap[key] >= 0 ? (row[columnMap[key]] || "").trim() : "");
+    return { name: value("name"), phone: value("phone"), email: value("email"), tags: value("tags") };
+  }
+
+  const mappedPreview = rows.slice(0, 5).map(mapRow);
+  const canImport = columnMap.name >= 0 && columnMap.phone >= 0 && rows.length > 0;
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const payload = rows.map((row) => {
+        const mapped = mapRow(row);
+        return {
+          name: mapped.name,
+          phone: mapped.phone,
+          email: mapped.email,
+          tags: mapped.tags ? mapped.tags.split(/[;,]/).map((tag) => tag.trim()).filter(Boolean) : [],
+        };
+      });
+      const response = await bulkImportContacts<{ data: ImportResult }>(payload);
+      setResult(response.data);
+      setStep("result");
+      onImported();
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Import contacts</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Upload a CSV, map its columns, then import.</p>
+          </div>
+          <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+
+        {step === "upload" && (
+          <div className="space-y-3">
+            <label className="flex h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground">
+              <Upload size={20} />
+              Click to choose a CSV file
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            </label>
+            {parseError && <p className="text-xs text-destructive">{parseError}</p>}
+          </div>
+        )}
+
+        {step === "map" && (
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">{fileName} - {rows.length} rows detected</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {IMPORT_FIELDS.map((field) => (
+                <label key={field.key} className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">{field.label}{field.required ? " *" : " (optional)"}</span>
+                  <select
+                    value={columnMap[field.key]}
+                    onChange={(e) => setColumnMap((current) => ({ ...current, [field.key]: Number(e.target.value) }))}
+                    className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                  >
+                    <option value={-1}>Don't import</option>
+                    {headers.map((header, index) => (
+                      <option key={index} value={index}>
+                        {header || `Column ${index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border border-border/80">
+              <table className="w-full text-xs">
+                <thead className="bg-surface-subtle/70">
+                  <tr>
+                    {IMPORT_FIELDS.map((field) => (
+                      <th key={field.key} className="px-3 py-2 text-left font-medium text-muted-foreground">
+                        {field.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappedPreview.map((row, index) => (
+                    <tr key={index} className="border-t border-border/70">
+                      <td className="px-3 py-2 text-foreground">{row.name || "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.phone || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.email || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{row.tags || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!canImport && <p className="text-xs text-destructive">Map both Name and Phone columns to continue.</p>}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setStep("upload")}>
+                Back
+              </Button>
+              <Button disabled={!canImport || importing} onClick={handleImport}>
+                {importing ? "Importing..." : `Import ${rows.length} contact${rows.length === 1 ? "" : "s"}`}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === "result" && result && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg border border-primary/25 bg-primary/10 p-3">
+                <p className="text-xl font-semibold text-primary">{result.created}</p>
+                <p className="text-xs text-muted-foreground">Created</p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/50 p-3">
+                <p className="text-xl font-semibold text-foreground">{result.skipped}</p>
+                <p className="text-xs text-muted-foreground">Skipped (duplicate)</p>
+              </div>
+              <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-3">
+                <p className="text-xl font-semibold text-destructive">{result.errors.length}</p>
+                <p className="text-xs text-muted-foreground">Errors</p>
+              </div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-border/70 p-2 text-xs text-muted-foreground">
+                {result.errors.map((error, index) => (
+                  <div key={index}>
+                    {error.row}: {error.message}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end">
+              <Button onClick={onClose}>Done</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsViewProps) {
   const [search, setSearch] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [contacts, setContacts] = useState<Contact[]>(fallbackContacts);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [selectedContactId, setSelectedContactId] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", tags: "" });
@@ -113,16 +402,36 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   const [teamMembers, setTeamMembers] = useState<{ userId: string; name: string }[]>([]);
   const [showAssignMenu, setShowAssignMenu] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [filters, setFilters] = useState<ContactFilters>(EMPTY_CONTACT_FILTERS);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [showImport, setShowImport] = useState(false);
+  const [leadCount, setLeadCount] = useState(0);
+  const [customerCount, setCustomerCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getContacts<{ data: Contact[]; total: number }>("", crmFilter)
+    getContacts<{ data: Contact[]; total: number }>({
+      lifecycle: crmFilter,
+      stage: filters.stage,
+      source: filters.source,
+      ownerUserId: filters.ownerUserId,
+      tag: filters.tag,
+      skip: page * PAGE_SIZE,
+      limit: PAGE_SIZE,
+    })
       .then((response) => {
-        if (active) setContacts(response.data);
+        if (!active) return;
+        setContacts(response.data);
+        setTotal(response.total);
       })
       .catch(() => {
-        if (active) setContacts(fallbackContacts);
+        if (active) {
+          setContacts(fallbackContacts);
+          setTotal(fallbackContacts.length);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -132,7 +441,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
     return () => {
       active = false;
     };
-  }, [crmFilter]);
+  }, [crmFilter, filters, page, refreshKey]);
 
   useEffect(() => {
     let active = true;
@@ -141,10 +450,39 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
         if (active) setTeamMembers(response.data.filter((member) => member.userId));
       })
       .catch(() => undefined);
+    getContactFilterOptions<{ data: FilterOptions }>()
+      .then((response) => {
+        if (active) setFilterOptions(response.data);
+      })
+      .catch(() => undefined);
+    refreshOverviewCounts();
     return () => {
       active = false;
     };
   }, []);
+
+  // Workspace-wide, independent of the current page/filter selection - these feed the header
+  // stat cards, not the (now server-paginated) contacts list itself.
+  function refreshOverviewCounts() {
+    getContacts<{ total: number }>({ lifecycle: "lead", limit: 1 })
+      .then((response) => setLeadCount(response.total))
+      .catch(() => undefined);
+    getContacts<{ total: number }>({ lifecycle: "customer", limit: 1 })
+      .then((response) => setCustomerCount(response.total))
+      .catch(() => undefined);
+  }
+
+  function updateFilters(patch: Partial<ContactFilters>) {
+    setPage(0);
+    setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  function changeCrmFilter(id: string) {
+    setPage(0);
+    setCrmFilter(id);
+  }
+
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -168,9 +506,6 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   }, [contacts, search]);
 
   const selectedContact = contacts.find((contact) => contact.id === selectedContactId) || filtered[0] || contacts[0];
-  const leadCount = contacts.filter((contact) => contactLifecycle(contact) === "lead").length;
-  const customerCount = contacts.filter((contact) => contactLifecycle(contact) === "customer").length;
-  const activeCount = contacts.filter((contact) => contact.status === "active" || contactLifecycle(contact) === "active").length;
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -263,13 +598,15 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
               CRM workspace
             </Badge>
             <h1 className="text-2xl font-semibold text-foreground">Contacts</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{leadCount} leads · {customerCount} customers · {contacts.length} total records</p>
+            <p className="mt-1 text-sm text-muted-foreground">{leadCount} leads · {customerCount} customers · {total} matching records</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="hidden sm:inline-flex">
-              <Upload size={14} />
-              Import
-            </Button>
+            {canWrite && (
+              <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => setShowImport(true)}>
+                <Upload size={14} />
+                Import
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="hidden sm:inline-flex" disabled={filtered.length === 0} onClick={handleExportCsv}>
               <Download size={14} />
               Export
@@ -285,7 +622,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
 
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            { label: "Active contacts", value: activeCount, icon: <Activity size={16} />, tone: "text-primary" },
+            { label: "Matching contacts", value: total, icon: <Activity size={16} />, tone: "text-primary" },
             { label: "Leads", value: leadCount, icon: <UserRound size={16} />, tone: "text-info" },
             { label: "Selected", value: selectedIds.length, icon: <Filter size={16} />, tone: "text-warning" },
           ].map((item) => (
@@ -301,6 +638,17 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
           ))}
         </div>
       </div>
+
+      {showImport && canWrite && (
+        <ImportContactsModal
+          onClose={() => setShowImport(false)}
+          onImported={() => {
+            setPage(0);
+            setRefreshKey((current) => current + 1);
+            refreshOverviewCounts();
+          }}
+        />
+      )}
 
       {showCreate && canWrite && (
         <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
@@ -358,17 +706,97 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                 <button
                   key={filter.label}
                   type="button"
-                  onClick={() => setCrmFilter(filter.id)}
+                  onClick={() => changeCrmFilter(filter.id)}
                   className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${crmFilter === filter.id ? "bg-primary/12 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
                 >
                   {filter.label}
                 </button>
               ))}
             </div>
-            <Button variant="outline" size="sm" className="h-10 w-full sm:w-fit">
-              <Filter size={14} />
-              Filter
-            </Button>
+            <div className="relative">
+              <Button variant="outline" size="sm" className="h-10 w-full sm:w-fit" onClick={() => setShowFilterPanel((current) => !current)}>
+                <Filter size={14} />
+                Filter
+                {activeFilterCount > 0 && (
+                  <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+              {showFilterPanel && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-72 space-y-3 rounded-lg border border-border bg-card p-3 shadow-xl">
+                  <label className="block space-y-1 text-xs">
+                    <span className="text-muted-foreground">Stage</span>
+                    <select
+                      value={filters.stage}
+                      onChange={(e) => updateFilters({ stage: e.target.value })}
+                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    >
+                      <option value="">Any stage</option>
+                      {filterOptions.stages.map((stage) => (
+                        <option key={stage} value={stage}>
+                          {stage.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    <span className="text-muted-foreground">Source</span>
+                    <select
+                      value={filters.source}
+                      onChange={(e) => updateFilters({ source: e.target.value })}
+                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    >
+                      <option value="">Any source</option>
+                      {filterOptions.sources.map((source) => (
+                        <option key={source} value={source}>
+                          {source}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    <span className="text-muted-foreground">Owner</span>
+                    <select
+                      value={filters.ownerUserId}
+                      onChange={(e) => updateFilters({ ownerUserId: e.target.value })}
+                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    >
+                      <option value="">Any owner</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1 text-xs">
+                    <span className="text-muted-foreground">Tag</span>
+                    <select
+                      value={filters.tag}
+                      onChange={(e) => updateFilters({ tag: e.target.value })}
+                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    >
+                      <option value="">Any tag</option>
+                      {filterOptions.tags.map((tag) => (
+                        <option key={tag.id} value={tag.id}>
+                          {tag.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={activeFilterCount === 0}
+                    onClick={() => updateFilters(EMPTY_CONTACT_FILTERS)}
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
 
           {canWrite && selectedIds.length > 0 && (
@@ -564,15 +992,23 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
           )}
 
           <div className="flex items-center justify-between gap-3 border-t border-border/80 px-3 py-3">
-            <span className="text-xs text-muted-foreground">Showing {filtered.length} of {contacts.length} contacts</span>
+            <span className="text-xs text-muted-foreground">
+              {total === 0 ? "No contacts" : `Showing ${page * PAGE_SIZE + 1}-${Math.min(total, (page + 1) * PAGE_SIZE)} of ${total}`}
+            </span>
             <div className="hidden items-center gap-1 sm:flex">
-              <Button variant="outline" size="sm" className="h-8" disabled>
+              <Button variant="outline" size="sm" className="h-8" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
                 Previous
               </Button>
               <Button variant="outline" size="sm" className="h-8 bg-primary/10 text-primary">
-                1
+                {page + 1}
               </Button>
-              <Button variant="outline" size="sm" className="h-8">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={(page + 1) * PAGE_SIZE >= total}
+                onClick={() => setPage((current) => current + 1)}
+              >
                 Next
               </Button>
             </div>

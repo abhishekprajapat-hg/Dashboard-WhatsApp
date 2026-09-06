@@ -7,6 +7,7 @@ const viewPermissions: Record<ViewId, string> = {
   dashboard: "dashboard:read",
   inbox: "inbox:read",
   contacts: "contacts:read",
+  leads: "contacts:read",
   automation: "automation:read",
   templates: "templates:read",
   campaigns: "campaigns:read",

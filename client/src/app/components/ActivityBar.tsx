@@ -14,6 +14,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Target,
   Users2,
   Zap,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export type ViewId =
   | "dashboard"
   | "inbox"
   | "contacts"
+  | "leads"
   | "automation"
   | "templates"
   | "campaigns"
@@ -45,6 +47,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { id: "inbox", icon: Inbox, label: "Inbox" },
   { id: "contacts", icon: ContactRound, label: "CRM" },
+  { id: "leads", icon: Target, label: "Pipeline" },
   { id: "automation", icon: Zap, label: "Automation" },
   { id: "templates", icon: FileText, label: "Templates" },
   { id: "campaigns", icon: Megaphone, label: "Campaigns" },

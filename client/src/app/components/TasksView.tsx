@@ -105,7 +105,7 @@ export function TasksView({ canWrite = false }: TasksViewProps) {
     getTeamMembers<{ data: { userId: string; name: string }[] }>()
       .then((response) => setMembers(response.data.map((member) => ({ userId: member.userId, name: member.name }))))
       .catch(() => undefined);
-    getContacts<{ data: { id: string; name: string }[] }>()
+    getContacts<{ data: { id: string; name: string }[] }>({ limit: 200 })
       .then((response) => setContacts(response.data.map((contact) => ({ id: contact.id, name: contact.name }))))
       .catch(() => undefined);
   }, []);

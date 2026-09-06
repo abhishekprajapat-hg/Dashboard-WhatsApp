@@ -16,6 +16,7 @@ import "./paths/contacts.js";
 import "./paths/conversations.js";
 import "./paths/dashboard.js";
 import "./paths/infrastructure.js";
+import "./paths/leads.js";
 import "./paths/legal.js";
 import "./paths/media.js";
 import "./paths/settings.js";

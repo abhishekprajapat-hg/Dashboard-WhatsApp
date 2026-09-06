@@ -78,6 +78,206 @@ confirmed by reading the actual code, not guessed.
   query needs `mongoose.trusted(...)` around it or it will silently misbehave, not error clearly. See
   the 2026-09-05 admin-panel entry for the full story if this bites again.
 
+**UPDATE, same night: Phase 1 (`/api/leads` backend surface) built and verified, not yet
+committed or pushed** - waiting on the user before continuing to Phase 2 (kanban view) so this can
+land as its own reviewable/shippable unit, per the plan's "each phase is independently shippable".
+
+- New `server/routes/leads.js`: `GET /api/leads` (skip/limit pagination, `stage`/`ownerUserId`/
+  `source` filters, populates `contactId` name/phone/email and `ownerUserId` name), `GET
+  /api/leads/:id` (full detail incl. the real `timeline` array, never exposed to any client
+  before this), `PATCH /api/leads/:id` (stage through `normalizeLeadStage()`, owner, `followUpAt`
+  - each changed field appends its own timeline entry: `stage_change`/`owner_change`/
+  `follow_up_set`, same `{id,type,title,at,source}` shape `crm.js:270-274` already uses, capped at
+  200 via `$slice`). Mounted in `server/index.js` behind `requireAuth`+`requireWorkspaceContext`,
+  reusing the existing `contacts:read`/`contacts:write` permissions (no new RBAC permission added -
+  a lead is the same CRM domain as a contact, and no role currently distinguishes the two).
+  OpenAPI doc added (`server/openapi/paths/leads.js`) for consistency with every other router.
+- Real `e2e` test added (`server/tests/leads.e2e.test.js`, same `startTestServer`/
+  `seedTestWorkspace` pattern as `tasksCalendar.e2e.test.js`) covering list/filter/paginate/detail/
+  404/PATCH-per-field/empty-body-rejected/workspace-scoping - **written but NOT run in this
+  session's sandbox**, same known limitation as [[dashboard-whatsapp-e2e-sandbox-limitation]]
+  (nested `child_process.spawn` under the harness's own sandboxed shell produces no output/never
+  reports ready). Whoever next has a normal terminal should run
+  `node --test server/tests/leads.e2e.test.js` once to confirm it actually passes, not just that it
+  reads correctly.
+- **Verified for real instead**, since the test itself couldn't run here: started a disposable real
+  server instance directly (not through the test runner, so the sandbox limitation didn't apply) on
+  a scratch Mongo db (`whatscrm_verify_leads`, dropped after), seeded 3 leads, hit every endpoint
+  with real HTTP calls through a real login token. Confirmed by actual response bodies: pagination
+  totals, stage/source filters, full timeline in the detail response, 404 on both a malformed id and
+  a real id from nowhere, stage-change normalizing garbage input to a no-op vs a real
+  `new_lead`→`won` transition correctly flipping `status` to `won` too, owner reassignment
+  rejecting a non-ObjectId with 400 and accepting a real one, `followUpAt` round-tripping, an empty
+  PATCH body correctly rejected, and a second seeded workspace's lead never appearing in the first
+  workspace's list. Scratch server, script, and database all torn down after - nothing left running.
+  `npm run check:server`/`check:client` both clean throughout.
+- **Not yet done**: client-side `getLeads`/`getLead`/`updateLead` were added to
+  `client/src/app/lib/api.ts` (needed by Phase 2/3 regardless) but nothing calls them yet - no UI
+  exists for this surface until Phase 2's kanban view is built.
+
+**UPDATE, same night: Phase 2 (kanban view) and Phase 3 (lead detail panel) built together and
+verified live in a real browser** - the plan called these out as separate phases but Phase 2's own
+spec says "click opens the lead detail panel from phase 3", so building the board without a working
+click target would have shipped a dead end. Still not committed/pushed, same as Phase 1 above -
+waiting on the user.
+
+- New `client/src/app/components/LeadsView.tsx`, wired in as its own top-level nav view ("Pipeline",
+  `Target` icon, positioned right after "CRM" in `ActivityBar.tsx`) - deliberately NOT bolted onto
+  `ContactsView.tsx`, which stays the plain contacts table exactly as the plan required. Reuses the
+  existing `contacts:read`/`contacts:write` permissions for view access and write-gating (added
+  `leads: "contacts:read"` to `client/src/app/lib/permissions.ts`'s view map, `leads` to `ViewId`
+  in `ActivityBar.tsx`, and the view's label/description/render branch in `App.tsx` - same pattern
+  every other view already follows).
+  - **Kanban board**: one column per `leadStages` (new_lead/contacted/qualified/proposal_sent/won/
+    lost), cards show name/score/owner/source. Click-to-change-stage via a `<select>` on each card
+    (same pattern `CustomerProfileSidebar.tsx`'s lead-stage dropdown already uses) - changing it
+    PATCHes `/api/leads/:id` and moves the card to the new column live, no page reload. Drag-and-drop
+    was explicitly skipped as the plan marked it nice-to-have, not required.
+  - **Lead detail panel**: a right-side `Sheet` (same primitive already in `components/ui/sheet.tsx`,
+    unused elsewhere in this app until now) opened on card click. Shows contact info, a second
+    stage/owner dropdown pair, a `followUpAt` date input, the real `Lead.timeline` rendered newest-
+    first with a type-specific icon (stage_change/owner_change/follow_up_set/note/whatsapp_message),
+    an "add note" form, and an inline "Tasks for this lead" list with a quick-add form and
+    click-to-toggle-complete - reusing `createTask`/`updateTask`/`getTasks` from `api.ts` exactly as
+    the plan asked, no new task system built.
+  - **Real backend gap found and fixed while wiring this**: the plan assumed `GET /tasks` already
+    supported a `contactId` filter ("confirm exact query param name in tasks.js before wiring") -
+    it didn't. Added `contactId: optionalObjectIdString` to `listTasksQuerySchema` and the filter to
+    the handler in `server/routes/tasks.js` (the `Task` model already had an indexed `contactId`
+    field, just never exposed as a list filter). Low risk - purely additive, existing callers
+    unaffected.
+  - **New backend endpoint**: `POST /api/leads/:id/notes` (`server/routes/leads.js`,
+    `addLeadNoteSchema`) - the plan's phase 3 asked to decide between "push to `Lead.timeline`
+    directly" vs. a proper `Note` sub-collection and explicitly said the former is faster and
+    consistent with how timeline already works; went with that. Each note becomes its own
+    `{id, type:"note", title, body, at, source:"manual", actorUserId}` timeline entry, same
+    `$push`+`$slice:-200` pattern as the PATCH route. OpenAPI doc added for it too.
+  - **Small real bug fixed during live verification**: the `follow_up_set` timeline title used
+    `.toLocaleString()` on a date-only value, which rendered a spurious time component (e.g. "10/9/
+    2026, 5:30:00 am" for a plain date picker input, an artifact of the date-only string parsing as
+    UTC midnight then rendering in the server's local timezone). Changed to `.toLocaleDateString()`.
+  - **Verified for real in an actual browser**, not just typecheck: started a fully disposable
+    second server (port 4001) + second Vite client (port 5174) against a scratch Mongo db
+    (`whatscrm_verify_leads_ui`, seeded with 4 leads across 4 different stages), logged in for real,
+    and drove the actual rendered UI end to end - moved a card between columns via the dropdown and
+    watched it jump columns live, reassigned an owner and watched both the card and the panel update,
+    added a note and watched it appear in the timeline instantly, added a task and toggled it
+    complete/incomplete, set a follow-up date and confirmed the timeline entry read correctly after
+    the date-format fix. Screenshots taken at each step. Both disposable processes and the scratch
+    database were torn down afterward - nothing left running, no scratch files left in the repo.
+  - **Known minor issue, not fixed**: a Radix dev-mode console warning ("DialogContent requires a
+    DialogTitle") appeared intermittently around the panel's brief loading-skeleton state despite an
+    `sr-only` `SheetTitle` being added for that branch - console-only, does not affect any real
+    behavior, not worth more time chasing tonight. Whoever next touches this component can dig
+    further if it's still showing up.
+  - **e2e test still unrun in this sandbox**, same limitation noted for Phase 1's
+    `leads.e2e.test.js` - no e2e test was written for the new `/notes` endpoint or the `tasks.js`
+    `contactId` filter; whoever has a real terminal should add one or at least exercise both once.
+
+**UPDATE, same night: Phase 4 (owner-consistency fix) done and verified.** `PATCH
+/conversations/:id/assignment` (`server/routes/conversations.js`) now also updates
+`Contact.ownerUserId` and the contact's open `Lead.ownerUserId` whenever a conversation is
+reassigned (or unassigned) from the inbox - previously only `conversation.assignedToUserId`
+changed, so a lead's recorded owner silently drifted from whoever was actually handling it the
+moment someone reassigned from the inbox instead of the CRM/pipeline UI. The Lead update also
+pushes its own `owner_change` timeline entry (`source: "conversation_assignment"`, to distinguish
+it from a manual pipeline-panel reassignment in the same timeline) using the same `$push`+
+`$slice:-200` pattern as everywhere else. Verified live with a disposable server + real HTTP calls
+(same pattern as Phase 1): assigned a conversation, confirmed both the conversation's `agentId` and
+the linked Lead's/Contact's owner updated together with a real timeline entry; then unassigned and
+confirmed both cleared back to "Unassigned" correctly. `npm run check:server`/`check:client` clean.
+No e2e test file added for this specific route yet (same sandbox limitation as the other two - the
+verification was a disposable-server script run directly, not through the test runner).
+
+**UPDATE, same night: Phase 5 decided and built - user chose "deals" and "internalComments" out of
+the dead `Contact.customFields` stubs, explicitly NOT the legacy `Contact.customFields` location -
+both live on `Lead` instead**, consistent with everything else this session moved onto the real
+`Lead` model rather than resurrecting the old `customFields` stub arrays.
+
+- **Deals**: `Lead.dealValue` (Number, nullable) + `Lead.dealCurrency` (String, default "INR") added
+  to the schema (`server/models/Lead.js`). `PATCH /api/leads/:id` extended to accept both (empty
+  string on `dealValue` means "clear", same convention as `ownerUserId`'s empty-string-unassign) and
+  pushes a `deal_updated` timeline entry when the value actually changes. Kanban cards
+  (`LeadsView.tsx`) show a deal-value badge (`₹75,000`-style, `Intl.NumberFormat`) when set; the
+  detail panel has an editable deal-value input next to follow-up date, saved on blur.
+- **Internal comments**: a genuinely separate thread from `Lead.timeline`/the notes feature -
+  `Lead.internalComments` (own array, own shape `{id, text, at, actorUserId}`) and a new `POST
+  /api/leads/:id/internal-comments` endpoint that never touches `timeline` or `lastActivityAt` (it's
+  not customer-activity, so it deliberately doesn't count as "activity" for sorting/recency).
+  Rendered in its own section below the activity timeline, visually distinct (dashed border, lock
+  icon, explicit "Team-only - never shown to the customer" caption) so it reads as a different kind
+  of data, not just another timeline entry type.
+  - **Client-side name resolution**: comments only store `actorUserId`, resolved to a display name
+    in `LeadsView.tsx` by matching against the already-fetched `members` list (`getTeamMembers()`) -
+    no new backend populate needed.
+- **Verified live** with the same disposable-server-plus-client pattern as Phase 2/3: seeded a lead
+  with `dealValue: 50000`, confirmed the kanban badge rendered, edited it to 75000 via the detail
+  panel and watched the card update live plus a real `deal_updated` timeline entry appear, added an
+  internal comment and confirmed it rendered with the correct resolved member name ("Integration
+  Admin") **and** confirmed the main activity timeline did NOT get a new entry from it - the
+  separation is real, not just a UI label. Disposable server/client/scratch-db all torn down after.
+  `npm run check:server`/`check:client` clean throughout.
+- **Not done**: `customerHistory`/`orderHistory`/`paymentHistory` stubs - user didn't select these,
+  left untouched and still dead exactly as before.
+
+**UPDATE, same night: Phase 6 (Filter/Import/pagination on the plain Contacts list) done and
+verified live - this was the last item in the original plan.** Built without stopping to ask about
+the Filter fields specifically (the user had already said "keep building Phase 6" when asked about
+committing) - used the plan's own suggested fields (stage/source/owner/tag) rather than guessing
+something else.
+
+- **Real pagination**: `server/routes/contacts.js`'s `GET /` replaced the hardcoded `.limit(100)`
+  with real `skip`/`limit` query params (default 50, same convention as the `/api/leads` pagination
+  from Phase 1) and now returns a real `total` via `Contact.countDocuments(filter)` instead of
+  `dbContacts.length`. `ContactsView.tsx` has real page state (`PAGE_SIZE = 25`), Previous/Next
+  buttons wired to it, and an honest "Showing X-Y of Z" label.
+- **Filter panel**: a popover off the existing dead "Filter" button with four selects - Stage,
+  Source, Owner, Tag - combined as AND. Backend filters added: `stage` matches
+  `customFields.crm.stage` (dot-path query into the Mixed field, no schema change - a contact
+  that's never touched CRM simply won't match any stage filter, which is correct), `source` (exact
+  match on the existing top-level field), `ownerUserId`/`tag` (plain equality/array-contains, no
+  `$`-operators so `sanitizeFilter`/`mongoose.trusted()` doesn't apply here). New `GET
+  /api/contacts/filter-options` endpoint feeds the selects with the workspace's real distinct
+  `source` values and real `Tag` list (stage options are the fixed 6-value enum, listed directly -
+  no query needed). The Filter button shows an active-filter-count badge; a "Clear filters" resets
+  in one click. Text search stays exactly as it was before tonight (client-side, over whatever page
+  is currently loaded) - deliberately not touched, since making it a real server-side search across
+  the whole filtered set was a bigger change than this phase asked for.
+- **CSV Import - the "biggest lift" item, built as a real 3-step wizard**, not a stub: upload → a
+  hand-rolled RFC4180-ish CSV parser (`parseCsv()` in `ContactsView.tsx` - handles quoted fields,
+  embedded commas, embedded newlines, and `""`-escaped quotes; the existing CSV *export* in this
+  same file was a naive `.split(",")`, which is fine for output but would have silently mis-parsed
+  many real-world CSVs on the way back in) → column-mapping UI that auto-guesses Name/Phone/Email/
+  Tags columns from header text (`guessColumn()`) but lets the user override every mapping, with a
+  live 5-row preview → `POST /api/contacts/bulk-import` (`server/routes/contacts.js`, capped at 500
+  rows/request), which creates one row at a time (not `insertMany`) specifically so one bad/
+  duplicate row never blocks the rest of the batch, pre-loads existing phones once to skip real
+  duplicates cheaply, and returns a real `{created, skipped, errors: [{row, message}]}` summary
+  shown to the user before closing the modal.
+- **Verified live**, same disposable-server-plus-client pattern as every other phase tonight: seeded
+  30 contacts with varied stage/source/tags across two pages, confirmed Previous/Next and the
+  "Showing X-Y of Z" label were exactly right, applied Stage=qualified (30→10 matching) then added
+  Tag=VIP on top (10→2, proving the AND combination is real, not just the last-applied filter),
+  cleared filters back to 30. For Import: since this browser automation has no native file-picker
+  API, used `javascript_tool` to construct a real `File`/`DataTransfer` and dispatch a genuine
+  `change` event on the file input (not a scripted bypass of the app's own logic - the app's real
+  `FileReader`/`parseCsv`/column-mapping code ran exactly as it would for a real user's upload) with
+  a CSV deliberately designed to exercise every edge case at once: a quoted field with an embedded
+  comma ("Verma, Rahul"), a field with an escaped quote (`Anita ""The Closer"" Rao`), a
+  semicolon-separated multi-tag field, a row missing a name, and a row missing a phone. Result
+  matched exactly: 3 created (with the tricky name variants and split tags all correct in the
+  refreshed list), 0 skipped, 2 errors with the right per-row messages, and the contacts list/counts
+  updated live afterward (30 → 33) without a manual refresh. Disposable server/client/scratch-db
+  and the scratch CSV file all torn down after. `npm run check:server`/`check:client` clean
+  throughout.
+
+**This closes every phase in the original 2026-09-06 plan.** Nothing has been committed or pushed
+yet - all six phases are sitting as uncommitted working-tree changes, by the user's own choice
+earlier tonight ("don't commit yet, keep building Phase 6... commit everything together at the
+end"). The obvious next step is for the user to review the diff and decide on committing/pushing -
+this repo auto-deploys within ~5 minutes of any push to `main`, so that should be a deliberate,
+explicit go-ahead, not assumed.
+
 ## 2026-09-05: Enterprise Admin Dashboard multi-tenant audit — real gaps found, fix in progress, PAUSED mid-investigation (context checkpoint, not a stopping point)
 
 User walked through the live `dashboard.nemnidhi.com/#admin` panel tab-by-tab (Overview, Companies,

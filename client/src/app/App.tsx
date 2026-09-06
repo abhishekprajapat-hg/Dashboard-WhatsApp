@@ -7,6 +7,7 @@ import { ActivityBar, type ViewId } from "./components/ActivityBar";
 import { DashboardView } from "./components/DashboardView";
 import { InboxView } from "./components/InboxView";
 import { ContactsView } from "./components/ContactsView";
+import { LeadsView } from "./components/LeadsView";
 import { AutomationView } from "./components/AutomationView";
 import { TemplatesView } from "./components/TemplatesView";
 import { CampaignsView } from "./components/CampaignsView";
@@ -19,12 +20,13 @@ import { SettingsView } from "./components/SettingsView";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
 
-const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
+const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
 const VIEW_LABELS: Record<ViewId, string> = {
   dashboard: "Dashboard",
   inbox: "Inbox",
   contacts: "CRM",
+  leads: "Pipeline",
   automation: "Automation",
   templates: "Templates",
   campaigns: "Campaigns",
@@ -40,6 +42,7 @@ const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
   dashboard: "Workspace command center",
   inbox: "Live WhatsApp conversations",
   contacts: "Customer records and lifecycle",
+  leads: "Kanban pipeline across every lead stage",
   automation: "Flows, triggers, and routing",
   templates: "Approved message templates",
   campaigns: "Broadcasts and audience sends",
@@ -288,6 +291,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "dashboard" && <DashboardView userName={session.user.name} />}
           {canAccessView(session, activeView) && activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} canWrite={canWriteInbox} onUnreadCountChange={setUnreadCount} />}
           {canAccessView(session, activeView) && activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} canWrite={canWriteContacts} />}
+          {canAccessView(session, activeView) && activeView === "leads" && <LeadsView canWrite={canWriteContacts} />}
           {canAccessView(session, activeView) && activeView === "automation" && <AutomationView canWrite={canWriteAutomation} />}
           {canAccessView(session, activeView) && activeView === "templates" && <TemplatesView canWrite={canWriteTemplates} />}
           {canAccessView(session, activeView) && activeView === "campaigns" && <CampaignsView canWrite={canWriteCampaigns} />}

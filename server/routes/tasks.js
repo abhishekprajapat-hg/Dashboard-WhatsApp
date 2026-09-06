@@ -11,6 +11,7 @@ export const tasksRouter = Router();
 export const listTasksQuerySchema = z.object({
   status: z.enum(["open", "completed", ""]).optional().default(""),
   assignedToUserId: optionalObjectIdString,
+  contactId: optionalObjectIdString,
 });
 
 export const taskBodySchema = z.object({
@@ -52,6 +53,7 @@ tasksRouter.get("/", requirePermission("tasks:read"), validateQuery(listTasksQue
   const filter = { workspaceId: req.user.workspaceId };
   if (req.query.status) filter.status = req.query.status;
   if (req.query.assignedToUserId) filter.assignedToUserId = req.query.assignedToUserId;
+  if (req.query.contactId) filter.contactId = req.query.contactId;
 
   const tasks = await Task.find(filter)
     .populate("assignedToUserId", "name")

@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import { z } from "zod";
 import { conversations } from "../data/demoData.js";
-import { AutomationRun, Contact, Conversation, Membership, Message, Template } from "../models/index.js";
+import { AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
 import { InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
@@ -616,6 +616,38 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
     },
   };
   await conversation.save();
+
+  // Keep the linked Lead/Contact owner in sync with who's actually handling the conversation -
+  // without this, a lead's recorded owner silently drifts from the conversation's real assignee
+  // the moment someone reassigns from the inbox instead of from the CRM/pipeline UI.
+  if (conversation.contactId) {
+    const ownerUserId = userId || null;
+    const now = new Date();
+    await Promise.all([
+      Contact.updateOne({ _id: conversation.contactId, workspaceId: req.user.workspaceId }, { ownerUserId }),
+      Lead.findOneAndUpdate(
+        { workspaceId: req.user.workspaceId, contactId: conversation.contactId, status: "open" },
+        {
+          $set: { ownerUserId, lastActivityAt: now },
+          $push: {
+            timeline: {
+              $each: [
+                {
+                  id: `owner:${conversation.contactId}:${now.getTime()}`,
+                  type: "owner_change",
+                  title: ownerUserId ? "Owner reassigned" : "Owner unassigned",
+                  at: now,
+                  source: "conversation_assignment",
+                  actorUserId: req.user.sub,
+                },
+              ],
+              $slice: -200,
+            },
+          },
+        }
+      ),
+    ]);
+  }
 
   const [hydrated, messages] = await Promise.all([
     Conversation.findById(conversation._id)

@@ -20,6 +20,7 @@ import { campaignsRouter } from "./routes/campaigns.js";
 import { contactsRouter } from "./routes/contacts.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dashboardRouter } from "./routes/dashboard.js";
+import { leadsRouter } from "./routes/leads.js";
 import { settingsRouter } from "./routes/settings.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { teamRouter } from "./routes/team.js";
@@ -108,6 +109,7 @@ app.use("/api/infrastructure", requireAuth, requireWorkspaceContext, infrastruct
 app.use("/api/workspaces", requireAuth, requireWorkspaceContext, workspaceRouter);
 app.use("/api/dashboard", requireAuth, requireWorkspaceContext, dashboardRouter);
 app.use("/api/contacts", requireAuth, requireWorkspaceContext, contactsRouter);
+app.use("/api/leads", requireAuth, requireWorkspaceContext, leadsRouter);
 app.use("/api/conversations", requireAuth, requireWorkspaceContext, conversationsRouter);
 app.use("/api/campaigns", requireAuth, requireWorkspaceContext, campaignsRouter);
 app.use("/api/ads", requireAuth, requireWorkspaceContext, adsRouter);

@@ -20,11 +20,17 @@ const leadSchema = new mongoose.Schema(
     firstMessageAt: Date,
     lastActivityAt: Date,
     followUpAt: Date,
+    dealValue: { type: Number, default: null },
+    dealCurrency: { type: String, default: "INR" },
     location: mongoose.Schema.Types.Mixed,
     syncStatus: { type: mongoose.Schema.Types.Mixed, default: {} },
     syncLog: { type: [mongoose.Schema.Types.Mixed], default: [] },
     customFields: { type: mongoose.Schema.Types.Mixed, default: {} },
     timeline: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // Deliberately separate from `timeline` - a private team-only discussion thread about the
+    // lead (pricing strategy, internal risk notes) distinct from the customer-activity/note feed
+    // that `timeline`'s "note" entries already cover. Never mixed into the same array.
+    internalComments: { type: [mongoose.Schema.Types.Mixed], default: [] },
   },
   { timestamps: true }
 );

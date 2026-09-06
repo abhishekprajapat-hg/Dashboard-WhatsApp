@@ -351,12 +351,40 @@ export function getAnalyticsExportUrl(type: "pdf" | "excel", params: number | { 
   return `${API_URL}/analytics/export/${type}?${query.toString() || "days=30"}`;
 }
 
-export function getContacts<T>(search = "", lifecycle = "") {
+export function getContacts<T>(
+  params: {
+    search?: string;
+    lifecycle?: string;
+    stage?: string;
+    source?: string;
+    ownerUserId?: string;
+    tag?: string;
+    skip?: number;
+    limit?: number;
+  } = {}
+) {
   const query = new URLSearchParams();
-  if (search) query.set("search", search);
-  if (lifecycle) query.set("lifecycle", lifecycle);
+  if (params.search) query.set("search", params.search);
+  if (params.lifecycle) query.set("lifecycle", params.lifecycle);
+  if (params.stage) query.set("stage", params.stage);
+  if (params.source) query.set("source", params.source);
+  if (params.ownerUserId) query.set("ownerUserId", params.ownerUserId);
+  if (params.tag) query.set("tag", params.tag);
+  if (params.skip) query.set("skip", String(params.skip));
+  if (params.limit) query.set("limit", String(params.limit));
   const suffix = query.toString() ? `?${query}` : "";
   return request<T>(`/contacts${suffix}`);
+}
+
+export function getContactFilterOptions<T>() {
+  return request<T>("/contacts/filter-options");
+}
+
+export function bulkImportContacts<T>(rows: { name: string; phone: string; email?: string; tags?: string[] }[]) {
+  return request<T>("/contacts/bulk-import", {
+    method: "POST",
+    body: JSON.stringify({ contacts: rows }),
+  });
 }
 
 export function createContact<T>(contact: { name: string; phone: string; email?: string; tags?: string[] }) {
@@ -386,6 +414,45 @@ export function assignContactOwner<T>(id: string, ownerUserId: string) {
   return request<T>(`/contacts/${id}/owner`, {
     method: "PATCH",
     body: JSON.stringify({ ownerUserId }),
+  });
+}
+
+export function getLeads<T>(params: { stage?: string; ownerUserId?: string; source?: string; skip?: number; limit?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.stage) query.set("stage", params.stage);
+  if (params.ownerUserId) query.set("ownerUserId", params.ownerUserId);
+  if (params.source) query.set("source", params.source);
+  if (params.skip) query.set("skip", String(params.skip));
+  if (params.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/leads${suffix}`);
+}
+
+export function getLead<T>(id: string) {
+  return request<T>(`/leads/${id}`);
+}
+
+export function updateLead<T>(
+  id: string,
+  patch: { stage?: string; ownerUserId?: string; followUpAt?: string; dealValue?: number | ""; dealCurrency?: string }
+) {
+  return request<T>(`/leads/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function addLeadNote<T>(id: string, text: string) {
+  return request<T>(`/leads/${id}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
+export function addLeadInternalComment<T>(id: string, text: string) {
+  return request<T>(`/leads/${id}/internal-comments`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
   });
 }
 
@@ -1190,10 +1257,11 @@ export function deleteTeamMember(id: string) {
   });
 }
 
-export function getTasks<T>(params: { status?: string; assignedToUserId?: string } = {}) {
+export function getTasks<T>(params: { status?: string; assignedToUserId?: string; contactId?: string } = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set("status", params.status);
   if (params.assignedToUserId) query.set("assignedToUserId", params.assignedToUserId);
+  if (params.contactId) query.set("contactId", params.contactId);
   const suffix = query.toString() ? `?${query}` : "";
   return request<T>(`/tasks${suffix}`);
 }
