@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { config } from "../config.js";
 import { demoUser, demoWorkspace } from "../data/demoData.js";
+import { requireAuth } from "../middleware/auth.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { validateBody } from "../middleware/validate.js";
 import { Membership, Organization, Role, User, Workspace } from "../models/index.js";
@@ -15,6 +16,8 @@ import { trimmedString } from "../utils/zodHelpers.js";
 import { serializeUser, serializeWorkspace, signOAuthContinuationToken, signSession, verifyOAuthContinuationToken } from "../utils/session.js";
 import { buildAuthorizeUrl, exchangeCodeForProfile, isKnownProvider, isProviderConfigured } from "../services/socialAuth.js";
 import { generateAndSendOtp, verifyOtp } from "../services/otpService.js";
+import { sendPasswordResetEmail } from "../services/mailer.js";
+import { logger } from "../services/logger.js";
 
 export const authRouter = Router();
 
@@ -29,6 +32,25 @@ const signupRateLimiter = rateLimiter({ limit: 5, windowMs: 60_000, scope: "sign
 // than signup since a real user retrying a mistyped password is a much more common case than a
 // mistyped signup form.
 const loginRateLimiter = rateLimiter({ limit: 10, windowMs: 60_000, scope: "login" });
+
+// Shared by forgot/reset - both are real abuse surfaces (email-bombing a stranger's inbox,
+// brute-forcing a reset token) distinct from login's own limiter.
+const passwordResetRateLimiter = rateLimiter({ limit: 5, windowMs: 60_000, scope: "password-reset" });
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
+});
+
+export const resetPasswordSchema = z.object({
+  email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
+  token: trimmedString("A reset token is required."),
+  password: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required."),
+  newPassword: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+});
 
 export const loginSchema = z.object({
   email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
@@ -237,6 +259,68 @@ authRouter.post("/login", loginRateLimiter, validateBody(loginSchema), async (re
   }
 
   res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password." });
+});
+
+// Deliberately returns the exact same {sent:true} response whether or not the email is registered,
+// whether the account is social/OTP-only (no passwordHash to ever reset), and whether the email
+// actually sent - a differing response here is a classic account-enumeration leak. Real failures
+// (mail not configured, SMTP error) are logged server-side instead of surfaced to the caller.
+authRouter.post("/forgot-password", passwordResetRateLimiter, validateBody(forgotPasswordSchema), async (req, res) => {
+  const genericResponse = { sent: true };
+  if (mongoose.connection.readyState !== 1) return res.json(genericResponse);
+
+  const email = req.body.email.toLowerCase();
+  const user = await User.findOne({ email, status: "active" });
+  if (!user || !user.passwordHash) return res.json(genericResponse);
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  user.passwordResetTokenHash = hashPassword(rawToken);
+  user.passwordResetExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  await user.save();
+
+  const resetUrl = `${config.publicBaseUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
+  try {
+    await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl });
+  } catch (error) {
+    logger.warn({ err: error, userId: user._id.toString() }, "forgot-password: could not send reset email");
+  }
+
+  res.json(genericResponse);
+});
+
+authRouter.post("/reset-password", passwordResetRateLimiter, validateBody(resetPasswordSchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const email = req.body.email.toLowerCase();
+  const user = await User.findOne({ email, status: "active" });
+  const tokenValid =
+    user?.passwordResetTokenHash &&
+    user?.passwordResetExpiresAt &&
+    user.passwordResetExpiresAt > new Date() &&
+    verifyPassword(req.body.token, user.passwordResetTokenHash);
+
+  if (!tokenValid) {
+    return res.status(400).json({ error: "INVALID_OR_EXPIRED_TOKEN", message: "This reset link is invalid or has expired. Request a new one." });
+  }
+
+  user.passwordHash = hashPassword(req.body.password);
+  user.passwordResetTokenHash = null;
+  user.passwordResetExpiresAt = null;
+  await user.save();
+
+  res.json({ reset: true });
+});
+
+authRouter.post("/change-password", requireAuth, validateBody(changePasswordSchema), async (req, res) => {
+  const user = await User.findById(req.user.sub);
+  if (!user || !verifyPassword(req.body.currentPassword, user.passwordHash)) {
+    return res.status(401).json({ error: "INVALID_CURRENT_PASSWORD", message: "Current password is incorrect." });
+  }
+  user.passwordHash = hashPassword(req.body.newPassword);
+  await user.save();
+  res.json({ changed: true });
 });
 
 authRouter.post("/register", signupRateLimiter, validateBody(registerSchema), async (req, res) => {

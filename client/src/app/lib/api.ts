@@ -116,6 +116,20 @@ export async function login(email: string, password: string) {
   return session;
 }
 
+export function forgotPassword(email: string) {
+  return request<{ sent: boolean }>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function changePassword(payload: { currentPassword: string; newPassword: string }) {
+  return request<{ changed: boolean }>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function restoreSession() {
   const session = await request<AuthSession>("/auth/me");
   storeSession(session);

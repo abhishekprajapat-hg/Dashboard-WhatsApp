@@ -18,6 +18,11 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ["active", "invited", "suspended"], default: "active", index: true },
     lastLoginAt: Date,
     preferences: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Hashed the same way a real password would be (hashPassword/verifyPassword) rather than
+    // storing the raw token - a leaked DB snapshot shouldn't hand out working reset links.
+    // Cleared (both fields) the moment a reset actually succeeds or a newer request supersedes it.
+    passwordResetTokenHash: { type: String, default: null },
+    passwordResetExpiresAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

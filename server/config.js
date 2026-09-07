@@ -128,6 +128,17 @@ export const config = {
   notifications: {
     requestTimeoutMs: numberFromEnv("NOTIFICATION_REQUEST_TIMEOUT_MS", 15000),
   },
+  // Platform-level transactional email (password reset) - deliberately separate from
+  // notificationChannels.js's per-workspace SendGrid key (Settings -> Integrations, used for a
+  // tenant's own "alert me when my WhatsApp account needs attention" emails). Password reset has
+  // no workspace context yet when it fires - any user on any tenant might need it - so it can't
+  // borrow a specific tenant's own configured key. Reuses the exact same sendEmail()/SendGrid
+  // call shape from notificationChannels.js, just with this platform-wide credential instead.
+  platformEmail: {
+    sendgridApiKey: process.env.SENDGRID_API_KEY || "",
+    fromAddress: process.env.MAIL_FROM || "",
+    fromName: process.env.MAIL_FROM_NAME || "Dashboard-WhatsApp",
+  },
   // Bounds for the code_block automation node's isolated-vm sandbox - kept low/conservative since
   // this runs inline in advanceRun's synchronous traversal loop (blocks the whole run until it
   // resolves, like every other Phase 2 node) on a resource-constrained single VPS.

@@ -31,6 +31,7 @@ import { infrastructureRouter } from "./routes/infrastructure.js";
 import { instagramPublicRouter, instagramRouter } from "./routes/instagram.js";
 import { facebookPagesPublicRouter, facebookPagesRouter } from "./routes/facebookPages.js";
 import { legalRouter } from "./routes/legal.js";
+import { resetPasswordRouter } from "./routes/resetPassword.js";
 import { whatsappRouter, whatsappWebhookRouter } from "./routes/whatsapp.js";
 import { whatsappFlowsRouter } from "./routes/whatsappFlows.js";
 import { workspaceRouter } from "./routes/workspace.js";
@@ -101,6 +102,7 @@ app.get("/api/openapi.json", (_req, res) => {
   res.json(openApiDocument);
 });
 app.use("/legal", legalRouter);
+app.use(resetPasswordRouter);
 
 app.use("/api/auth", authRouter);
 app.use("/api/analytics", requireAuth, requireWorkspaceContext, analyticsRouter);

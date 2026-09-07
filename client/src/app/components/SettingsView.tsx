@@ -40,6 +40,7 @@ import { FacebookSettingsPanel } from "./FacebookSettingsPanel";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
+  changePassword,
   createWhatsAppAccount,
   createWhatsAppTemplate,
   deleteWhatsAppAccount,
@@ -327,6 +328,9 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   const [notificationsForm, setNotificationsForm] = useState<NotificationsPayload>(initialSettings.notifications);
   const [notificationsSaving, setNotificationsSaving] = useState(false);
   const [notificationsNotice, setNotificationsNotice] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordNotice, setPasswordNotice] = useState("");
   const [copiedValue, setCopiedValue] = useState("");
   const [accountTesting, setAccountTesting] = useState("");
   const [conversionTesting, setConversionTesting] = useState("");
@@ -673,6 +677,25 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
       setNotificationsNotice(error instanceof Error ? error.message : "Notification preferences could not be saved.");
     } finally {
       setNotificationsSaving(false);
+    }
+  }
+
+  async function handleChangePassword(event: React.FormEvent) {
+    event.preventDefault();
+    setPasswordNotice("");
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordNotice("New passwords do not match.");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await changePassword({ currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword });
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordNotice("Password changed.");
+    } catch (error) {
+      setPasswordNotice(error instanceof Error ? error.message : "Password could not be changed.");
+    } finally {
+      setPasswordSaving(false);
     }
   }
 
@@ -1756,7 +1779,69 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "notifications" && (
+        {activeTab === "security" && (
+          <div className="max-w-xl space-y-4">
+            <Card className={`p-4 ${cardClass}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <LockKeyhole size={16} className="text-primary" />
+                <h3 className="text-sm font-medium text-foreground">Change password</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Update the password for your own account. This doesn&apos;t affect other team members.
+              </p>
+            </Card>
+
+            <form onSubmit={handleChangePassword} className={`space-y-4 ${cardClass} p-4`}>
+              <div className="space-y-1.5">
+                <Label>Current password</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                  autoComplete="current-password"
+                  className={fieldClass}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>New password</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                  autoComplete="new-password"
+                  minLength={8}
+                  className={fieldClass}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Confirm new password</Label>
+                <Input
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                  autoComplete="new-password"
+                  minLength={8}
+                  className={fieldClass}
+                  required
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground" disabled={passwordSaving}>
+                  {passwordSaving ? "Saving..." : "Change password"}
+                </Button>
+                {passwordNotice && (
+                  <span className={`rounded-md border px-3 py-2 text-xs ${/could not|match|incorrect/i.test(passwordNotice) ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
+                    {passwordNotice}
+                  </span>
+                )}
+              </div>
+            </form>
+          </div>
+        )}
+
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "facebook" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "billing" && activeTab !== "api" && activeTab !== "notifications" && activeTab !== "security" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>
