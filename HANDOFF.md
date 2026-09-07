@@ -1,5 +1,143 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-07: added password reset / change password - real gaps, not previously built at all
+
+Found while onboarding a new client via Admin → Companies → Create Tenant: there was no way
+anywhere in this app to reset a forgotten password or change one after login - not even a
+platform-owner admin route to reset a client's password later. The "Forgot password?" button on
+the login page and the "Security" settings tab were both pre-existing UI stubs for exactly this (a
+dead button with no handler, a nav item with no content block at all).
+
+Built: `POST /auth/forgot-password` (always returns the same generic response regardless of
+whether the email is registered - anti-enumeration), `POST /auth/reset-password` (plain
+server-rendered page at `server/routes/resetPassword.js`, same philosophy as `legal.js`, since it
+has to work from a cold email-link click with no app/session state), `POST /auth/change-password`
+(authenticated). `services/mailer.js` reuses `notificationChannels.js`'s real SendGrid `sendEmail()`
+(a new platform-wide key, `config.platformEmail`) rather than a second parallel email
+implementation - a workspace's own configured SendGrid key can't be used here since password reset
+has no workspace context yet. Wired the dead LoginPage button and populated the empty Security tab.
+Also fixed a real separate bug found along the way: the Settings page's generic "ready for next
+implementation pass" fallback block's exclusion list was missing `facebook`/`billing`/`api` (and now
+`security`) - those tabs had been silently rendering that placeholder card underneath their own real
+content the whole time.
+
+**Not yet live-tested end-to-end** - needs a real `SENDGRID_API_KEY` + `MAIL_FROM` set in
+production; currently logs a warning and silently no-ops the actual send while everything else
+(the routes, the reset page, the UI) is real and deployed.
+
+## 2026-09-07: first real client (Sundrishti Solar Solutions) onboarded end-to-end - a real Meta Login restriction found blocking it, a manual-connect workaround proven live, and a real webhook-subscription bug found+fixed along the way
+
+**Why this exists**: created the first real platform-owner-provisioned tenant (Admin → Companies →
+Create Tenant), then tried the normal self-serve path (client logs into their own workspace,
+Settings → WhatsApp → "Connect with Facebook") to onboard their WhatsApp number - a completely
+normal, never-migrated consumer number. Hit a real platform-level block partway through, worked
+around it live, and found a second real bug in the process. Everything below is what actually
+happened, in order, not a cleaned-up summary - read the "Manual connection runbook" section at the
+bottom if you just need to repeat this for the next client.
+
+**Bug found #1 - `email`/`public_profile` never went through Advanced Access review, silently
+blocking real-user Facebook Login app-wide.** The client's Embedded Signup popup failed with
+`"Facebook Login is currently unavailable for this app as we are updating additional details for
+this app."` Ruled out, in order: Data Use Checkup (already Completed), Business Verification
+(already verified) - confirmed live in the App Dashboard, not assumed. Real cause: this app's
+`email`/`public_profile` permissions (used by `services/socialAuth.js`'s "Sign in with Facebook" on
+the public signup page - a real, complete feature, not a stub) never had an actual App Review
+submission filed for Advanced Access. Standard Access already works for anyone with a role on the
+app (which is why this was never caught before - only real external users hit it) - confirmed this
+doesn't affect anything already connected (existing WhatsApp numbers keep receiving messages fine,
+since that's just webhook delivery to an already-stored token, no Login flow involved at all).
+**Fix (submitted, not yet approved)**: `docs/META_APP_REVIEW_FACEBOOK_LOGIN.md` - real justification
+text, ready to record and submit. Also wrote `docs/META_APP_REVIEW_FACEBOOK_PAGES.md` for the new
+Facebook Page Messenger feature's `pages_show_list`/`pages_messaging` (see below), which never got
+its own review doc when built earlier the same day.
+
+**Real-time workaround used to actually onboard this client today, entirely bypassing the broken
+Login popup** (see the runbook below for the repeatable version): the client's Business Manager
+portfolio had literally zero business info filled in (legal name/address/phone/website all blank,
+left over from before a company rename) - WhatsApp's setup flow correctly refused to proceed
+without it. Filled in real business details, migrated the number directly in WhatsApp Manager
+(deleted the account from the phone's WhatsApp app first, which released it from the regular
+consumer registration within ~3 minutes), used Meta's own Business-to-Business partner-sharing
+("Assign partner" on the client's WABA, entering Nemnidhi's own Business Portfolio ID) to share the
+WABA with Nemnidhi's business instead of trying to claim Nemnidhi's app into the client's own
+portfolio (which correctly fails - "You can only request access to an app owned by another business
+or yourself" - the app is owned by Nemnidhi, not the client). Generated a System User token from
+inside Nemnidhi's own Business Settings (an existing System User, "Dashboardlink", already had Full
+Control on both the Dashboard app and - once shared - the client's WABA), then used this app's own
+manual "Add account" form (Settings → WhatsApp, Meta Cloud API provider) with the real Phone
+Number ID / WABA ID / token. None of this touches the broken Login popup at all.
+
+**Bug found #2 - the manual "Add account" flow never subscribes the app to the WABA's webhooks,
+unlike Embedded Signup.** After connecting, the account showed "connected"/"webhook healthy" in
+this app's own UI, but a real test message sent to the number never appeared in the Inbox. Traced
+`routes/whatsapp.js`'s `POST /accounts` handler directly: it only ever writes the account record to
+Mongo - it never calls Meta's `POST /{waba-id}/subscribed_apps`, which `services/embeddedSignup.js`'s
+`subscribeEmbeddedSignupWebhooks()` does automatically for the Embedded Signup path. "Webhook
+healthy" in this app's UI is an internal status flag, not proof Meta is actually configured to push
+events to us - a real, silent gap for every account ever connected via the manual form (not just
+this one). **Fixed live for this account** by calling `POST /{waba-id}/subscribed_apps` directly via
+Graph API Explorer with the System User token - confirmed `{"success": true}`, then confirmed a real
+test message actually reached the Inbox. **Not yet fixed in code** - `routes/whatsapp.js`'s manual
+connect route should call this subscribe step automatically, the same way the Embedded Signup path
+already does, so the next manually-connected client doesn't hit this same silent gap.
+
+### Manual connection runbook - for the next client whose number isn't already on the Cloud API
+
+Use this whenever "Connect with Facebook" isn't an option (broken Login popup, or any other reason)
+and the client has a normal, never-migrated WhatsApp number.
+
+1. **Business info must be complete first.** In the client's own Business Settings → Business info,
+   fill in Legal business name, Address, Business phone number, and Website. WhatsApp's own setup
+   flow refuses to create a WABA under an incomplete business profile with a real, actionable error
+   naming this - don't skip straight to the number.
+2. **Migrate the number.** In WhatsApp Manager (business.facebook.com/wa/manage), try adding the
+   number. If it's active on regular WhatsApp/WhatsApp Business App, you'll get "Phone Number In
+   Use" - have the client open WhatsApp on that phone and check for a migration confirmation prompt
+   first (less destructive); if none appears, have them go to WhatsApp → Settings → Account →
+   **Delete my account** (warn them first: this loses local chat history on that number). Wait ~3
+   minutes, then retry adding the number in WhatsApp Manager.
+3. **Share the WABA with Nemnidhi's business**, don't try to claim Nemnidhi's app into the client's
+   portfolio (that direction fails - the app is owned by Nemnidhi, not them). On the client's WABA
+   page in their Business Settings, click **Assign partner** and enter Nemnidhi's own Business
+   Portfolio ID (find it the same way: Nemnidhi's own Business Settings → Business info → "Business
+   portfolio ID" at the top).
+4. **Generate the token from Nemnidhi's own Business Settings**, not the client's. Check the
+   existing "Dashboardlink" System User first (Users → System Users) - it likely already has Full
+   Control on the Dashboard app; once the WABA is shared, add it as an asset there too if it doesn't
+   auto-appear. Generate New Token with `whatsapp_business_management` +
+   `whatsapp_business_messaging`, expiration **Never**.
+5. **Get the real Phone Number ID**, not the WABA ID - click into the phone number's own row in
+   WhatsApp Manager for its distinct numeric ID; don't reuse the Business Account ID by mistake.
+6. **Add the account manually** in this app's Settings → WhatsApp → Meta Cloud API, using Phone
+   Number ID / Business Account ID / the token from step 4.
+7. **Subscribe the webhook manually** - this app's manual connect does NOT do this automatically
+   (see Bug #2 above, still open). Via Graph API Explorer: select the Dashboard app, paste the same
+   System User token, method **POST**, path `{waba-id}/subscribed_apps`, Submit. Confirm
+   `{"success": true}`.
+8. **Verify for real** - send an actual WhatsApp message to the number from a different phone,
+   confirm it lands in the dashboard Inbox, reply from there, confirm it arrives back on the phone.
+   Don't trust "connected"/"webhook healthy" status badges alone (see Bug #2).
+
+### Outstanding after this session
+
+- **Fix `routes/whatsapp.js`'s manual `POST /accounts` to call the webhook subscribe step
+  automatically** (Bug #2) - the real code fix, not just today's one-off manual Graph API Explorer
+  call.
+- **Record and submit** `docs/META_APP_REVIEW_FACEBOOK_LOGIN.md` and
+  `docs/META_APP_REVIEW_FACEBOOK_PAGES.md` - both ready, just need the actual screencast + form
+  submission (can be recorded with any admin account, doesn't need the broken Login popup fixed
+  first).
+- **`docs/META_APP_REVIEW_CATALOG.md`** (`catalog_management`) also still outstanding from earlier -
+  not touched this session.
+- **Billing section needs to actually meet Meta's requirements before connecting real clients at
+  scale** - flagged as a real priority, not yet scoped or investigated this session. Needs a proper
+  look at what Meta specifically expects here (likely tied to the same Business Verification/App
+  Review discipline as everything else in this file) before more clients go through this same manual
+  flow.
+- Password reset / change password (built earlier this session, see the entry above this one once
+  it's added) needs a real `SENDGRID_API_KEY` set in production - currently logs a warning and
+  silently no-ops the send.
+
 ## 2026-09-06 evening: WhatsApp OTP signup was broken by FOUR independent, stacked bugs - all found and fixed by actually testing a real send against production, not by reading code
 
 **Why this exists**: the previous entry flagged that `isSystemAccount` being unsettable "almost certainly also silently broke WhatsApp OTP signup" and recommended a real test. That test uncovered four separate bugs stacked on top of each other in the same code path - fixing one just revealed the next. All four are now fixed and **verified with a real WhatsApp message actually delivered to a real phone** (code `375872` received), not just a clean HTTP 200.
