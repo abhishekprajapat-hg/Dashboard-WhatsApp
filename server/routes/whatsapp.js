@@ -19,7 +19,7 @@ import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
 import { notifyWorkspace } from "../services/notifications.js";
 import { notifyVega } from "../services/vegaIntegration.js";
-import { completeEmbeddedSignup } from "../services/embeddedSignup.js";
+import { completeEmbeddedSignup, subscribeEmbeddedSignupWebhooks } from "../services/embeddedSignup.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { detectWhatsAppLead, ensureConversationInCrm } from "../services/crm.js";
@@ -409,6 +409,28 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
     catalogAccessToken: catalogAccessTokenValue,
   };
 
+  // Embedded Signup subscribes the app to the WABA's webhooks automatically (see
+  // completeEmbeddedSignup below) - this manual form has to do the same Graph API call itself, or
+  // inbound messages/status updates for the number never reach us even though the account still
+  // shows "connected" (confirmed live 2026-09-07: a real client's manually-connected number sat on
+  // the old hardcoded "webhook healthy" status while Meta had never been told to push events here
+  // at all - only caught because a test message never arrived). Twilio/Wati subscribe to their own
+  // webhooks through their own consoles, not this Graph API call, so this only applies to "meta".
+  let webhookStatus = "healthy";
+  let webhookError = "";
+  if (providerKey === "meta" && tokenValue !== "local-placeholder-token") {
+    try {
+      await subscribeEmbeddedSignupWebhooks(businessAccountId, tokenValue);
+    } catch (error) {
+      webhookStatus = "error";
+      webhookError = error.message || "Failed to subscribe to Meta webhooks.";
+      logger.warn(
+        { err: error, businessAccountId, phoneNumberId },
+        "Meta webhook subscription failed for manually connected account"
+      );
+    }
+  }
+
   const account = await WhatsAppAccount.findOneAndUpdate(
     { workspaceId: req.user.workspaceId, phoneNumberId },
     {
@@ -429,10 +451,10 @@ whatsappRouter.post("/accounts", requirePermission("settings:write"), validateBo
         apiBaseUrl,
         webhookPath: providerKey === "meta" ? "/webhooks/whatsapp" : `/webhooks/whatsapp/${providerKey}`,
       },
-      webhookStatus: "healthy",
+      webhookStatus,
       templateSyncStatus: "pending",
       status: "connected",
-      lastError: "",
+      lastError: webhookError,
       credentialsUpdatedAt: new Date(),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
