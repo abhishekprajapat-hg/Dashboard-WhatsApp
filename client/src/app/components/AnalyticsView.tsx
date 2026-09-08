@@ -221,7 +221,7 @@ function HeatMap({ data }: { data: { day: number; hour: number; value: number }[
                   key={`${day}-${hour}`}
                   title={`${dayNames[day]} ${hour}:00 - ${value} messages`}
                   className="h-5 rounded-sm border border-border"
-                  style={{ backgroundColor: `rgba(37, 211, 102, ${opacity})` }}
+                  style={{ backgroundColor: `rgba(47,168,118, ${opacity})` }}
                 />
               );
             })}

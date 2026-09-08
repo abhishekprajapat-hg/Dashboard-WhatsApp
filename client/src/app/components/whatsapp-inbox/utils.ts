@@ -25,6 +25,26 @@ export function initials(name = "") {
     .toUpperCase();
 }
 
+// A fixed rotation of gradients (not random - the same name always lands on the same one, so a
+// contact's avatar color stays stable across renders/reloads) gives the conversation list visual
+// variety instead of every avatar being an identical green square.
+const AVATAR_GRADIENTS = [
+  "from-primary to-teal-700",
+  "from-violet-500 to-purple-700",
+  "from-blue-500 to-indigo-700",
+  "from-amber-500 to-orange-700",
+  "from-pink-500 to-rose-700",
+  "from-cyan-500 to-sky-700",
+];
+
+export function avatarGradient(name = "") {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }

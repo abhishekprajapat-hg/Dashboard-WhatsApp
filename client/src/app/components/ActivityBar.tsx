@@ -62,7 +62,7 @@ const navButtonBase =
   "group relative flex h-11 w-11 min-w-[2.75rem] flex-none snap-center items-center justify-center rounded-lg outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring/45 md:h-10 md:w-10 md:min-w-[2.5rem]";
 
 const navButtonState = {
-  active: "bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(37,211,102,0.24)_inset,0_12px_30px_rgba(37,211,102,0.08)]",
+  active: "bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(47,168,118,0.24)_inset,0_12px_30px_rgba(47,168,118,0.08)]",
   idle: "text-muted-foreground hover:-translate-y-0.5 hover:bg-sidebar-accent hover:text-foreground md:hover:translate-x-0.5 md:hover:translate-y-0",
 };
 
@@ -96,7 +96,7 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
           >
             <Icon size={19} strokeWidth={isActive ? 2.4 : 2} className="transition-transform duration-200 group-hover:scale-105" />
             {item.id === "inbox" && unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-sidebar bg-primary px-1 text-[9px] font-bold leading-4 text-primary-foreground shadow-[0_0_18px_rgba(37,211,102,0.45)]">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-sidebar bg-primary px-1 text-[9px] font-bold leading-4 text-primary-foreground shadow-[0_0_18px_rgba(47,168,118,0.45)]">
                 {unreadLabel}
               </span>
             )}
@@ -114,7 +114,7 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
     <TooltipProvider delayDuration={250}>
       <aside className="relative z-40 hidden h-dvh w-[72px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar/95 px-3 py-4 text-sidebar-foreground backdrop-blur-xl md:flex">
         <div className="hidden md:flex md:flex-col md:items-center md:gap-2">
-          <div className="relative flex size-10 items-center justify-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[0_16px_36px_rgba(37,211,102,0.18)]">
+          <div className="relative flex size-10 items-center justify-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[0_16px_36px_rgba(47,168,118,0.18)]">
             <MessageCircle size={18} />
             <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border border-sidebar bg-primary" />
           </div>

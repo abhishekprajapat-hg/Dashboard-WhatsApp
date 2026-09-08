@@ -19,6 +19,8 @@ import { AdminView } from "./components/AdminView";
 import { SettingsView } from "./components/SettingsView";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
+import { useTheme } from "./hooks/useTheme";
+import { Moon, Sun } from "lucide-react";
 
 const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
@@ -74,6 +76,7 @@ function formatRole(role: string) {
 
 export default function App() {
   // MARKER-MAKE-KIT-INVOKED
+  const { theme, toggleTheme } = useTheme();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [booting, setBooting] = useState(true);
   const [authView, setAuthView] = useState<"login" | "signup">("login");
@@ -234,7 +237,7 @@ export default function App() {
 
   return (
     <div className="relative flex h-dvh w-screen max-w-[100vw] flex-col overflow-hidden bg-background font-[Inter,system-ui,sans-serif] text-foreground md:flex-row">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_-10%,rgba(37,211,102,0.12),transparent_28rem),radial-gradient(circle_at_86%_0%,rgba(79,140,255,0.1),transparent_26rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_-10%,rgba(47,168,118,0.12),transparent_28rem),radial-gradient(circle_at_86%_0%,rgba(79,140,255,0.1),transparent_26rem)]" />
       <div className="pointer-events-none absolute inset-y-0 left-[72px] hidden w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent md:block" />
       <ActivityBar
         activeView={activeView}
@@ -260,6 +263,16 @@ export default function App() {
               <p className="hidden truncate text-xs text-muted-foreground md:block">{activeDescription}</p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-card/70 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
 
           <div className="hidden min-w-0 items-center gap-3 rounded-lg border border-border/80 bg-card/70 px-3 py-2 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] sm:flex">
             <div className="min-w-0 text-right">

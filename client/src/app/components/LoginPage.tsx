@@ -81,13 +81,13 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
 
   return (
     <div className="relative flex min-h-dvh w-full min-w-0 overflow-x-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(37,211,102,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(79,140,255,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_32%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(47,168,118,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(79,140,255,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_32%)]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.32))]" />
 
       <section className="relative z-10 hidden min-h-dvh w-[52%] flex-col justify-between border-r border-border/80 bg-surface/55 p-10 backdrop-blur-xl lg:flex xl:p-12">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative flex size-11 items-center justify-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[0_18px_44px_rgba(37,211,102,0.2)]">
+            <div className="relative flex size-11 items-center justify-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[0_18px_44px_rgba(47,168,118,0.2)]">
               <MessageCircle size={20} />
               <span className="absolute -right-1 -top-1 size-3 rounded-full border border-surface bg-primary" />
             </div>

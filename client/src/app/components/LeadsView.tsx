@@ -348,7 +348,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(47,168,118,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
 
       <div className="relative z-10 flex flex-col gap-3 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
         <div className="min-w-0">

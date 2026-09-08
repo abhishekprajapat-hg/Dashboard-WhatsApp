@@ -25,7 +25,7 @@ export function InboxSidebar({ activeFilter, search, unreadCount, onFilterChange
   return (
     <aside className="hidden w-[76px] shrink-0 flex-col border-r border-border/80 bg-sidebar/95 text-muted-foreground shadow-[1px_0_0_rgba(255,255,255,0.03)_inset] lg:flex">
       <div className="flex h-[76px] items-center justify-center border-b border-border/80">
-        <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[0_16px_38px_rgba(37,211,102,0.16)]">
+        <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-[0_16px_38px_rgba(47,168,118,0.16)]">
           WA
           <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-sidebar bg-primary" />
         </div>
@@ -40,7 +40,7 @@ export function InboxSidebar({ activeFilter, search, unreadCount, onFilterChange
               title={item.label}
               className={cn(
                 "relative flex h-11 w-full items-center justify-center rounded-lg transition-all duration-200 hover:bg-sidebar-accent hover:text-foreground",
-                activeFilter === item.id && "bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(37,211,102,0.22)_inset]"
+                activeFilter === item.id && "bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(47,168,118,0.22)_inset]"
               )}
               onClick={() => onFilterChange(item.id)}
             >

@@ -50,7 +50,7 @@ const roleLabel: Record<string, string> = {
 };
 
 const statusDot: Record<string, string> = {
-  online: "bg-primary shadow-[0_0_0_3px_rgba(37,211,102,0.14)]",
+  online: "bg-primary shadow-[0_0_0_3px_rgba(47,168,118,0.14)]",
   busy: "bg-destructive shadow-[0_0_0_3px_rgba(255,95,87,0.14)]",
   away: "bg-warning shadow-[0_0_0_3px_rgba(245,158,11,0.14)]",
   offline: "bg-muted-foreground/60",
@@ -197,7 +197,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(37,211,102,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(47,168,118,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
       <div className="shrink-0 border-b border-border/70 px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">

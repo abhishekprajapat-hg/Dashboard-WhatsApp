@@ -122,7 +122,7 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
 
   return (
     <div className="relative flex min-h-dvh w-full min-w-0 items-center justify-center overflow-x-hidden bg-background px-4 py-8 text-foreground sm:px-6">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(37,211,102,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(79,140,255,0.12),transparent_28rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(47,168,118,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(79,140,255,0.12),transparent_28rem)]" />
 
       <div className="relative z-10 w-full max-w-md">
         <div className="rounded-xl border border-border/90 bg-card/88 p-5 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-7">

@@ -2,52 +2,52 @@
 
 :root {
   --font-size: 14px;
-  --background: #070b12;
-  --foreground: #edf4f1;
-  --card: #101720;
-  --card-foreground: #edf4f1;
-  --popover: #121b25;
-  --popover-foreground: #edf4f1;
-  --primary: #25D366;
-  --primary-foreground: #03110a;
-  --secondary: #18212c;
-  --secondary-foreground: #c9d8d3;
-  --muted: #161f2a;
-  --muted-foreground: #8ea09a;
-  --accent: #1f6feb;
+  --background: #0c1015;
+  --foreground: #eef3f1;
+  --card: #141c24;
+  --card-foreground: #eef3f1;
+  --popover: #161f28;
+  --popover-foreground: #eef3f1;
+  --primary: #22c17e;
+  --primary-foreground: #04140c;
+  --secondary: #1c2530;
+  --secondary-foreground: #cbd6dc;
+  --muted: #171f29;
+  --muted-foreground: #94a2ac;
+  --accent: #3b82f6;
   --accent-foreground: #f2f7ff;
-  --destructive: #ff5f57;
+  --destructive: #f24b45;
   --destructive-foreground: #ffffff;
-  --border: rgba(220, 245, 236, 0.1);
-  --input: #17212c;
-  --input-background: #111a24;
-  --switch-background: #344251;
+  --border: rgba(238, 243, 241, 0.1);
+  --input: #1a2129;
+  --input-background: #151c24;
+  --switch-background: #33404c;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #25D366;
-  --chart-1: #25D366;
+  --ring: #22c17e;
+  --chart-1: #22c17e;
   --chart-2: #16a085;
   --chart-3: #4f8cff;
   --chart-4: #9b7cff;
-  --chart-5: #f59e0b;
-  --surface: #0b1119;
-  --surface-elevated: #151f2a;
-  --surface-subtle: #0d151e;
-  --success: #25D366;
-  --success-foreground: #03110a;
-  --warning: #f59e0b;
-  --warning-foreground: #120b02;
+  --chart-5: #e0a63f;
+  --surface: #0f151b;
+  --surface-elevated: #182029;
+  --surface-subtle: #121920;
+  --success: #22c17e;
+  --success-foreground: #04140c;
+  --warning: #e0a63f;
+  --warning-foreground: #16100a;
   --info: #4f8cff;
   --info-foreground: #f2f7ff;
   --radius: 0.5rem;
-  --sidebar: #05080d;
-  --sidebar-foreground: #edf4f1;
-  --sidebar-primary: #25D366;
-  --sidebar-primary-foreground: #03110a;
-  --sidebar-accent: #111a24;
-  --sidebar-accent-foreground: #edf4f1;
-  --sidebar-border: rgba(220, 245, 236, 0.09);
-  --sidebar-ring: #25D366;
+  --sidebar: #0a0e13;
+  --sidebar-foreground: #eef3f1;
+  --sidebar-primary: #22c17e;
+  --sidebar-primary-foreground: #04140c;
+  --sidebar-accent: #151c24;
+  --sidebar-accent-foreground: #eef3f1;
+  --sidebar-border: rgba(238, 243, 241, 0.09);
+  --sidebar-ring: #22c17e;
 }
 
 .light {
@@ -154,8 +154,8 @@
   body {
     @apply bg-background text-foreground antialiased;
     background:
-      radial-gradient(circle at 18% -10%, rgba(37, 211, 102, 0.1), transparent 28rem),
-      radial-gradient(circle at 84% -12%, rgba(79, 140, 255, 0.08), transparent 30rem),
+      radial-gradient(circle at 18% -10%, rgba(47, 168, 118, 0.07), transparent 28rem),
+      radial-gradient(circle at 84% -12%, rgba(79, 140, 255, 0.06), transparent 30rem),
       var(--background);
     text-rendering: optimizeLegibility;
   }

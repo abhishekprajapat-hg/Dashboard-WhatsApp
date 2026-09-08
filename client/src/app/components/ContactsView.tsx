@@ -193,7 +193,7 @@ function ContactAvatar({ contact, size = "md" }: { contact: Contact; size?: "sm"
   };
 
   return (
-    <div className={`${classes[size]} flex shrink-0 items-center justify-center bg-gradient-to-br from-primary to-teal-700 font-semibold text-primary-foreground shadow-[0_12px_28px_rgba(37,211,102,0.14)]`}>
+    <div className={`${classes[size]} flex shrink-0 items-center justify-center bg-gradient-to-br from-primary to-teal-700 font-semibold text-primary-foreground shadow-[0_12px_28px_rgba(47,168,118,0.14)]`}>
       {contactInitials(contact.name)}
     </div>
   );
@@ -597,7 +597,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(47,168,118,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
 
       <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

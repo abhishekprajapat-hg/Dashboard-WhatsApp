@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, BriefcaseBusiness, CalendarClock, CircleUserRound, Edit3, Flag, Megaphone, Tag, UserRoundCheck } from "lucide-react";
 import type { Conversation, TeamMember } from "./types";
-import { conversationMeta, initials } from "./utils";
+import { avatarGradient, cn, conversationMeta, initials } from "./utils";
 
 interface CustomerProfileSidebarProps {
   conversation: Conversation;
@@ -48,7 +48,7 @@ export function CustomerProfileSidebar({
   return (
     <aside className="flex h-full w-full flex-col overflow-y-auto border-l border-border/80 bg-card/75 backdrop-blur-xl">
       <div className="border-b border-border/80 p-5 text-center">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-teal-700 text-xl font-semibold text-primary-foreground shadow-[0_18px_42px_rgba(37,211,102,0.16)]">
+        <div className={cn("mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-xl font-semibold text-white shadow-[0_18px_42px_rgba(47,168,118,0.16)]", avatarGradient(conversation.name))}>
           {initials(conversation.name)}
         </div>
         <div className="mt-3 text-base font-semibold text-foreground">{conversation.name}</div>
@@ -64,7 +64,7 @@ export function CustomerProfileSidebar({
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Tag size={14} /> Tags
           </h3>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
             {(conversation.tags.length ? conversation.tags : ["New"]).map((tag) => (
               <span key={tag} className="rounded-full border border-border bg-secondary/70 px-2 py-1 text-xs text-muted-foreground">
                 {tag}
@@ -104,39 +104,43 @@ export function CustomerProfileSidebar({
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <UserRoundCheck size={14} /> Assigned Agent
           </h3>
-          <select
-            value={conversation.agentId || ""}
-            disabled={assigning}
-            onChange={(event) => onAssign(event.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-          >
-            <option value="">Unassigned</option>
-            {members.map((member) => (
-              <option key={member.userId} value={member.userId}>
-                {member.name}
-              </option>
-            ))}
-          </select>
+          <div className="rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
+            <select
+              value={conversation.agentId || ""}
+              disabled={assigning}
+              onChange={(event) => onAssign(event.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+            >
+              <option value="">Unassigned</option>
+              {members.map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </section>
 
         <section>
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Flag size={14} /> Conversation
           </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {(["open", "waiting", "resolved", "archived"] as const).map((status) => (
-              <button key={status} className="h-8 rounded-md border border-border text-xs capitalize text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onStatusChange(status)}>
-                {status}
+          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              {(["open", "waiting", "resolved", "archived"] as const).map((status) => (
+                <button key={status} className="h-8 rounded-md border border-border text-xs capitalize text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onStatusChange(status)}>
+                  {status}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ pinned: !conversation.pinned })}>
+                {conversation.pinned ? "Unpin" : "Pin"}
               </button>
-            ))}
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ pinned: !conversation.pinned })}>
-              {conversation.pinned ? "Unpin" : "Pin"}
-            </button>
-            <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ muted: !conversation.muted })}>
-              {conversation.muted ? "Unmute" : "Mute"}
-            </button>
+              <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ muted: !conversation.muted })}>
+                {conversation.muted ? "Unmute" : "Mute"}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -144,7 +148,7 @@ export function CustomerProfileSidebar({
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Edit3 size={14} /> Notes
           </h3>
-          <div className="rounded-lg border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
+          <div className="rounded-lg border border-dashed border-border bg-surface-subtle/30 p-3 text-xs leading-relaxed text-muted-foreground">
             {conversation.messages.find((message) => message.internal)?.content || "No internal notes yet."}
           </div>
         </section>
@@ -153,7 +157,7 @@ export function CustomerProfileSidebar({
           <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Activity size={14} /> Activity Timeline
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-3 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
             {[
               { icon: CalendarClock, label: `Last message ${conversation.time}` },
               { icon: Megaphone, label: `Source ${conversation.source || "WhatsApp"}` },
@@ -172,7 +176,7 @@ export function CustomerProfileSidebar({
 
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Custom Fields</h3>
-          <div className="space-y-2">
+          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
             {customFields.map(([label, value]) => (
               <div key={label} className="flex items-start justify-between gap-3 text-xs">
                 <span className="text-muted-foreground">{label}</span>

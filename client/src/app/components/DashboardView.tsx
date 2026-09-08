@@ -87,7 +87,7 @@ function MetricCard({
   value: ReactNode;
   detail?: ReactNode;
   icon: ReactNode;
-  tone?: "primary" | "info" | "warning" | "muted";
+  tone?: "primary" | "info" | "warning" | "muted" | "violet" | "cyan";
   unavailable?: boolean;
 }) {
   const toneClass = {
@@ -95,6 +95,8 @@ function MetricCard({
     info: "from-info/18 text-info ring-info/20",
     warning: "from-warning/18 text-warning ring-warning/20",
     muted: "from-secondary/70 text-muted-foreground ring-border",
+    violet: "from-violet-500/18 text-violet-400 ring-violet-500/20",
+    cyan: "from-cyan-500/18 text-cyan-400 ring-cyan-500/20",
   }[tone];
 
   return (
@@ -223,7 +225,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
       value: leadKpi?.value ?? "0",
       detail: leadKpi ? `${leadKpi.label} ${leadKpi.delta || ""}`.trim() : "Lead count not available yet",
       icon: <Users size={18} />,
-      tone: "info" as const,
+      tone: "violet" as const,
       unavailable: !leadKpi,
     },
     {
@@ -261,7 +263,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
       value: conversionKpi?.value ?? "0%",
       detail: conversionKpi?.delta || conversionKpi?.label || "Resolution/conversion signal",
       icon: <Target size={18} />,
-      tone: "primary" as const,
+      tone: "cyan" as const,
     },
   ];
 
@@ -270,7 +272,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 lg:gap-5">
         <div className="overflow-hidden rounded-xl border border-border/80 bg-card/70 shadow-2xl shadow-black/20">
           <div className="relative p-4 sm:p-5">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(37,211,102,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(79,140,255,0.1),transparent_22rem)]" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(47,168,118,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(79,140,255,0.1),transparent_22rem)]" />
             <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <Badge variant="success" className="mb-3">
