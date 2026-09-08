@@ -1,5 +1,153 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-08: webhook auto-subscribe fix shipped, Facebook Login root cause actually nailed down (and it wasn't the second-app theory), Inbox pagination bug fixed, theme/UI overhaul, manual onboarding runbook written
+
+**Webhook auto-subscribe fix (closing out the top outstanding item from the entry below).**
+`routes/whatsapp.js`'s manual `POST /accounts` now calls Meta's `POST /{waba-id}/subscribed_apps`
+itself, the same way `services/embeddedSignup.js`'s Embedded Signup path already did - this is the
+real code fix for Bug #2 from the Sundrishti onboarding session (manual connect never subscribed
+webhooks, so every manually-connected client silently never received inbound messages until
+someone noticed). `webhookStatus` now reflects the real subscribe result ("error" + Meta's actual
+message on failure) instead of a hardcoded "healthy" that lied about it. Skipped for
+Twilio/Wati (different webhook mechanism) and for the `local-placeholder-token` sentinel (no real
+token = nothing to subscribe). Committed `b7e3a08`, pushed, deploy confirmed via
+`.last-deploy-sha` matching + a fresh `pm2` process uptime + `/health` 200. `docs/MANUAL_ONBOARDING_RUNBOOK.md` (see below) now documents this as automatic - the old manual
+Graph API Explorer step is gone from the reusable runbook.
+
+**Facebook Login investigation - real progress, but not the fix we thought going in.** Re-tested
+"Facebook Login is currently unavailable for this app..." with a genuinely fresh, no-role-on-the-app
+Facebook account (twice, including live on a real phone) - **confirmed still broken for real
+external users today**, unchanged from the original diagnosis in the entry below. Several things
+investigated and ruled out or corrected along the way, worth recording so a future session doesn't
+re-walk the same path:
+
+- **Not a config_id/app_id mismatch** - pulled the actual production JS bundle
+  (`curl` the live `assets/index-*.js`, `grep` for the numeric IDs) and confirmed the deployed
+  `EmbeddedSignupButton.tsx` config (`app_id: 1622746365465041`, `config_id: 2138964750340250`)
+  exactly matches what Meta's own dashboard test tool uses. Ruled out with real evidence, not
+  assumed.
+- **Not actually a "need a second Meta app" problem** - this was the working theory earlier in the
+  session (reasoning: this app is Business-type, and Business-type apps structurally can't request
+  plain `email`+`public_profile` alone without another business permission, confirmed by hitting a
+  real "Invalid Scopes: email" error testing the *separate* "Sign in with Facebook" signup-page
+  button). That's a real, distinct constraint, but it applies to that other feature, not to fixing
+  Embedded Signup. Embedded Signup itself runs on `whatsapp_business_management`/
+  `whatsapp_business_messaging` via Facebook Login *for Business*, not `email`/`public_profile` at
+  all - confirmed straight from Meta's own Embedded Signup documentation. The actual, correct fix
+  is submitting `email` for Advanced Access review on the **original** app (where it had literally
+  never been added at all - confirmed live, no status shown on the Permissions and Features page,
+  unlike `public_profile` which is auto-granted to all apps and already showed "Ready for
+  testing"), reasoning that Meta appears to gate the whole Facebook Login product family app-wide
+  on any unresolved permission, per two independent Meta developer community threads reporting the
+  identical symptom (works for admin/developer accounts, fails for real external users) and the
+  identical fix (submit `email`/`public_profile` for Advanced Access; error clears **after
+  approval**, not just submission).
+- **Real action taken tonight**: added `email` to the original app's App Review queue (bundled
+  automatically across its existing use cases - Marketing API, Instagram, Catalog API, Messenger -
+  confirmed nothing concerning in that list before accepting), then generated a real passing test
+  API call via Graph API Explorer (`GET /me?fields=id,name,email`, real data returned). Meta's own
+  UI states test data can take up to 24h to register against the permission - that's the actual
+  blocker on doing anything further tonight, not a bug.
+- **Found along the way, unrelated to this fix**: a *separate* App Review submission (Instagram
+  permissions - `instagram_business_basic`, `instagram_business_manage_messages`,
+  `instagram_business_content_publish`, `instagram_business_manage_insights`,
+  `instagram_business_manage_comments`, `Human Agent` - plus renewal of the existing
+  `whatsapp_business_messaging`/`whatsapp_business_management` Advanced Access) was already
+  submitted and sitting "in progress" (Meta's stated review window: up to 20 days). Cross-checked
+  its request list against the Testing page: five of the six items already show "Completed" or
+  substantial real test-call counts; **`Human Agent` shows 0 test calls and is a real gap** - but
+  it's not a simple API-explorer call like `email` was. `Human Agent` is a message *tag*
+  (`POST /me/messages` with `"messaging_type": "MESSAGE_TAG", "tag": "HUMAN_AGENT"`), used when a
+  real human agent replies outside the normal 24h window - generating a real test call needs an
+  actual aged conversation to reply into, not a quick dashboard action. Not completed tonight,
+  genuinely uncertain whether its absence will block that review's approval (submission itself
+  wasn't blocked by it, at least). Also confirmed via the app's own **Previous submissions**
+  history that Meta does reject real submissions on this app - four permissions
+  (`pages_show_list`, `ads_read`, `pages_read_engagement`, `ads_management`) were rejected August
+  29 - so a clean approval isn't guaranteed, worth expecting possible rejection-and-resubmit on
+  `email`/`public_profile` too.
+
+**Real state right now**: manual-connect (with the webhook fix above) remains the only reliable
+onboarding path for new clients. Next session: check if the `email` test call has registered,
+submit `email`+`public_profile` for Advanced Access (justification text already written in
+`docs/META_APP_REVIEW_FACEBOOK_LOGIN.md`, screencast still needs recording), then re-test with a
+fresh account once approved (not just submitted) before assuming Embedded Signup is fixed.
+
+**Inbox conversation list pagination bug - real, live, found by the client.** A client reported
+new leads arriving in the WhatsApp Inbox while older leads "disappeared" - not deleted, genuinely
+unreachable. Root cause: the conversations API always supported cursor pagination
+(`page.hasMore`/`nextCursor`), but the client-side store received and discarded that metadata -
+`loadConversations` only ever fetched page one, and nothing ever asked for page two. Past ~50 open
+conversations, anything not among the most-recently-active became permanently unreachable through
+the UI as newer leads pushed it out of that window. Fixed: the store now tracks
+`hasMore`/`nextCursor` and supports an "append" mode alongside the existing "replace" (search/filter
+changes correctly still replace); `ConversationList` triggers load-more near the bottom of scroll
+plus a manual "Load older conversations" fallback button; the header count now shows "50+" instead
+of a flat number that undercounted. Committed `3e1c42d`, deployed and verified (fresh build assets
+on disk, correct hashed filenames, `/health` 200; no `server/` files touched so no API restart was
+needed or expected).
+
+**Theme/UI overhaul - user-requested, iterated live against real feedback.** The dark theme had no
+way to switch to light (a full `.light` palette existed in `theme.css` but nothing in the app ever
+applied it), and leaned on WhatsApp's raw neon brand green (`#25D366`) directly on a cold
+near-black background with zero softening - reported as "eye-piercing over long sessions." Built a
+real working toggle (`client/src/app/hooks/useTheme.ts` - respects system preference, persists
+choice, applies a `.light` class to `<html>`), desaturated the dark primary green and warmed the
+background, and bulk-replaced ~24 hardcoded raw-green glow-shadow values across ~15 files that
+would otherwise have clashed with the new muted primary. First pass over-corrected (user feedback:
+"removed the contrast fully... want lively fun and professional, not flat") - re-tuned to a more
+saturated middle-ground green and bumped badge/pill opacity back up. Also added deterministic
+per-contact avatar color variety (hash-based, 6-gradient rotation - every contact was previously
+the identical green square) and extended the Campaigns page's existing multi-hue stat-tile style
+into the Dashboard (violet/cyan added alongside the existing green/amber/gray tones), per direct
+user request to reuse colors they liked elsewhere. Committed `ed6bce4`, deployed and verified.
+
+**Google Sheets "sync: failed" on a lead - investigated, not a data-loss bug, not yet fixed.**
+Client asked whether leads get deleted once the Inbox fills up with no Google Sheet connected -
+they don't; every lead/conversation/contact is a real, permanent Mongo record regardless of any
+Sheets sync status. The confusing part: their workspace's own Google Sheets integration is
+disabled with no URL configured (correctly showing "no sheet installed" from their side), yet a
+real lead showed `syncStatus.googleSheet.status: "failed"`. Traced in `services/googleSheets.js`:
+`getSheetConfig()` checks a **platform-wide** `GOOGLE_SHEET_WEBHOOK_URL` env var *before* the
+per-workspace setting, so if that server-level default is set (likely a leftover from earlier
+testing, or an intentional Nemnidhi-wide lead-tracking sheet - unconfirmed which), every workspace
+gets a sync attempt pushed onto it whether they opted in or not, and a broken/stale target there
+would explain the "failed" status appearing on a workspace that never asked for this feature at
+all. Not fixed - needs a decision first (is there a real Nemnidhi-side sheet this was meant to
+feed, or was it leftover config that should just be removed) before touching the code.
+
+**Strategic/competitive research - separate track, published as an Artifact, not engineering
+work.** Built "The Trust Gap" - a sourced competitor analysis (Wati, Interakt, AiSensy, Gupshup,
+360dialog, Zoko, DoubleTick) finding billing-transparency and support-responsiveness as the
+market's near-universal weak points, plus a vertical go-to-market analysis cross-referencing 20 of
+Nemnidhi's own existing industry-audit documents against external market research - landed on
+B2B trade/wholesale/manufacturing (an identical enquiry→quotation→payment-reminder WhatsApp
+workflow independently repeated across 10 of those 20 documents) as the most evidence-backed
+product opportunity, with real estate as the already-most-mature flagship vertical. Not reflected
+in code yet - a positioning/roadmap input for a future session, not a build.
+
+**Manual onboarding runbook written down.** `docs/MANUAL_ONBOARDING_RUNBOOK.md` - the proven
+Sundrishti-onboarding steps as a durable, reusable reference for onboarding clients while Embedded
+Signup remains blocked, with the webhook-subscribe step updated to reflect it's now automatic.
+Committed `7937ab0`.
+
+### Outstanding after this session
+
+- Check whether the `email` App Review test call has registered (~24h), then submit
+  `email`+`public_profile` for Advanced Access review (text ready, screencast not recorded yet).
+- Once approved (not just submitted) - re-test Embedded Signup with a genuinely fresh, no-role
+  account before assuming it's fixed.
+- `docs/META_APP_REVIEW_FACEBOOK_PAGES.md` and `docs/META_APP_REVIEW_CATALOG.md` - still not
+  submitted.
+- `Human Agent` permission (part of the already-pending Instagram/WhatsApp-renewal review) has 0
+  real test calls - needs an actual aged-conversation message-tag send to generate one; uncertain
+  if its absence blocks that review's approval.
+- Google Sheets platform-wide fallback URL - decide whether it's a real, needed Nemnidhi-side sync
+  target (and fix whatever's broken about it) or dead config to remove; currently produces
+  confusing "failed" noise on workspaces that never opted in.
+- Real `SENDGRID_API_KEY`/`MAIL_FROM` in production still not set (password reset still no-ops).
+- Billing section vs Meta's requirements - still not scoped.
+
 ## 2026-09-07: added password reset / change password - real gaps, not previously built at all
 
 Found while onboarding a new client via Admin → Companies → Create Tenant: there was no way
