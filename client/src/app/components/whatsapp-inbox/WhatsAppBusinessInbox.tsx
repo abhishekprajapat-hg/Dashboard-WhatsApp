@@ -32,6 +32,9 @@ interface WhatsAppBusinessInboxProps {
   mobileChatOpen: boolean;
   loading: boolean;
   error: string;
+  hasMoreConversations?: boolean;
+  loadingMoreConversations?: boolean;
+  onLoadMoreConversations?: () => void;
   onFilterChange: (filter: InboxFilter) => void;
   onSearchChange: (search: string) => void;
   onMessageSearchChange: (value: string) => void;
@@ -82,6 +85,9 @@ export function WhatsAppBusinessInbox({
   mobileChatOpen,
   loading,
   error,
+  hasMoreConversations,
+  loadingMoreConversations,
+  onLoadMoreConversations,
   onSearchChange,
   onMessageSearchChange,
   onSelectConversation,
@@ -122,6 +128,9 @@ export function WhatsAppBusinessInbox({
           typingIds={typingIds}
           loading={loading}
           error={error}
+          hasMore={hasMoreConversations}
+          loadingMore={loadingMoreConversations}
+          onLoadMore={onLoadMoreConversations}
           onSearchChange={onSearchChange}
           onSelect={onSelectConversation}
           onRetry={onRetryLoad}
@@ -181,6 +190,9 @@ export function WhatsAppBusinessInbox({
               typingIds={typingIds}
               loading={loading}
               error={error}
+              hasMore={hasMoreConversations}
+              loadingMore={loadingMoreConversations}
+              onLoadMore={onLoadMoreConversations}
               onSearchChange={onSearchChange}
               onSelect={onSelectConversation}
               onRetry={onRetryLoad}

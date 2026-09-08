@@ -82,7 +82,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
         status,
         unread: store.filter === "unread",
       });
-      store.setConversations(response.data, response.page);
+      store.setConversations(response.data, response.page, "replace");
       store.setLoadingState({ loading: false, error: "" });
     } catch (error) {
       store.setLoadingState({
@@ -91,6 +91,30 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
       });
     }
   }, [store.filter, store.search]);
+
+  // Conversations older than the most-recently-active ~50 were previously unreachable: the list
+  // only ever fetched page one and nothing ever asked for more, even though the API always
+  // supported cursor pagination (page.hasMore/nextCursor). This is that missing "next page" call.
+  const loadMoreConversations = useCallback(async () => {
+    if (!store.conversationsHasMore || store.loadingMoreConversations || !store.conversationsNextCursor) return;
+    const status = ["open", "waiting", "resolved", "archived"].includes(store.filter) ? store.filter : undefined;
+    store.setLoadingMoreConversations(true);
+    try {
+      const response = await getConversations<ConversationPage>({
+        limit: 50,
+        search: store.search,
+        status,
+        unread: store.filter === "unread",
+        cursor: store.conversationsNextCursor,
+      });
+      store.setConversations(response.data, response.page, "append");
+    } catch {
+      // Leave hasMore/cursor as they were - the list just stays where it is and the user can
+      // scroll to retry rather than surfacing a separate error state for a background fetch.
+    } finally {
+      store.setLoadingMoreConversations(false);
+    }
+  }, [store.conversationsHasMore, store.loadingMoreConversations, store.conversationsNextCursor, store.filter, store.search]);
 
   useEffect(() => {
     getTeamMembers<{ data: TeamMember[]; total: number }>()
@@ -459,6 +483,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     assigning,
     loadOlderMessages,
     loadConversations,
+    loadMoreConversations,
     addMediaFiles,
     removePendingMedia,
     clearDraftContext,

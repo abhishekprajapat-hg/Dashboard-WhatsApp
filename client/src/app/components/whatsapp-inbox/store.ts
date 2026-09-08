@@ -19,7 +19,11 @@ interface InboxState {
   error: string;
   uploadById: Record<string, UploadState>;
   queueById: Record<string, QueuedMessage>;
-  setConversations: (conversations: Conversation[], page?: { hasMore?: boolean; nextCursor?: string | null }) => void;
+  conversationsHasMore: boolean;
+  conversationsNextCursor: string | null;
+  loadingMoreConversations: boolean;
+  setConversations: (conversations: Conversation[], page?: { hasMore?: boolean; nextCursor?: string | null }, mode?: "replace" | "append") => void;
+  setLoadingMoreConversations: (loading: boolean) => void;
   upsertConversation: (conversation: Conversation) => void;
   updateConversation: (id: string, patch: Partial<Conversation>) => void;
   appendOptimisticMessage: (conversationId: string, message: WhatsAppMessage) => void;
@@ -78,20 +82,36 @@ export const useWhatsAppInboxStore = create<InboxState>((set) => ({
   error: "",
   uploadById: {},
   queueById: {},
-  setConversations: (conversations) =>
+  conversationsHasMore: false,
+  conversationsNextCursor: null,
+  loadingMoreConversations: false,
+  // mode "replace" (the default - a fresh load or a filter/search change) discards whatever was
+  // previously loaded, since a filter change makes the old page's contents no longer valid for the
+  // current view. mode "append" (load-more / pagination) keeps everything already loaded and adds
+  // to it - this is also the fix for conversations older than the most-recently-active ~50 becoming
+  // permanently unreachable: the API always supported cursor pagination via page.nextCursor, this
+  // store just never tracked or exposed hasMore/nextCursor to anything that could act on them.
+  setConversations: (conversations, page, mode = "replace") =>
     set((state) => {
+      const base =
+        mode === "replace"
+          ? { conversationById: {}, messagesByConversationId: {}, conversationIds: [] as string[] }
+          : { conversationById: { ...state.conversationById }, messagesByConversationId: { ...state.messagesByConversationId }, conversationIds: state.conversationIds };
+
       if (!conversations.length) {
-        return {
-          conversationIds: [],
-          conversationById: {},
-          messagesByConversationId: {},
-          messagePageByConversationId: {},
-          selectedId: "",
-          unreadTotal: 0,
-        };
+        return mode === "replace"
+          ? {
+              ...base,
+              messagePageByConversationId: {},
+              selectedId: "",
+              unreadTotal: 0,
+              conversationsHasMore: Boolean(page?.hasMore),
+              conversationsNextCursor: page?.nextCursor || null,
+            }
+          : { conversationsHasMore: Boolean(page?.hasMore), conversationsNextCursor: page?.nextCursor || null };
       }
-      const conversationById = { ...state.conversationById };
-      const messagesByConversationId = { ...state.messagesByConversationId };
+      const conversationById = base.conversationById;
+      const messagesByConversationId = base.messagesByConversationId;
       for (const conversation of conversations) {
         conversationById[conversation.id] = { ...conversation, messages: [] };
         messagesByConversationId[conversation.id] = uniqueMessages([
@@ -99,15 +119,18 @@ export const useWhatsAppInboxStore = create<InboxState>((set) => ({
           ...(conversation.messages || []),
         ]);
       }
-      const conversationIds = sortConversationIds([...state.conversationIds, ...conversations.map((item) => item.id)], conversationById);
+      const conversationIds = sortConversationIds([...base.conversationIds, ...conversations.map((item) => item.id)], conversationById);
       return {
         conversationById,
         messagesByConversationId,
         conversationIds,
+        conversationsHasMore: Boolean(page?.hasMore),
+        conversationsNextCursor: page?.nextCursor || null,
         selectedId: state.selectedId || conversationIds[0] || "",
         unreadTotal: conversationIds.reduce((sum, id) => sum + Number(conversationById[id]?.unread || 0), 0),
       };
     }),
+  setLoadingMoreConversations: (loadingMoreConversations) => set({ loadingMoreConversations }),
   upsertConversation: (conversation) =>
     set((state) => {
       const existingMessages = state.messagesByConversationId[conversation.id] || [];

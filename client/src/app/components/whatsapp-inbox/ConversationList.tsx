@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BellOff, CheckCheck, ChevronDown, Facebook, Instagram, MessageSquareText, Phone, Pin, Search } from "lucide-react";
+import { BellOff, CheckCheck, ChevronDown, CircleUserRound, Facebook, Instagram, MessageSquareText, Phone, Pin, Search } from "lucide-react";
 import type { Conversation, InboxFilter } from "./types";
-import { cn, initials } from "./utils";
+import { avatarGradient, cn, initials } from "./utils";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -13,6 +13,9 @@ interface ConversationListProps {
   typingIds: string[];
   loading: boolean;
   error: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onSearchChange: (search: string) => void;
   onSelect: (id: string) => void;
   onRetry: () => void;
@@ -38,10 +41,10 @@ const statusLabel = {
 } as const;
 
 const statusClass = {
-  open: "border-primary/25 bg-primary/10 text-primary",
-  waiting: "border-warning/25 bg-warning/10 text-warning",
+  open: "border-primary/40 bg-primary/15 text-primary font-semibold",
+  waiting: "border-warning/40 bg-warning/15 text-warning font-semibold",
   resolved: "border-border bg-secondary/70 text-muted-foreground",
-  bot: "border-info/25 bg-info/10 text-info",
+  bot: "border-info/40 bg-info/15 text-info font-semibold",
   archived: "border-border bg-secondary/40 text-muted-foreground",
 } as const;
 
@@ -71,7 +74,7 @@ function ConversationRow({
       )}
       onClick={() => onSelect(conversation.id)}
     >
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-primary to-teal-700 text-primary-foreground shadow-[0_10px_24px_rgba(37,211,102,0.14)]">
+      <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br text-white shadow-[0_10px_24px_rgba(47,168,118,0.14)]", avatarGradient(conversation.name))}>
         <div className="flex h-full w-full items-center justify-center text-sm font-semibold">{initials(conversation.name)}</div>
         {conversation.channel === "instagram" ? (
           <span className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
@@ -120,27 +123,34 @@ function ConversationRow({
           {pinned ? <Pin size={13} className="shrink-0 text-muted-foreground" /> : null}
           {muted ? <BellOff size={13} className="shrink-0 text-muted-foreground" /> : null}
           {conversation.unread > 0 ? (
-            <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-bold leading-5 text-primary-foreground shadow-[0_0_18px_rgba(37,211,102,0.35)]">
+            <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-bold leading-5 text-primary-foreground shadow-[0_0_18px_rgba(47,168,118,0.35)]">
               {conversation.unread}
             </span>
           ) : null}
         </div>
-        <div className="mt-2 flex items-center gap-1 overflow-hidden">
+        <div className="mt-2 flex items-center gap-1.5 overflow-hidden">
           <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium", statusClass[conversation.status])}>
             {statusLabel[conversation.status]}
           </span>
           {(conversation.crmStage || conversation.lifecycleStatus) ? (
-            <span className="max-w-[92px] truncate rounded-full border border-info/20 bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info">
+            <span className="max-w-[100px] truncate rounded-full border border-info/35 bg-info/15 px-1.5 py-0.5 text-[10px] font-semibold text-info">
               {conversation.crmStage || conversation.lifecycleStatus}
             </span>
           ) : null}
-          {conversation.tags.slice(0, 2).map((tag) => (
-            <span key={tag} className="max-w-[88px] truncate rounded-full border border-border bg-secondary/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {tag}
-            </span>
-          ))}
-          <span className="ml-auto max-w-[104px] truncate text-[10px] text-muted-foreground">{conversation.agent || "Unassigned"}</span>
+          <span className="ml-auto flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+            <CircleUserRound size={11} className="shrink-0 opacity-70" />
+            <span className="max-w-[96px] truncate">{conversation.agent || "Unassigned"}</span>
+          </span>
         </div>
+        {conversation.tags.length > 0 ? (
+          <div className="mt-1.5 flex items-center gap-1 overflow-hidden">
+            {conversation.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="max-w-[88px] truncate rounded-full bg-secondary/80 px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
     </motion.button>
   );
@@ -217,6 +227,9 @@ export function ConversationList({
   typingIds,
   loading,
   error,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   onSearchChange,
   onSelect,
   onRetry,
@@ -242,7 +255,10 @@ export function ConversationList({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-foreground">Inbox</h1>
-            <p className="text-xs text-muted-foreground">{filtered.length} conversations</p>
+            <p className="text-xs text-muted-foreground">
+              {filtered.length}
+              {hasMore ? "+" : ""} conversations
+            </p>
           </div>
           <div className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
             Business
@@ -259,7 +275,14 @@ export function ConversationList({
         </div>
       </div>
 
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto"
+        onScroll={(event) => {
+          if (!hasMore || loadingMore || !onLoadMore) return;
+          const target = event.currentTarget;
+          if (target.scrollHeight - target.scrollTop - target.clientHeight < 200) onLoadMore();
+        }}
+      >
         {loading ? (
           <div className="space-y-3 px-4 py-4">
             {[0, 1, 2, 3, 4].map((item) => (
@@ -321,6 +344,18 @@ export function ConversationList({
               onSelect={onSelect}
               emptyLabel="No Facebook conversations match this view."
             />
+            {hasMore ? (
+              <div className="flex justify-center px-4 py-4">
+                <button
+                  type="button"
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                  className="h-8 rounded-md border border-border px-3 text-xs text-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                >
+                  {loadingMore ? "Loading older conversations..." : "Load older conversations"}
+                </button>
+              </div>
+            ) : null}
           </>
         )}
       </div>
