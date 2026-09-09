@@ -83,7 +83,7 @@ export function AdsSettingsPanel() {
   const [creativeFile, setCreativeFile] = useState<File | null>(null);
   const [testingAccountId, setTestingAccountId] = useState("");
   const [campaignActionId, setCampaignActionId] = useState("");
-  const [billingStatusById, setBillingStatusById] = useState<Record<string, { status: "ok" | "missing" | "unknown"; detailText?: string }>>({});
+  const [billingStatusById, setBillingStatusById] = useState<Record<string, { status: "ok" | "issue" | "unknown"; detailText?: string }>>({});
 
   async function loadData() {
     setLoading(true);
@@ -106,7 +106,7 @@ export function AdsSettingsPanel() {
               [account.id]: response.data.hasPaymentMethod
                 ? { status: "ok" }
                 : {
-                    status: "missing",
+                    status: "issue",
                     detailText: response.data.accountStatusLabel
                       ? `Meta reports this ad account as "${response.data.accountStatusLabel}".`
                       : undefined,
@@ -340,7 +340,7 @@ export function AdsSettingsPanel() {
             </div>
             {billingStatusById[account.id] && billingStatusById[account.id].status !== "ok" && (
               <BillingStatusBanner
-                status={billingStatusById[account.id].status as "missing" | "unknown"}
+                status={billingStatusById[account.id].status as "issue" | "unknown"}
                 detailText={billingStatusById[account.id].detailText}
               />
             )}

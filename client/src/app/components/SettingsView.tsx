@@ -338,7 +338,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   const [conversionTesting, setConversionTesting] = useState("");
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
   const [embeddedSignupPin, setEmbeddedSignupPin] = useState("");
-  const [whatsappBillingStatusById, setWhatsappBillingStatusById] = useState<Record<string, { status: "ok" | "missing" | "unknown"; detailText?: string }>>({});
+  const [whatsappBillingStatusById, setWhatsappBillingStatusById] = useState<Record<string, { status: "ok" | "issue" | "unknown"; detailText?: string }>>({});
 
   async function handleEmbeddedSignupConnected({ pin }: { accountId: string; pin: string }) {
     setEmbeddedSignupPin(pin);
@@ -357,20 +357,28 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
       setWhatsappConsole(consoleResponse);
       setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
       setNotificationsForm(settingsResponse.notifications || initialSettings.notifications);
-      // Per account, after the main list resolves - a billing check failing (e.g. a token missing
-      // business_management, confirmed live) shouldn't block the accounts list itself from
-      // rendering, but IS recorded as "unknown" rather than silently dropped, so the UI can tell
-      // "confirmed fine" apart from "couldn't check" instead of treating both the same.
+      // Per account, after the main list resolves - a billing check failing shouldn't block the
+      // accounts list itself from rendering, but IS recorded as "unknown" rather than silently
+      // dropped, so the UI can tell "confirmed fine" apart from "couldn't check" instead of
+      // treating both the same. `canSendMessage` (not a direct "has payment method" flag - that
+      // field is BSP-gated and unreadable for a Tech Provider, see fetchWabaBillingStatus's own
+      // comment) is Meta's own real delivery-health verdict, which covers a missing payment method
+      // the same way it covers any other delivery-blocking issue.
       (settingsResponse.whatsappAccounts || []).forEach((account) => {
-        getWhatsAppBillingStatus<{ data: { hasPaymentMethod: boolean; canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] } }>(account.id)
-          .then((response) =>
+        getWhatsAppBillingStatus<{ data: { canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] } }>(account.id)
+          .then((response) => {
+            const ok = response.data.canSendMessage === "AVAILABLE";
+            const issue = response.data.issues?.[0];
             setWhatsappBillingStatusById((current) => ({
               ...current,
-              [account.id]: response.data.hasPaymentMethod
+              [account.id]: ok
                 ? { status: "ok" }
-                : { status: "missing", detailText: response.data.issues?.[0]?.error_description },
-            }))
-          )
+                : {
+                    status: "issue",
+                    detailText: [issue?.error_description, issue?.possible_solution].filter(Boolean).join(" ") || undefined,
+                  },
+            }));
+          })
           .catch((error) =>
             setWhatsappBillingStatusById((current) => ({
               ...current,
@@ -1207,7 +1215,8 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                       )}
                       {whatsappBillingStatusById[account.id] && whatsappBillingStatusById[account.id].status !== "ok" && (
                         <BillingStatusBanner
-                          status={whatsappBillingStatusById[account.id].status as "missing" | "unknown"}
+                          status={whatsappBillingStatusById[account.id].status as "issue" | "unknown"}
+                          title={whatsappBillingStatusById[account.id].status === "issue" ? "Meta reports a delivery issue on this account" : undefined}
                           detailText={whatsappBillingStatusById[account.id].detailText}
                         />
                       )}

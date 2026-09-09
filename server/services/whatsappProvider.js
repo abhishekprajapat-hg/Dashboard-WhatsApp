@@ -770,22 +770,24 @@ export async function fetchWhatsAppTemplates(account) {
   }));
 }
 
-// Whether Meta actually has a payment method on file for this WABA - as a Tech Provider (not a
-// Solution Partner with a shared credit line), Meta requires every client to add their own card
-// directly inside WhatsApp Manager; there is no API to attach one on their behalf, so this only
-// ever reads status to guide the client there, never writes anything. `primary_funding_id` is the
-// direct signal (absent/empty means no payment method); `health_status`'s WABA entity is a second,
-// more general signal Meta may also block delivery under (template/quality issues, not just
-// billing) - both are surfaced so the UI can show Meta's own reason text rather than a guess.
+// Whether Meta is actually able to deliver messages for this WABA right now - originally also
+// read `primary_funding_id` as a direct "has a payment method" signal, but that field is gated
+// behind Business Solution Provider status (confirmed live: a token with business_management and
+// full asset access still got "This action requires that the Business that owns this App is a
+// Business Solution Provider for WhatsApp" - a partnership-tier gate no token scope can unlock,
+// since Nemnidhi is a Tech Provider, not a BSP). `health_status` alone has no such gate (confirmed
+// live against the same WABA) and is arguably the better signal anyway: `can_send_message` reports
+// AVAILABLE/LIMITED/BLOCKED for real, covering a missing payment method the same way it covers
+// template-quality or policy issues, with Meta's own error/possible_solution text attached.
 export async function fetchWabaBillingStatus(account) {
   const credentials = decodeCredentials(account);
 
   if (isLocalCredential(credentials) || account.provider !== "meta") {
-    return { hasPaymentMethod: true, canSendMessage: "AVAILABLE", issues: [], mode: "local" };
+    return { canSendMessage: "AVAILABLE", issues: [], mode: "local" };
   }
 
   const accessToken = credentials.accessToken;
-  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.businessAccountId}?fields=primary_funding_id,health_status`;
+  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.businessAccountId}?fields=health_status`;
   const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   const payload = await response.json().catch(() => ({}));
 
@@ -798,7 +800,6 @@ export async function fetchWabaBillingStatus(account) {
 
   const wabaEntity = payload.health_status?.entities?.find((entity) => entity.entity_type === "WABA");
   return {
-    hasPaymentMethod: Boolean(payload.primary_funding_id),
     canSendMessage: payload.health_status?.can_send_message || "UNKNOWN",
     issues: wabaEntity?.errors || [],
     mode: "meta",
