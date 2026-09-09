@@ -53,7 +53,15 @@ export function buildAuthorizeUrl(provider, state) {
     url.searchParams.set("client_id", config.meta.appId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", "email,public_profile");
+    // This app runs on Facebook Login for Business, which rejects an OAuth request containing only
+    // email+public_profile with "This app needs at least one supported permission" - confirmed live
+    // (real popup error), a partnership-tier/product constraint, not a token-scope bug. Rule 46(b)-
+    // style reasoning doesn't apply here; Meta's own Facebook Login for Business docs are explicit
+    // that email/public_profile must be paired with at least one other supported business
+    // permission. business_management is that pairing - once its own Advanced Access review is
+    // approved alongside email/public_profile (submitted together), this becomes a normal working
+    // login button instead of erroring for every real external user.
+    url.searchParams.set("scope", "email,public_profile,business_management");
     url.searchParams.set("state", state);
     return url.toString();
   }
