@@ -10,6 +10,7 @@ import {
   createClickToWhatsAppCampaign,
   decodeAdsCredentials,
   encodeAdsCredentials,
+  getAdAccountBillingStatus,
   setCampaignStatus,
   testMetaAdsConnection,
   uploadAdImage,
@@ -128,6 +129,25 @@ adsRouter.post("/accounts/:id/test", requirePermission("ads:write"), requireEnti
       message: error.message || "Connection test failed.",
       account: serializeAccount(account),
     });
+  }
+});
+
+// Read-only, same rationale as whatsapp.js's /accounts/:id/billing-status - Meta gives a Tech
+// Provider app no API to attach a payment method to a client's ad account, only to read whether
+// one exists, so this exists purely to guide the client to Meta's own billing page.
+adsRouter.get("/accounts/:id/billing-status", requirePermission("ads:read"), requireEntitlement("ads"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Meta Ads account not found." });
+  }
+  const account = await MetaAdsAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Meta Ads account not found." });
+  }
+  try {
+    const status = await getAdAccountBillingStatus(account);
+    res.json({ data: status });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.code || "BILLING_STATUS_FAILED", message: error.message });
   }
 });
 

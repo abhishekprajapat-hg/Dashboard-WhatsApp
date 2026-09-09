@@ -533,6 +533,10 @@ export function getWhatsAppAccounts<T>() {
   return request<T>("/whatsapp/accounts");
 }
 
+export function getWhatsAppBillingStatus<T>(accountId: string) {
+  return request<T>(`/whatsapp/accounts/${accountId}/billing-status`);
+}
+
 export function getCatalogProducts<T>(accountId: string, search = "") {
   const suffix = search ? `?search=${encodeURIComponent(search)}` : "";
   return request<T>(`/whatsapp/accounts/${accountId}/catalog/products${suffix}`);
@@ -1040,6 +1044,10 @@ export function testAdsAccount<T>(id: string) {
   return request<T>(`/ads/accounts/${id}/test`, {
     method: "POST",
   });
+}
+
+export function getAdsBillingStatus<T>(id: string) {
+  return request<T>(`/ads/accounts/${id}/billing-status`);
 }
 
 export function deleteAdsAccount(id: string) {

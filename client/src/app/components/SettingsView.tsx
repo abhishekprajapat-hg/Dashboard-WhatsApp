@@ -38,6 +38,7 @@ import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { InstagramSettingsPanel } from "./InstagramSettingsPanel";
 import { FacebookSettingsPanel } from "./FacebookSettingsPanel";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
+import { BillingStatusBanner } from "./BillingStatusBanner";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
   changePassword,
@@ -45,6 +46,7 @@ import {
   createWhatsAppTemplate,
   deleteWhatsAppAccount,
   getCurrentWorkspace,
+  getWhatsAppBillingStatus,
   getWhatsAppConsole,
   getSettings,
   setWhatsAppSystemAccount,
@@ -336,6 +338,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   const [conversionTesting, setConversionTesting] = useState("");
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
   const [embeddedSignupPin, setEmbeddedSignupPin] = useState("");
+  const [whatsappBillingStatusById, setWhatsappBillingStatusById] = useState<Record<string, { hasPaymentMethod: boolean; canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] }>>({});
 
   async function handleEmbeddedSignupConnected({ pin }: { accountId: string; pin: string }) {
     setEmbeddedSignupPin(pin);
@@ -354,6 +357,13 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
       setWhatsappConsole(consoleResponse);
       setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
       setNotificationsForm(settingsResponse.notifications || initialSettings.notifications);
+      // Best-effort, per account - a billing check failing (e.g. a stale token) shouldn't block
+      // the accounts list itself from rendering.
+      (settingsResponse.whatsappAccounts || []).forEach((account) => {
+        getWhatsAppBillingStatus<{ data: { hasPaymentMethod: boolean; canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] } }>(account.id)
+          .then((response) => setWhatsappBillingStatusById((current) => ({ ...current, [account.id]: response.data })))
+          .catch(() => undefined);
+      });
     } catch (error) {
       setSettingsNotice(error instanceof Error ? error.message : "Settings could not be loaded.");
       setSettings(initialSettings);
@@ -1180,6 +1190,12 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                       )}
                       {account.credentials?.lastError && (
                         <p className="text-[11px] text-destructive mt-1">{account.credentials.lastError}</p>
+                      )}
+                      {whatsappBillingStatusById[account.id] && !whatsappBillingStatusById[account.id].hasPaymentMethod && (
+                        <BillingStatusBanner
+                          hasPaymentMethod={false}
+                          reasonText={whatsappBillingStatusById[account.id].issues?.[0]?.error_description}
+                        />
                       )}
                     </div>
                     {canWrite && <div className="flex gap-1">

@@ -12,9 +12,11 @@ import {
   deleteAdsAccount,
   getAdCampaigns,
   getAdsAccounts,
+  getAdsBillingStatus,
   pauseAdCampaign,
   testAdsAccount,
 } from "../lib/api";
+import { BillingStatusBanner } from "./BillingStatusBanner";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
@@ -81,6 +83,7 @@ export function AdsSettingsPanel() {
   const [creativeFile, setCreativeFile] = useState<File | null>(null);
   const [testingAccountId, setTestingAccountId] = useState("");
   const [campaignActionId, setCampaignActionId] = useState("");
+  const [billingStatusById, setBillingStatusById] = useState<Record<string, { hasPaymentMethod: boolean; accountStatusLabel?: string }>>({});
 
   async function loadData() {
     setLoading(true);
@@ -92,6 +95,13 @@ export function AdsSettingsPanel() {
       ]);
       setAccounts(accountsResponse.data);
       setCampaigns(campaignsResponse.data);
+      // Best-effort, per account, after the main list resolves - a billing check failing (e.g. a
+      // stale token) shouldn't block the accounts list itself from rendering.
+      accountsResponse.data.forEach((account) => {
+        getAdsBillingStatus<{ data: { hasPaymentMethod: boolean; accountStatusLabel?: string } }>(account.id)
+          .then((response) => setBillingStatusById((current) => ({ ...current, [account.id]: response.data })))
+          .catch(() => undefined);
+      });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Ads settings could not be loaded.");
     } finally {
@@ -310,6 +320,16 @@ export function AdsSettingsPanel() {
                 </Button>
               </div>
             </div>
+            {billingStatusById[account.id] && !billingStatusById[account.id].hasPaymentMethod && (
+              <BillingStatusBanner
+                hasPaymentMethod={false}
+                reasonText={
+                  billingStatusById[account.id].accountStatusLabel
+                    ? `Meta reports this ad account as "${billingStatusById[account.id].accountStatusLabel}".`
+                    : "Ads on this account will get no delivery without one."
+                }
+              />
+            )}
           </Card>
         ))}
       </div>

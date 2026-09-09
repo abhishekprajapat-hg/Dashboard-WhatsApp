@@ -770,6 +770,41 @@ export async function fetchWhatsAppTemplates(account) {
   }));
 }
 
+// Whether Meta actually has a payment method on file for this WABA - as a Tech Provider (not a
+// Solution Partner with a shared credit line), Meta requires every client to add their own card
+// directly inside WhatsApp Manager; there is no API to attach one on their behalf, so this only
+// ever reads status to guide the client there, never writes anything. `primary_funding_id` is the
+// direct signal (absent/empty means no payment method); `health_status`'s WABA entity is a second,
+// more general signal Meta may also block delivery under (template/quality issues, not just
+// billing) - both are surfaced so the UI can show Meta's own reason text rather than a guess.
+export async function fetchWabaBillingStatus(account) {
+  const credentials = decodeCredentials(account);
+
+  if (isLocalCredential(credentials) || account.provider !== "meta") {
+    return { hasPaymentMethod: true, canSendMessage: "AVAILABLE", issues: [], mode: "local" };
+  }
+
+  const accessToken = credentials.accessToken;
+  const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.businessAccountId}?fields=primary_funding_id,health_status`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = payload?.error?.message || "Could not check WhatsApp billing status.";
+    const error = new Error(message);
+    error.meta = payload;
+    throw error;
+  }
+
+  const wabaEntity = payload.health_status?.entities?.find((entity) => entity.entity_type === "WABA");
+  return {
+    hasPaymentMethod: Boolean(payload.primary_funding_id),
+    canSendMessage: payload.health_status?.can_send_message || "UNKNOWN",
+    issues: wabaEntity?.errors || [],
+    mode: "meta",
+  };
+}
+
 // Submits a brand-new template to Meta for review - distinct from fetchWhatsAppTemplates above,
 // which only ever reads templates that already exist in Meta's WhatsApp Manager. Meta's own
 // creation endpoint (POST .../message_templates) is the one real gap this app had: until this

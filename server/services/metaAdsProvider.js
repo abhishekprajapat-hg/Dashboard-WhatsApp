@@ -62,6 +62,37 @@ export async function testMetaAdsConnection(account) {
   };
 }
 
+// Same rationale as fetchWabaBillingStatus in whatsappProvider.js - a Tech Provider app can only
+// ever read whether a client's ad account has a payment method (`funding_source`, absent when none
+// is set), never attach one. `account_status` 2 = DISABLED, 8 = PENDING_SETTLEMENT are the two
+// values Meta documents as billing-related, surfaced so the UI can explain *why* delivery is
+// blocked rather than just showing a generic "disabled" label.
+const BILLING_RELATED_ACCOUNT_STATUS = { 2: "Disabled", 8: "Pending settlement" };
+
+export async function getAdAccountBillingStatus(account) {
+  if (!account) {
+    const error = new Error("Meta Ads account not found.");
+    error.code = "ACCOUNT_NOT_FOUND";
+    throw error;
+  }
+
+  const credentials = decodeAdsCredentials(account);
+  if (isLocalCredential(credentials)) {
+    return { hasPaymentMethod: true, accountStatus: 1, accountStatusLabel: "", mode: "local" };
+  }
+
+  const details = await graphRequest(`${account.adAccountId}?fields=account_status,funding_source`, {
+    accessToken: credentials.accessToken,
+  });
+
+  return {
+    hasPaymentMethod: Boolean(details.funding_source),
+    accountStatus: details.account_status,
+    accountStatusLabel: BILLING_RELATED_ACCOUNT_STATUS[details.account_status] || "",
+    mode: "meta",
+  };
+}
+
 export async function uploadAdImage(account, imageBuffer, filename = "creative.jpg") {
   const credentials = decodeAdsCredentials(account);
   const form = new FormData();

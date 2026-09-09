@@ -32,6 +32,7 @@ import {
   credentialSummary,
   decodeCredentials,
   encodeCredentials,
+  fetchWabaBillingStatus,
   fetchWhatsAppTemplates,
   normalizeTwilioWebhookPayload,
   normalizeWatiWebhookPayload,
@@ -656,6 +657,22 @@ whatsappRouter.post("/accounts/:id/sync-templates", requirePermission("settings:
 
   const templates = await Template.find({ whatsappAccountId: account._id, workspaceId: req.user.workspaceId });
   res.json({ account: serializeAccount(account), templates: templates.map(serializeTemplate) });
+});
+
+// Read-only - as a Tech Provider, Meta requires the client to add their own payment method
+// directly inside WhatsApp Manager (see fetchWabaBillingStatus's own comment); this endpoint can
+// only surface the status, never fix it, so the Settings UI can point the client to Meta's page.
+whatsappRouter.get("/accounts/:id/billing-status", requirePermission("settings:read"), async (req, res) => {
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+  try {
+    const status = await fetchWabaBillingStatus(account);
+    res.json({ data: status });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.code || "BILLING_STATUS_FAILED", message: error.message });
+  }
 });
 
 whatsappRouter.post("/accounts/:id/test", requirePermission("settings:write"), async (req, res) => {
