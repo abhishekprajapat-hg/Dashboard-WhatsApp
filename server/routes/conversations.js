@@ -189,50 +189,81 @@ function conversationVisibilityFilter(req) {
   return filter;
 }
 
+// Shared by the list endpoint and /channel-counts, so the sidebar's per-channel totals always
+// agree with whatever status/search/unread filter is actually applied to the list - built once
+// here rather than risking the two independently drifting out of sync over time.
+async function buildConversationFilter(req) {
+  const status = String(req.query.status || "").toLowerCase();
+  const search = String(req.query.search || "").trim();
+  const unread = String(req.query.unread || "") === "true";
+  const filter = conversationVisibilityFilter(req);
+
+  if (status) {
+    filter.status = status === "waiting" ? "pending" : status;
+  }
+  if (unread) {
+    filter[`unreadCountByUser.${req.user.sub}`] = mongoose.trusted({ $gt: 0 });
+  }
+  if (search) {
+    const phoneSearch = search.replace(/[^\d+]/g, "");
+    const contactSearch = [
+      { name: mongoose.trusted({ $regex: search, $options: "i" }) },
+      { waName: mongoose.trusted({ $regex: search, $options: "i" }) },
+    ];
+    if (phoneSearch) {
+      contactSearch.push({ phone: mongoose.trusted({ $regex: phoneSearch, $options: "i" }) });
+    }
+    const matchingContacts = await Contact.find({
+      workspaceId: req.user.workspaceId,
+      $or: contactSearch,
+    }).select("_id");
+    const matchingMessages = await Message.find({
+      workspaceId: req.user.workspaceId,
+      body: mongoose.trusted({ $regex: search, $options: "i" }),
+    }).select("conversationId").limit(100);
+    filter.$and = [
+      ...(filter.$and || []),
+      {
+        $or: [
+          { contactId: mongoose.trusted({ $in: matchingContacts.map((contact) => contact._id) }) },
+          { _id: mongoose.trusted({ $in: matchingMessages.map((message) => message.conversationId) }) },
+        ],
+      },
+    ];
+  }
+
+  return filter;
+}
+
+// True per-channel conversation counts, independent of pagination - the sidebar previously derived
+// its WhatsApp/Instagram/Facebook badges from whatever page of conversations happened to be loaded
+// on the client, so a channel with older-than-the-newest-50 activity showed 0 until "Load older
+// conversations" was clicked enough times to reach it. This aggregates over the real filtered set.
+conversationsRouter.get("/channel-counts", validateQuery(listConversationsQuerySchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
+    return res.json({ whatsapp: 0, instagram: 0, facebook: 0 });
+  }
+
+  const filter = await buildConversationFilter(req);
+  const rows = await Conversation.aggregate([{ $match: filter }, { $group: { _id: "$channel", count: { $sum: 1 } } }]);
+
+  const counts = { whatsapp: 0, instagram: 0, facebook: 0 };
+  for (const row of rows) {
+    if (row._id === "instagram") counts.instagram = row.count;
+    else if (row._id === "facebook") counts.facebook = row.count;
+    else counts.whatsapp += row.count; // matches ConversationList.tsx's "not instagram/facebook" bucket, incl. legacy null channel
+  }
+  res.json(counts);
+});
+
 conversationsRouter.get("/", validateQuery(listConversationsQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
-    const status = String(req.query.status || "").toLowerCase();
-    const search = String(req.query.search || "").trim();
-    const unread = String(req.query.unread || "") === "true";
     const limit = paginationLimit(req.query.limit, 50, 100);
     const cursor = cursorDate(req.query.cursor);
-    const filter = conversationVisibilityFilter(req);
+    const filter = await buildConversationFilter(req);
 
-    if (status) {
-      filter.status = status === "waiting" ? "pending" : status;
-    }
-    if (unread) {
-      filter[`unreadCountByUser.${req.user.sub}`] = mongoose.trusted({ $gt: 0 });
-    }
     if (cursor) {
       filter.lastMessageAt = mongoose.trusted({ $lt: cursor });
-    }
-    if (search) {
-      const phoneSearch = search.replace(/[^\d+]/g, "");
-      const contactSearch = [
-        { name: mongoose.trusted({ $regex: search, $options: "i" }) },
-        { waName: mongoose.trusted({ $regex: search, $options: "i" }) },
-      ];
-      if (phoneSearch) {
-        contactSearch.push({ phone: mongoose.trusted({ $regex: phoneSearch, $options: "i" }) });
-      }
-      const matchingContacts = await Contact.find({
-        workspaceId: req.user.workspaceId,
-        $or: contactSearch,
-      }).select("_id");
-      const matchingMessages = await Message.find({
-        workspaceId: req.user.workspaceId,
-        body: mongoose.trusted({ $regex: search, $options: "i" }),
-      }).select("conversationId").limit(100);
-      filter.$and = [
-        ...(filter.$and || []),
-        {
-          $or: [
-            { contactId: mongoose.trusted({ $in: matchingContacts.map((contact) => contact._id) }) },
-            { _id: mongoose.trusted({ $in: matchingMessages.map((message) => message.conversationId) }) },
-          ],
-        },
-      ];
     }
 
     let dbConversations = await Conversation.find(filter)

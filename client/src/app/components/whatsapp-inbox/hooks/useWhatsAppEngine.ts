@@ -5,6 +5,7 @@ import {
   deleteConversationMessage,
   getApiBaseUrl,
   getConversationByContact,
+  getConversationChannelCounts,
   getConversationMessages,
   getConversations,
   getTeamMembers,
@@ -60,6 +61,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   const [assigning, setAssigning] = useState(false);
   const currentTypingId = useRef("");
   const sentReceiptIds = useRef<Set<string>>(new Set());
+  const [channelCounts, setChannelCounts] = useState<{ whatsapp: number; instagram: number; facebook: number } | null>(null);
 
   const conversations = useMemo(
     () =>
@@ -91,6 +93,32 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
       });
     }
   }, [store.filter, store.search]);
+
+  // True per-channel totals, independent of the ~50-conversation page - without this the sidebar's
+  // WhatsApp/Instagram/Facebook badges were derived from whatever page happened to be loaded, so a
+  // channel with no recent activity showed 0 until "Load older conversations" reached it.
+  // Reads filter/search fresh via getState() rather than closing over `store.filter`/`store.search`
+  // - keeps this referentially stable (empty deps) so it's safe to call from the realtime handler
+  // below, whose own effect only re-runs on [onUnreadCountChange] and would otherwise close over a
+  // stale version of this callback that used whatever filter/search were active on mount.
+  const loadChannelCounts = useCallback(async () => {
+    const { filter, search } = useWhatsAppInboxStore.getState();
+    const status = ["open", "waiting", "resolved", "archived"].includes(filter) ? filter : undefined;
+    try {
+      const response = await getConversationChannelCounts({ search, status, unread: filter === "unread" });
+      setChannelCounts(response);
+    } catch {
+      // Leave the previous counts in place rather than flashing to 0 on a transient failure - the
+      // sidebar badges just go stale until the next successful load, same tolerance as loadMoreConversations.
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadChannelCounts();
+    }, store.search ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [loadChannelCounts, store.search, store.filter]);
 
   // Conversations older than the most-recently-active ~50 were previously unreachable: the list
   // only ever fetched page one and nothing ever asked for more, even though the API always
@@ -132,8 +160,15 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   useEffect(() => {
     whatsAppRealtimeService.connect(getApiBaseUrl().replace(/\/api\/?$/, ""), {
       onConversation: (conversation, unreadCount) => {
+        // Read via getState(), not the closed-over `store` - this callback is registered once
+        // (effect deps are just [onUnreadCountChange]), so `store.conversationById` here would
+        // otherwise stay frozen at whatever it was on mount instead of the live value.
+        const isNew = !useWhatsAppInboxStore.getState().conversationById[conversation.id];
         store.upsertConversation(conversation);
         if (typeof unreadCount === "number") onUnreadCountChange?.(unreadCount);
+        // A brand-new conversation changes a channel's true total; an update to an existing one
+        // (new message, status change, etc.) doesn't, so skip the refetch for those.
+        if (isNew) loadChannelCounts();
       },
       onTyping: store.setTyping,
       onPresence: store.setOnlineUsers,
@@ -468,6 +503,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
 
   return {
     conversations,
+    channelCounts,
     selected,
     selectedMessages,
     members,

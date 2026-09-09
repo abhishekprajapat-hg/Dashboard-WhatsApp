@@ -481,6 +481,15 @@ export function getConversations<T>(params: { status?: string; search?: string; 
   return request<T>(`/conversations${suffix}`);
 }
 
+export function getConversationChannelCounts(params: { status?: string; search?: string; unread?: boolean } = {}) {
+  const query = new URLSearchParams();
+  if (params.status) query.set("status", params.status);
+  if (params.search) query.set("search", params.search);
+  if (params.unread) query.set("unread", "true");
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<{ whatsapp: number; instagram: number; facebook: number }>(`/conversations/channel-counts${suffix}`);
+}
+
 export function getConversationMessages<T>(conversationId: string, params: { before?: string; limit?: number } = {}) {
   const query = new URLSearchParams();
   if (params.before) query.set("before", params.before);

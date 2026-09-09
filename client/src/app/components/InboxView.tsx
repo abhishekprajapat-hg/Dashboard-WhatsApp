@@ -113,6 +113,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
 
       <WhatsAppBusinessInbox
         conversations={engine.conversations}
+        channelCounts={engine.channelCounts}
         selectedId={engine.selected?.id || ""}
         filter={engine.store.filter}
         search={engine.store.search}

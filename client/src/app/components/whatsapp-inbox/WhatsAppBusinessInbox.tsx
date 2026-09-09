@@ -9,6 +9,7 @@ import { conversationMeta } from "./utils";
 
 interface WhatsAppBusinessInboxProps {
   conversations: Conversation[];
+  channelCounts?: { whatsapp: number; instagram: number; facebook: number } | null;
   selectedId: string;
   filter: InboxFilter;
   search: string;
@@ -62,6 +63,7 @@ interface WhatsAppBusinessInboxProps {
 
 export function WhatsAppBusinessInbox({
   conversations,
+  channelCounts,
   selectedId,
   filter,
   search,
@@ -121,6 +123,7 @@ export function WhatsAppBusinessInbox({
       <div className={mobileChatOpen ? "hidden md:hidden" : "flex min-w-0 flex-1 md:hidden"}>
         <ConversationList
           conversations={conversations}
+          channelCounts={channelCounts}
           selectedId={selected?.id || ""}
           filter={filter}
           search={search}
@@ -183,6 +186,7 @@ export function WhatsAppBusinessInbox({
           <ResizablePanel defaultSize={26} minSize={18} maxSize={40}>
             <ConversationList
               conversations={conversations}
+              channelCounts={channelCounts}
               selectedId={selected?.id || ""}
               filter={filter}
               search={search}

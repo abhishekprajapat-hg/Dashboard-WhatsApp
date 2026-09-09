@@ -6,6 +6,7 @@ import { avatarGradient, cn, initials } from "./utils";
 
 interface ConversationListProps {
   conversations: Conversation[];
+  channelCounts?: { whatsapp: number; instagram: number; facebook: number } | null;
   selectedId: string;
   filter: InboxFilter;
   search: string;
@@ -161,6 +162,7 @@ function ChannelSection({
   icon,
   accentClass,
   conversations,
+  count,
   selectedId,
   typingIds,
   open,
@@ -173,6 +175,10 @@ function ChannelSection({
   icon: React.ReactNode;
   accentClass: string;
   conversations: Conversation[];
+  // True server-side total for this channel, independent of how many conversations are actually
+  // loaded/paginated client-side yet. Falls back to the loaded array's length (the old behavior)
+  // when the server count hasn't arrived - e.g. on first paint, or if the request failed.
+  count?: number;
   selectedId: string;
   typingIds: string[];
   open: boolean;
@@ -191,7 +197,7 @@ function ChannelSection({
         <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", accentClass)}>{icon}</span>
         <span className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
         <span className="rounded-full border border-border bg-secondary/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {conversations.length}
+          {count ?? conversations.length}
         </span>
         <ChevronDown size={14} className={cn("shrink-0 text-muted-foreground transition-transform", open ? "rotate-180" : "")} />
       </button>
@@ -220,6 +226,7 @@ function ChannelSection({
 
 export function ConversationList({
   conversations,
+  channelCounts,
   selectedId,
   filter,
   search,
@@ -313,6 +320,7 @@ export function ConversationList({
               icon={<Phone size={13} className="text-primary" />}
               accentClass="bg-primary/10"
               conversations={whatsappConversations}
+              count={channelCounts?.whatsapp}
               selectedId={selectedId}
               typingIds={typingIds}
               open={openSections.whatsapp}
@@ -325,6 +333,7 @@ export function ConversationList({
               icon={<Instagram size={13} className="text-fuchsia-400" />}
               accentClass="bg-fuchsia-500/10"
               conversations={instagramConversations}
+              count={channelCounts?.instagram}
               selectedId={selectedId}
               typingIds={typingIds}
               open={openSections.instagram}
@@ -337,6 +346,7 @@ export function ConversationList({
               icon={<Facebook size={13} className="text-blue-400" />}
               accentClass="bg-blue-500/10"
               conversations={facebookConversations}
+              count={channelCounts?.facebook}
               selectedId={selectedId}
               typingIds={typingIds}
               open={openSections.facebook}
