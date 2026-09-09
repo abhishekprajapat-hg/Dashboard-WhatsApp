@@ -139,6 +139,16 @@ export const config = {
     fromAddress: process.env.MAIL_FROM || "",
     fromName: process.env.MAIL_FROM_NAME || "Dashboard-WhatsApp",
   },
+  // Nemnidhi's own GST registration details, printed as the "supplier" on every subscription tax
+  // invoice (services/gstInvoice.js) - env-overridable rather than hardcoded so a GSTIN correction
+  // or address change never needs a code deploy. gstState drives the CGST+SGST-vs-IGST split
+  // against each client's own billingState.
+  gstSupplier: {
+    legalName: process.env.GST_SUPPLIER_LEGAL_NAME || "Nemnidhi",
+    gstin: process.env.GST_SUPPLIER_GSTIN || "23CGZPB7175E1Z5",
+    address: process.env.GST_SUPPLIER_ADDRESS || "B20 - 5th Floor, Gravity Mall, Mechanic Nagar, Indore",
+    state: process.env.GST_SUPPLIER_STATE || "Madhya Pradesh",
+  },
   // Bounds for the code_block automation node's isolated-vm sandbox - kept low/conservative since
   // this runs inline in advanceRun's synchronous traversal loop (blocks the whole run until it
   // resolves, like every other Phase 2 node) on a resource-constrained single VPS.

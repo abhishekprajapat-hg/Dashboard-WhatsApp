@@ -8,6 +8,7 @@ export * from "./Campaign.js";
 export * from "./CalendarEvent.js";
 export * from "./Contact.js";
 export * from "./Conversation.js";
+export * from "./Counter.js";
 export * from "./FeatureFlag.js";
 export * from "./InstagramAccount.js";
 export * from "./FacebookAccount.js";

@@ -35,6 +35,14 @@ const organizationSchema = new mongoose.Schema(
     currentPeriodEnd: { type: Date, default: null },
     razorpayCustomerId: { type: String, trim: true, default: "" },
     razorpaySubscriptionId: { type: String, trim: true, default: "" },
+    // Client-supplied GST billing profile - needed to issue a valid tax invoice (GSTIN/address are
+    // optional under GST for an unregistered/B2C recipient, but billingState is what actually
+    // decides CGST+SGST vs IGST on every invoice, see services/gstInvoice.js). Client enters these
+    // themselves in Settings > Billing; never inferred or guessed server-side.
+    billingLegalName: { type: String, trim: true, default: "" },
+    billingGstin: { type: String, trim: true, default: "" },
+    billingAddress: { type: String, trim: true, default: "" },
+    billingState: { type: String, trim: true, default: "" },
     settings: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

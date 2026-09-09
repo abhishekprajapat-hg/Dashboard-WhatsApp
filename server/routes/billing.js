@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { Invoice, Organization } from "../models/index.js";
+import { Invoice, Organization, User } from "../models/index.js";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { config } from "../config.js";
@@ -9,6 +9,8 @@ import { PLAN_PRICES } from "../services/entitlements.js";
 import { cancelRazorpaySubscription, createRazorpaySubscription, isRazorpayConfigured, verifySubscriptionSignature } from "../services/razorpayProvider.js";
 import { notifyVega } from "../services/vegaIntegration.js";
 import { getBillingGate } from "../middleware/billingGate.js";
+import { issueGstInvoiceFields, generateInvoicePdfBuffer } from "../services/gstInvoice.js";
+import { sendInvoiceEmail } from "../services/mailer.js";
 
 export const billingRouter = Router();
 
@@ -19,6 +21,22 @@ const subscribeSchema = z.object({
 const verifySchema = z.object({
   razorpay_payment_id: z.string().min(1),
   razorpay_signature: z.string().min(1),
+});
+
+// Standard 15-character GSTIN format (2-digit state code, 10-char PAN, entity code, "Z", checksum).
+// Empty string allowed - GST doesn't require a GSTIN for an unregistered/B2C recipient.
+const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}$/;
+
+const billingProfileSchema = z.object({
+  billingLegalName: z.string().trim().max(200).default(""),
+  billingGstin: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine((value) => value === "" || GSTIN_PATTERN.test(value), "Enter a valid 15-character GSTIN, or leave blank if not GST-registered.")
+    .default(""),
+  billingAddress: z.string().trim().max(400).default(""),
+  billingState: z.string().trim().max(100).default(""),
 });
 
 billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
@@ -42,6 +60,12 @@ billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
     currentPeriodStart: organization.currentPeriodStart || null,
     currentPeriodEnd: organization.currentPeriodEnd || null,
     gate: getBillingGate(organization),
+    billingProfile: {
+      billingLegalName: organization.billingLegalName || "",
+      billingGstin: organization.billingGstin || "",
+      billingAddress: organization.billingAddress || "",
+      billingState: organization.billingState || "",
+    },
     // Publishable, not secret - Checkout.js needs this client-side, same as any payment gateway's
     // public key.
     razorpayKeyId: config.razorpay.keyId,
@@ -49,6 +73,7 @@ billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
     prices: PLAN_PRICES,
     invoices: invoices.map((invoice) => ({
       id: invoice._id.toString(),
+      invoiceNumber: invoice.invoiceNumber || "",
       plan: invoice.plan,
       amount: invoice.amount,
       currency: invoice.currency,
@@ -58,6 +83,47 @@ billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
       periodEnd: invoice.periodEnd || null,
     })),
   });
+});
+
+billingRouter.patch("/profile", requirePermission("billing:write"), validateBody(billingProfileSchema), async (req, res) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+  }
+
+  const organization = await Organization.findByIdAndUpdate(req.user.organizationId, { $set: req.body }, { new: true });
+  if (!organization) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Organization not found." });
+  }
+
+  res.json({
+    ok: true,
+    billingProfile: {
+      billingLegalName: organization.billingLegalName || "",
+      billingGstin: organization.billingGstin || "",
+      billingAddress: organization.billingAddress || "",
+      billingState: organization.billingState || "",
+    },
+  });
+});
+
+// On-demand PDF regeneration (not a stored file) - cheap enough that re-running gstInvoice.js's
+// layout against the already-frozen Invoice fields is simpler and more reliable than managing a
+// blob store, and produces byte-identical output every time since nothing on the Invoice document
+// changes after it's created.
+billingRouter.get("/invoices/:id/pdf", requirePermission("billing:read"), async (req, res) => {
+  if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Invoice not found." });
+  }
+
+  const invoice = await Invoice.findOne({ _id: req.params.id, organizationId: req.user.organizationId });
+  if (!invoice || !invoice.invoiceNumber) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Invoice not found." });
+  }
+
+  const pdfBuffer = await generateInvoicePdfBuffer(invoice);
+  res.set("Content-Type", "application/pdf");
+  res.set("Content-Disposition", `attachment; filename="${invoice.invoiceNumber}.pdf"`);
+  res.send(pdfBuffer);
 });
 
 billingRouter.post("/subscribe", requirePermission("billing:write"), validateBody(subscribeSchema), async (req, res) => {
@@ -131,21 +197,38 @@ billingRouter.post("/verify", requirePermission("billing:write"), validateBody(v
   await organization.save();
 
   const priceInfo = PLAN_PRICES[plan];
+  const amount = priceInfo?.amount || 0;
+  let invoice;
   try {
-    await Invoice.create({
+    const gstFields = await issueGstInvoiceFields({ organization, totalAmountMinorUnits: amount });
+    invoice = await Invoice.create({
       organizationId: organization._id,
       workspaceId: req.user.workspaceId,
       plan,
-      amount: priceInfo?.amount || 0,
+      amount,
       currency: priceInfo?.currency || "INR",
       status: "paid",
       razorpayPaymentId: req.body.razorpay_payment_id,
       razorpaySubscriptionId: organization.razorpaySubscriptionId,
+      ...gstFields,
     });
   } catch (error) {
     // Duplicate razorpayPaymentId (client retried an already-verified payment) - the Invoice row
     // from the first attempt already exists, not a real failure.
     if (error.code !== 11000) throw error;
+  }
+  if (invoice) {
+    // Fire-and-forget, same reasoning as notifyVega below - a slow/failed email must never delay
+    // or fail this response, the payment itself already succeeded.
+    generateInvoicePdfBuffer(invoice)
+      .then(async (pdfBuffer) => {
+        const owner = await User.findById(organization.ownerUserId).select("email name");
+        if (!owner?.email) return;
+        await sendInvoiceEmail({ to: owner.email, name: owner.name || organization.name, invoice, pdfBuffer });
+        invoice.pdfSentAt = new Date();
+        await invoice.save();
+      })
+      .catch(() => undefined);
   }
 
   res.json({ ok: true, plan: organization.plan, billingStatus: organization.billingStatus });

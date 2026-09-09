@@ -4,7 +4,9 @@ import { config } from "../config.js";
 // against realistic sample shapes without network access or live credentials. sendEmail/sendSms
 // are the only parts that actually perform the fetch.
 
-export function buildEmailRequest({ apiKey, fromAddress, fromName, to, subject, body }) {
+// `attachments` (optional) matches SendGrid's own shape: [{ content: base64, filename, type }] -
+// content must already be base64-encoded by the caller (see gstInvoice.js's PDF buffer -> base64).
+export function buildEmailRequest({ apiKey, fromAddress, fromName, to, subject, body, attachments }) {
   return {
     url: "https://api.sendgrid.com/v3/mail/send",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -13,6 +15,7 @@ export function buildEmailRequest({ apiKey, fromAddress, fromName, to, subject, 
       from: fromName ? { email: fromAddress, name: fromName } : { email: fromAddress },
       subject,
       content: [{ type: "text/plain", value: body }],
+      ...(attachments?.length ? { attachments } : {}),
     },
   };
 }
@@ -37,12 +40,12 @@ function withTimeout() {
   return { signal: controller.signal, clear: () => clearTimeout(timeout) };
 }
 
-export async function sendEmail({ apiKey, fromAddress, fromName, to, subject, body }) {
+export async function sendEmail({ apiKey, fromAddress, fromName, to, subject, body, attachments }) {
   if (!apiKey) throw new Error("Missing email provider API key");
   if (!fromAddress) throw new Error("Missing sender (from) address");
   if (!to) throw new Error("Missing recipient email address");
 
-  const { url, headers, body: requestBody } = buildEmailRequest({ apiKey, fromAddress, fromName, to, subject, body });
+  const { url, headers, body: requestBody } = buildEmailRequest({ apiKey, fromAddress, fromName, to, subject, body, attachments });
   const { signal, clear } = withTimeout();
   try {
     const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(requestBody), signal });

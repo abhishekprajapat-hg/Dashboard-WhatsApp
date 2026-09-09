@@ -2,8 +2,17 @@ import { useEffect, useState } from "react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { AlertTriangle, CalendarClock, CreditCard, ReceiptText } from "lucide-react";
-import { cancelBillingSubscription, getBilling, subscribeBillingPlan, verifyBillingPayment } from "../lib/api";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { AlertTriangle, CalendarClock, CreditCard, Download, FileText, ReceiptText } from "lucide-react";
+import {
+  cancelBillingSubscription,
+  downloadBillingInvoicePdf,
+  getBilling,
+  subscribeBillingPlan,
+  updateBillingProfile,
+  verifyBillingPayment,
+} from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 
@@ -21,6 +30,7 @@ interface PlanPrice {
 
 interface Invoice {
   id: string;
+  invoiceNumber: string;
   plan: string;
   amount: number;
   currency: string;
@@ -35,6 +45,13 @@ interface BillingGate {
   reason?: string;
 }
 
+interface BillingProfile {
+  billingLegalName: string;
+  billingGstin: string;
+  billingAddress: string;
+  billingState: string;
+}
+
 interface BillingState {
   plan: string;
   billingStatus: string;
@@ -45,6 +62,7 @@ interface BillingState {
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
   gate: BillingGate;
+  billingProfile: BillingProfile;
   prices: Record<string, PlanPrice>;
   invoices: Invoice[];
 }
@@ -94,12 +112,17 @@ export function BillingSettingsPanel() {
   const [notice, setNotice] = useState("");
   const [subscribingPlan, setSubscribingPlan] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [profileForm, setProfileForm] = useState<BillingProfile>({ billingLegalName: "", billingGstin: "", billingAddress: "", billingState: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState("");
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState("");
 
   async function loadBilling() {
     setLoading(true);
     try {
       const response = await getBilling<BillingState>();
       setBilling(response);
+      setProfileForm(response.billingProfile);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load billing information.");
     } finally {
@@ -110,6 +133,32 @@ export function BillingSettingsPanel() {
   useEffect(() => {
     loadBilling().catch(() => undefined);
   }, []);
+
+  async function handleSaveProfile(event: React.FormEvent) {
+    event.preventDefault();
+    setProfileSaving(true);
+    setProfileNotice("");
+    try {
+      const response = await updateBillingProfile<{ billingProfile: BillingProfile }>(profileForm);
+      setBilling((current) => (current ? { ...current, billingProfile: response.billingProfile } : current));
+      setProfileNotice("Saved - this appears on future invoices.");
+    } catch (error) {
+      setProfileNotice(error instanceof Error ? error.message : "Could not save billing details.");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handleDownloadInvoice(invoice: Invoice) {
+    setDownloadingInvoiceId(invoice.id);
+    try {
+      await downloadBillingInvoicePdf(invoice.id, `${invoice.invoiceNumber || invoice.id}.pdf`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not download this invoice.");
+    } finally {
+      setDownloadingInvoiceId("");
+    }
+  }
 
   async function handleSubscribe(planKey: string) {
     setSubscribingPlan(planKey);
@@ -223,6 +272,66 @@ export function BillingSettingsPanel() {
       )}
 
       {billing && (
+        <Card className={`p-4 ${cardClass}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <FileText size={16} className="text-primary" />
+            <h3 className="text-sm font-medium text-foreground">GST billing details</h3>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Used on every tax invoice we issue you. Leave GSTIN blank if you're not GST-registered. Your state decides whether
+            invoices show CGST+SGST or IGST.
+          </p>
+          <form onSubmit={handleSaveProfile} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Legal business name</Label>
+              <Input
+                value={profileForm.billingLegalName}
+                onChange={(event) => setProfileForm((current) => ({ ...current, billingLegalName: event.target.value }))}
+                placeholder="As registered with GST (or your business name)"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">GSTIN (optional)</Label>
+              <Input
+                value={profileForm.billingGstin}
+                onChange={(event) => setProfileForm((current) => ({ ...current, billingGstin: event.target.value.toUpperCase() }))}
+                placeholder="15-character GSTIN"
+                maxLength={15}
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Billing address</Label>
+              <Input
+                value={profileForm.billingAddress}
+                onChange={(event) => setProfileForm((current) => ({ ...current, billingAddress: event.target.value }))}
+                placeholder="Registered/billing address"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">State</Label>
+              <Input
+                value={profileForm.billingState}
+                onChange={(event) => setProfileForm((current) => ({ ...current, billingState: event.target.value }))}
+                placeholder="e.g. Maharashtra"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="flex items-end sm:col-span-2">
+              <Button type="submit" size="sm" className="h-9 text-xs bg-primary text-primary-foreground" disabled={profileSaving}>
+                {profileSaving ? "Saving..." : "Save billing details"}
+              </Button>
+            </div>
+          </form>
+          {profileNotice && (
+            <p className={`mt-2 text-xs ${profileNotice.startsWith("Saved") ? "text-emerald-500" : "text-destructive"}`}>{profileNotice}</p>
+          )}
+        </Card>
+      )}
+
+      {billing && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {PLAN_ORDER.map((planKey) => {
             const price = billing.prices[planKey];
@@ -267,7 +376,10 @@ export function BillingSettingsPanel() {
             {billing.invoices.map((invoice) => (
               <div key={invoice.id} className="flex items-center justify-between rounded-md border border-border/80 bg-background/60 p-2">
                 <div>
-                  <p className="text-sm text-foreground">{PLAN_LABELS[invoice.plan] || invoice.plan}</p>
+                  <p className="text-sm text-foreground">
+                    {PLAN_LABELS[invoice.plan] || invoice.plan}
+                    {invoice.invoiceNumber && <span className="ml-2 text-xs text-muted-foreground">{invoice.invoiceNumber}</span>}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(invoice.createdAt).toLocaleDateString()}
                     {invoice.periodStart && invoice.periodEnd
@@ -278,6 +390,19 @@ export function BillingSettingsPanel() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-foreground">{formatAmount(invoice.amount, invoice.currency)}</span>
                   <Badge variant={invoice.status === "paid" ? "default" : "outline"}>{invoice.status}</Badge>
+                  {invoice.invoiceNumber && (
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      className="h-7 w-7 border-border"
+                      title="Download tax invoice PDF"
+                      onClick={() => handleDownloadInvoice(invoice)}
+                      disabled={downloadingInvoiceId === invoice.id}
+                    >
+                      <Download size={13} />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}

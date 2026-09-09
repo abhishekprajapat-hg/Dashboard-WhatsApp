@@ -1203,6 +1203,32 @@ export function cancelBillingSubscription<T>() {
   });
 }
 
+export function updateBillingProfile<T>(payload: { billingLegalName: string; billingGstin: string; billingAddress: string; billingState: string }) {
+  return request<T>("/billing/profile", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// The invoice PDF route needs the Bearer token, so a plain <a href> can't carry auth - fetch it as
+// a blob and trigger the save via a throwaway anchor, same end result as a direct download link.
+export async function downloadBillingInvoicePdf(invoiceId: string, filename: string) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_URL}/billing/invoices/${invoiceId}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not download this invoice.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function getInstagramComments<T>() {
   return request<T>("/instagram/comments");
 }

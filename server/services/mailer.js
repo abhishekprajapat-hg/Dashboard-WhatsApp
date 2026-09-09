@@ -36,3 +36,41 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
     body,
   });
 }
+
+// This is Nemnidhi billing its own clients for the platform subscription itself - platform-wide
+// credential, same reasoning as sendPasswordResetEmail above, not a tenant's own per-workspace
+// SendGrid key (that's for a tenant's own customer-facing alerts, a different concern entirely).
+export async function sendInvoiceEmail({ to, name, invoice, pdfBuffer }) {
+  const { sendgridApiKey, fromAddress, fromName } = config.platformEmail;
+  if (!sendgridApiKey || !fromAddress) {
+    const error = new Error("Platform email is not configured yet (SENDGRID_API_KEY/MAIL_FROM).");
+    error.code = "MAIL_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const body = [
+    `Hi ${name},`,
+    "",
+    `Your Dashboard-WhatsApp tax invoice ${invoice.invoiceNumber} is attached.`,
+    `Amount: ${invoice.currency === "INR" ? "Rs. " : `${invoice.currency} `}${(invoice.amount / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+    "",
+    "Questions about this invoice? Just reply to this email.",
+  ].join("\n");
+
+  return sendEmail({
+    apiKey: sendgridApiKey,
+    fromAddress,
+    fromName,
+    to,
+    subject: `Nemnidhi tax invoice ${invoice.invoiceNumber}`,
+    body,
+    attachments: [
+      {
+        content: pdfBuffer.toString("base64"),
+        filename: `${invoice.invoiceNumber}.pdf`,
+        type: "application/pdf",
+        disposition: "attachment",
+      },
+    ],
+  });
+}
