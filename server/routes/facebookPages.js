@@ -9,6 +9,7 @@ import { trimmedString } from "../utils/zodHelpers.js";
 import { config } from "../config.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { runInboundAutomations } from "../services/automationRunner.js";
+import { logger } from "../services/logger.js";
 import {
   buildFacebookPagesAuthorizeUrl,
   decodeFacebookCredentials,
@@ -161,70 +162,79 @@ facebookPagesPublicRouter.post("/webhook", async (req, res) => {
   const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");
   if (existingMessage) return res.sendStatus(200);
 
-  let contact = await Contact.findOne({ workspaceId: account.workspaceId, facebookScopedId: normalized.from });
-  if (!contact) {
-    contact = await Contact.create({
-      organizationId: account.organizationId,
-      workspaceId: account.workspaceId,
-      name: normalized.from,
-      channel: "facebook",
-      facebookScopedId: normalized.from,
-      source: "Facebook",
-      lifecycleStatus: "lead",
-      lastMessageAt: new Date(),
-    });
-  } else {
-    await Contact.updateOne({ _id: contact._id }, { $set: { lastMessageAt: new Date() } });
-  }
+  // Ack immediately, before the real work (DB writes, automation triggering) - same reasoning and
+  // pattern as whatsapp.js's handleProviderWebhook and instagram.js's webhook handler. Wrapped in
+  // try/catch since the response is already sent: an uncaught error here would otherwise reach
+  // Express's default error handler, which would try to send a second response and crash with
+  // ERR_HTTP_HEADERS_SENT.
+  res.sendStatus(200);
 
-  const existingConversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "facebook" });
-  const isNewConversation = !existingConversation;
-  const conversation = existingConversation
-    ? await Conversation.findByIdAndUpdate(existingConversation._id, { facebookAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
-    : await Conversation.create({
+  try {
+    let contact = await Contact.findOne({ workspaceId: account.workspaceId, facebookScopedId: normalized.from });
+    if (!contact) {
+      contact = await Contact.create({
+        organizationId: account.organizationId,
+        workspaceId: account.workspaceId,
+        name: normalized.from,
+        channel: "facebook",
+        facebookScopedId: normalized.from,
+        source: "Facebook",
+        lifecycleStatus: "lead",
+        lastMessageAt: new Date(),
+      });
+    } else {
+      await Contact.updateOne({ _id: contact._id }, { $set: { lastMessageAt: new Date() } });
+    }
+
+    const existingConversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "facebook" });
+    const isNewConversation = !existingConversation;
+    const conversation = existingConversation
+      ? await Conversation.findByIdAndUpdate(existingConversation._id, { facebookAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
+      : await Conversation.create({
+        organizationId: account.organizationId,
+        workspaceId: account.workspaceId,
+        contactId: contact._id,
+        facebookAccountId: account._id,
+        channel: "facebook",
+        status: "open",
+        lastMessageAt: new Date(),
+      });
+
+    const message = await Message.create({
       organizationId: account.organizationId,
       workspaceId: account.workspaceId,
+      conversationId: conversation._id,
       contactId: contact._id,
       facebookAccountId: account._id,
       channel: "facebook",
-      status: "open",
-      lastMessageAt: new Date(),
+      direction: "inbound",
+      type: normalized.attachments?.[0]?.type || "text",
+      body: normalized.body,
+      attachments: normalized.attachments,
+      providerMessageId: normalized.providerMessageId,
+      status: "delivered",
+      receivedAt: new Date(),
     });
 
-  const message = await Message.create({
-    organizationId: account.organizationId,
-    workspaceId: account.workspaceId,
-    conversationId: conversation._id,
-    contactId: contact._id,
-    facebookAccountId: account._id,
-    channel: "facebook",
-    direction: "inbound",
-    type: normalized.attachments?.[0]?.type || "text",
-    body: normalized.body,
-    attachments: normalized.attachments,
-    providerMessageId: normalized.providerMessageId,
-    status: "delivered",
-    receivedAt: new Date(),
-  });
+    const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
+    for (const membership of memberships) {
+      const key = membership.userId.toString();
+      const current = Number(conversation.unreadCountByUser?.get?.(key) || 0);
+      conversation.unreadCountByUser.set(key, current + 1);
+    }
+    conversation.markModified("unreadCountByUser");
+    conversation.lastMessageId = message._id;
+    await conversation.save();
+    await publishConversationChanged(conversation._id);
 
-  const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
-  for (const membership of memberships) {
-    const key = membership.userId.toString();
-    const current = Number(conversation.unreadCountByUser?.get?.(key) || 0);
-    conversation.unreadCountByUser.set(key, current + 1);
+    await runInboundAutomations({
+      account,
+      contact,
+      conversation,
+      inboundMessage: message,
+      isNewConversation,
+    });
+  } catch (error) {
+    logger.error({ err: error, pageId: normalized.pageId }, "Facebook webhook processing failed after ack");
   }
-  conversation.markModified("unreadCountByUser");
-  conversation.lastMessageId = message._id;
-  await conversation.save();
-  await publishConversationChanged(conversation._id);
-
-  await runInboundAutomations({
-    account,
-    contact,
-    conversation,
-    inboundMessage: message,
-    isNewConversation,
-  });
-
-  res.sendStatus(200);
 });

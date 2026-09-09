@@ -222,7 +222,11 @@ function serializeRecipient(recipient = {}) {
 }
 
 function getLegacyAudienceFilter(workspaceId, type = "all") {
-  const filter = { workspaceId };
+  // Hard exclusion, applied to every audience type - a contact who has genuinely opted out (STOP/
+  // UNSUBSCRIBE/CANCEL, see whatsapp.js's webhook handler) must never receive a marketing send
+  // regardless of which audience filter a campaign was built with. "opted_in" below is a narrower,
+  // opt-in *targeting* choice on top of this, not the only place opt-out gets enforced.
+  const filter = { workspaceId, optInStatus: mongoose.trusted({ $ne: "opted_out" }) };
   if (type === "opted_in") filter.optInStatus = "opted_in";
   if (type === "leads") filter.lifecycleStatus = "lead";
   if (type === "customers") filter.lifecycleStatus = "customer";

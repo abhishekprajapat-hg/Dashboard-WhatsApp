@@ -42,6 +42,7 @@ import { BillingStatusBanner } from "./BillingStatusBanner";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
 import {
   changePassword,
+  clearWhatsAppMarketingPause,
   createWhatsAppAccount,
   createWhatsAppTemplate,
   deleteWhatsAppAccount,
@@ -80,6 +81,10 @@ interface WhatsAppAccount {
   status: "connected" | "disconnected" | "needs_attention";
   webhookStatus: string;
   templateSyncStatus: string;
+  qualityRating?: string;
+  qualityRatingUpdatedAt?: string | null;
+  marketingPaused?: boolean;
+  marketingPausedReason?: string;
   credentials?: {
     accessTokenConfigured?: boolean;
     verifyTokenConfigured?: boolean;
@@ -110,7 +115,7 @@ interface SettingsPayload {
 interface NotificationsPayload {
   enabled: boolean;
   recipientEmail: string;
-  events: { whatsappNeedsAttention: boolean; adsNeedsAttention: boolean };
+  events: { whatsappNeedsAttention: boolean; adsNeedsAttention: boolean; whatsappQualityDropped: boolean };
 }
 
 interface AiProviderConfig {
@@ -199,7 +204,7 @@ const initialSettings: SettingsPayload = {
   notifications: {
     enabled: false,
     recipientEmail: "",
-    events: { whatsappNeedsAttention: true, adsNeedsAttention: true },
+    events: { whatsappNeedsAttention: true, adsNeedsAttention: true, whatsappQualityDropped: true },
   },
   roles: [],
 };
@@ -509,6 +514,21 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
       setAccountNotice((current) => ({
         ...current,
         [id]: error instanceof Error ? error.message : "Could not update the system account flag.",
+      }));
+    }
+  }
+
+  async function handleClearMarketingPause(id: string) {
+    try {
+      const response = await clearWhatsAppMarketingPause<{ data: WhatsAppAccount }>(id);
+      setSettings((current) => ({
+        ...current,
+        whatsappAccounts: current.whatsappAccounts.map((account) => (account.id === id ? response.data : account)),
+      }));
+    } catch (error) {
+      setAccountNotice((current) => ({
+        ...current,
+        [id]: error instanceof Error ? error.message : "Could not clear the marketing pause.",
       }));
     }
   }
@@ -1179,6 +1199,14 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.status)}`}>{account.status.replace("_", " ")}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.webhookStatus)}`}>webhook {account.webhookStatus}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${statusBadgeClass(account.templateSyncStatus)}`}>templates {account.templateSyncStatus}</Badge>
+                        {account.qualityRating && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${account.qualityRating === "GREEN" ? "border-primary/30 text-primary" : account.qualityRating === "YELLOW" ? "border-yellow-500/30 text-yellow-400" : "border-destructive/40 text-destructive"}`}
+                          >
+                            quality {account.qualityRating.toLowerCase()}
+                          </Badge>
+                        )}
                         {account.isSystemAccount && (
                           <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">system account</Badge>
                         )}
@@ -1219,6 +1247,24 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                           title={whatsappBillingStatusById[account.id].status === "issue" ? "Meta reports a delivery issue on this account" : undefined}
                           detailText={whatsappBillingStatusById[account.id].detailText}
                         />
+                      )}
+                      {account.marketingPaused && (
+                        <div className="mt-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">Marketing campaigns are paused on this number</p>
+                            <p className="mt-0.5">{account.marketingPausedReason || "Quality rating dropped."}</p>
+                            {canWrite && (
+                              <button
+                                type="button"
+                                onClick={() => handleClearMarketingPause(account.id)}
+                                className="mt-1.5 font-medium text-destructive underline decoration-destructive/40 underline-offset-2 hover:decoration-destructive"
+                              >
+                                I've confirmed the rating recovered - clear this pause
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                     {canWrite && <div className="flex gap-1">
@@ -1794,6 +1840,16 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                     type="checkbox"
                     checked={notificationsForm.events.adsNeedsAttention}
                     onChange={(event) => setNotificationsForm((current) => ({ ...current, events: { ...current.events, adsNeedsAttention: event.target.checked } }))}
+                    disabled={!canWrite}
+                    className="h-4 w-4"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">A WhatsApp number's quality rating drops (marketing campaigns auto-pause)</span>
+                  <input
+                    type="checkbox"
+                    checked={notificationsForm.events.whatsappQualityDropped}
+                    onChange={(event) => setNotificationsForm((current) => ({ ...current, events: { ...current.events, whatsappQualityDropped: event.target.checked } }))}
                     disabled={!canWrite}
                     className="h-4 w-4"
                   />

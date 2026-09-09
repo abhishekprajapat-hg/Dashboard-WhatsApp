@@ -61,6 +61,10 @@ function serializeAccount(account) {
     status: account.status,
     lastSyncedAt: account.lastSyncedAt,
     isSystemAccount: Boolean(account.isSystemAccount),
+    qualityRating: account.qualityRating || "",
+    qualityRatingUpdatedAt: account.qualityRatingUpdatedAt || null,
+    marketingPaused: Boolean(account.marketingPaused),
+    marketingPausedReason: account.marketingPausedReason || "",
     credentials,
   };
 }
@@ -563,6 +567,23 @@ whatsappRouter.patch("/accounts/:id/system-account", requirePlatformOwner, valid
   res.json({ data: serializeAccount(account) });
 });
 
+// Meta doesn't push a distinct "quality restored" webhook event to auto-clear this on - an admin
+// confirms the rating has actually recovered (in WhatsApp Manager) and clears it here deliberately,
+// rather than the system guessing recovery on its own.
+whatsappRouter.post("/accounts/:id/clear-marketing-pause", requirePermission("settings:write"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
+  }
+  account.marketingPaused = false;
+  account.marketingPausedReason = "";
+  await account.save();
+  res.json({ data: serializeAccount(account) });
+});
+
 whatsappRouter.get("/templates", requirePermission("settings:read"), validateQuery(listWhatsappTemplatesQuerySchema), async (req, res) => {
   const filter = { workspaceId: req.user.workspaceId };
   if (req.query.accountId && mongoose.Types.ObjectId.isValid(req.query.accountId)) {
@@ -797,9 +818,25 @@ whatsappWebhookRouter.get("/", async (req, res) => {
   res.sendStatus(403);
 });
 
+// Common industry-standard SMS/WhatsApp opt-out keywords. Matched against the *entire* trimmed,
+// punctuation-stripped message body, not as a substring - "can I cancel my order?" must never
+// trip this, only a message that IS essentially just the keyword. Real quality-rating protection
+// depends on this being conservative: a false positive silently drops a real customer from future
+// campaigns, a false negative is comparatively low-risk (Meta's own block/report mechanism is
+// still the real backstop).
+const OPT_OUT_KEYWORDS = new Set(["STOP", "UNSUBSCRIBE", "CANCEL", "OPT OUT", "OPTOUT", "END", "QUIT"]);
+
+export function isOptOutMessage(body = "") {
+  const normalizedBody = String(body).trim().toUpperCase().replace(/[.!?,]+$/, "");
+  return OPT_OUT_KEYWORDS.has(normalizedBody);
+}
+
 async function findWebhookAccount(normalized, provider = "meta") {
-  if (!normalized.phoneNumberId) return null;
-  const lookup = String(normalized.phoneNumberId);
+  // template_status events have no phoneNumberId (they're scoped to the WABA, not a number) - fall
+  // back to businessAccountId so this lookup, and the signature verification gated on it finding an
+  // account, still runs for that event type instead of silently skipping both.
+  const lookup = String(normalized.phoneNumberId || normalized.businessAccountId || "");
+  if (!lookup) return null;
   return WhatsAppAccount.findOne({
     provider,
     $or: [
@@ -842,6 +879,15 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
+  // Ack immediately, before the real work (media download, DB writes, CRM/automation triggering)
+  // - Meta requires a response within 20s and disables the webhook subscription after repeated
+  // timeouts, and this handler's own processing (a network round-trip to fetch inbound media, in
+  // particular) is exactly the kind of thing that can occasionally run slow. Same fire-and-forget
+  // shape already used elsewhere in this codebase (notifyVega, syncLeadToGoogleSheetInBackground) -
+  // a failure below still gets recorded on `event` (status "failed", visible via Admin > Logs), it
+  // just can no longer change what Meta was already told.
+  res.sendStatus(200);
+
   try {
     if (normalized.type === "message" && account) {
       const existingMessage = normalized.providerMessageId
@@ -857,7 +903,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
         };
         await event.save();
         await publishConversationChanged(existingMessage.conversationId);
-        return res.sendStatus(200);
+        return;
       }
 
       const isAdLead = isMetaAdReferral(normalized.referral);
@@ -878,6 +924,10 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
       const existingCustomFields = found.contact?.customFields && typeof found.contact.customFields === "object"
         ? found.contact.customFields
         : {};
+      // A real opt-out (STOP/UNSUBSCRIBE/etc) always wins over whatever the contact's prior status
+      // was - never downgrade an existing opted_out back to unknown just because a later message
+      // wasn't itself a keyword, but do let a *new* opt-out message update it going forward.
+      const optOutUpdate = isOptOutMessage(messageBody) ? { optInStatus: "opted_out" } : {};
       const contactUpdate = {
         organizationId: account.organizationId,
         workspaceId: account.workspaceId,
@@ -886,6 +936,7 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
         profilePhoto,
         phone: found.contact?.phone || normalized.from,
         source,
+        ...optOutUpdate,
         customFields: {
           ...existingCustomFields,
           ...(isAdLead ? { metaAdReferral: normalized.referral, leadSource: "meta_ad" } : {}),
@@ -1079,6 +1130,39 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
       }
     }
 
+    if (normalized.type === "template_status" && account) {
+      // Meta's own status vocabulary uses APPROVED/REJECTED/PENDING/PAUSED/DISABLED etc - lowercased
+      // to match fetchWhatsAppTemplates' own normalization (String(status).toLowerCase()), so a
+      // template's status reads the same regardless of whether it arrived via manual sync or this
+      // push event.
+      const nextStatus = normalized.event ? normalized.event.toLowerCase() : "";
+      if (nextStatus) {
+        await Template.updateMany(
+          { whatsappAccountId: account._id, workspaceId: account.workspaceId, providerTemplateId: normalized.templateId },
+          { $set: { status: nextStatus } }
+        );
+      }
+    }
+
+    if (normalized.type === "quality_update" && account) {
+      const rating = normalized.currentQualityRating;
+      account.qualityRating = rating;
+      account.qualityRatingUpdatedAt = new Date();
+      // Auto-pause on any drop away from GREEN, including to an unrecognized/empty value - fail
+      // toward protecting the number, not toward assuming it's still fine. Does NOT auto-clear on
+      // its own recovery event; an admin confirms and clears it (see whatsapp.js's account routes)
+      // since Meta doesn't push a distinct "quality restored" signal to react to automatically.
+      if (rating !== "GREEN" && !account.marketingPaused) {
+        account.marketingPaused = true;
+        account.marketingPausedReason = `Quality rating dropped to ${rating || "unknown"}.`;
+        notifyWorkspace(account.workspaceId, "whatsappQualityDropped", {
+          subject: `WhatsApp number "${account.displayName}" quality rating dropped`,
+          body: `Quality rating changed to ${rating || "unknown"} (from ${normalized.previousQualityRating || "unknown"}). Marketing campaigns on this number are paused until an admin clears it in Settings > WhatsApp.`,
+        });
+      }
+      await account.save();
+    }
+
     event.status = "processed";
     event.processedAt = new Date();
     await event.save();
@@ -1086,9 +1170,8 @@ async function handleProviderWebhook({ normalized, provider, req, res }) {
     event.status = "failed";
     event.error = error.message;
     await event.save();
+    logger.error({ err: error, eventId: event._id.toString(), provider }, "WhatsApp webhook processing failed after ack");
   }
-
-  res.sendStatus(200);
 }
 
 whatsappWebhookRouter.post("/", async (req, res) => {

@@ -828,6 +828,12 @@ export function setWhatsAppSystemAccount<T>(id: string, isSystemAccount: boolean
   });
 }
 
+export function clearWhatsAppMarketingPause<T>(id: string) {
+  return request<T>(`/whatsapp/accounts/${id}/clear-marketing-pause`, {
+    method: "POST",
+  });
+}
+
 export function getWhatsAppTemplates<T>() {
   return request<T>("/whatsapp/templates");
 }

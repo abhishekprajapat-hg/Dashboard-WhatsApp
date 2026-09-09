@@ -22,6 +22,15 @@ const whatsAppAccountSchema = new mongoose.Schema(
     isSystemAccount: { type: Boolean, default: false },
     webhookStatus: { type: String, default: "pending" },
     templateSyncStatus: { type: String, default: "pending" },
+    // Written by the phone_number_quality_update webhook handler (whatsapp.js) - "GREEN"/"YELLOW"/
+    // "RED"/"" (unknown, e.g. before the first event ever arrives). marketingPaused auto-flips true
+    // when quality drops away from GREEN, protecting the number from a further-worsening spiral;
+    // an admin clears it manually once the rating recovers rather than it auto-clearing, since
+    // Meta's own quality-recovery signal isn't itself pushed via webhook.
+    qualityRating: { type: String, default: "" },
+    qualityRatingUpdatedAt: Date,
+    marketingPaused: { type: Boolean, default: false },
+    marketingPausedReason: { type: String, default: "" },
     status: { type: String, enum: ["connected", "disconnected", "needs_attention"], default: "disconnected" },
     lastSyncedAt: Date,
     lastTestedAt: Date,

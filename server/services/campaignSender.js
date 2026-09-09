@@ -115,6 +115,14 @@ export async function processCampaignRecipient(data) {
   if (!account || !template || !contact) {
     errorMessage = "Missing account, template, or contact.";
     providerResult = { providerMessageId: `failed_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };
+  } else if (account.marketingPaused) {
+    // Set by the phone_number_quality_update webhook handler (whatsapp.js) when this number's
+    // quality rating drops away from GREEN - refusing every recipient here (rather than skipping
+    // silently) is deliberate: continuing to blast a number with a real quality problem is exactly
+    // what risks it being permanently banned, and campaign.js's own recipient-status UI needs a
+    // real reason to show, not a silent gap in the delivery count.
+    errorMessage = account.marketingPausedReason || "Marketing sends are paused for this WhatsApp number due to a quality rating drop.";
+    providerResult = { providerMessageId: `failed_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };
   } else {
     try {
       providerResult = await sendWhatsAppTemplate({ account, to: contact.phone, template, parameters: [], useMarketingMessagesLite: campaign.useMarketingMessagesLite });

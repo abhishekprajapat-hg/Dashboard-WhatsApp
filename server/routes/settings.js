@@ -74,6 +74,7 @@ export const notificationsSchema = z.object({
   events: z.object({
     whatsappNeedsAttention: z.boolean().optional().default(true),
     adsNeedsAttention: z.boolean().optional().default(true),
+    whatsappQualityDropped: z.boolean().optional().default(true),
   }).optional().default({}),
 });
 
@@ -91,7 +92,7 @@ function defaultNotifications() {
   return {
     enabled: false,
     recipientEmail: "",
-    events: { whatsappNeedsAttention: true, adsNeedsAttention: true },
+    events: { whatsappNeedsAttention: true, adsNeedsAttention: true, whatsappQualityDropped: true },
   };
 }
 

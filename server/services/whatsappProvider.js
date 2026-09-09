@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { config } from "../config.js";
 import { saveMediaBuffer, uploadRoot } from "./mediaStorage.js";
 import { safeFetch } from "./integrations.js";
+import { metaGraphFetch } from "./metaGraphFetch.js";
 
 const encryptedCredentialPrefix = "v1";
 
@@ -418,14 +419,18 @@ export async function sendWhatsAppText({ account, to, body, attachments = [] }) 
     ? await uploadMetaAttachment({ account, accessToken, attachment })
     : null;
   const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
+  const response = await metaGraphFetch(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(buildMetaMessagePayload({ recipient, body, attachment: metaAttachment })),
     },
-    body: JSON.stringify(buildMetaMessagePayload({ recipient, body, attachment: metaAttachment })),
-  });
+    { call: "sendWhatsAppText", phoneNumberId: account.phoneNumberId }
+  );
 
   const payload = await response.json().catch(() => ({}));
 
@@ -699,20 +704,24 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
   const isMarketingCategory = String(template.category || "").toUpperCase() === "MARKETING";
   const endpoint = useMarketingMessagesLite && isMarketingCategory ? "marketing_messages" : "messages";
   const url = `https://graph.facebook.com/${config.metaGraphApiVersion}/${account.phoneNumberId}/${endpoint}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
+  const response = await metaGraphFetch(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: recipient,
+        type: "template",
+        template: templatePayload,
+      }),
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: recipient,
-      type: "template",
-      template: templatePayload,
-    }),
-  });
+    { call: "sendWhatsAppTemplate", phoneNumberId: account.phoneNumberId, template: template.name }
+  );
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -997,6 +1006,46 @@ export function normalizeWebhookPayload(payload) {
       phoneNumberId: value.metadata?.phone_number_id,
       providerMessageId: status.id,
       status: status.status,
+      raw: payload,
+    };
+  }
+
+  // Push-based template approval/rejection - confirmed shape via Meta's own webhook reference docs
+  // (message_template_id/name/language/category/event/reason). Lets the dashboard reflect a
+  // template's real status the moment Meta decides it, instead of only on the next manual "Sync
+  // templates" click.
+  if (change?.field === "message_template_status_update") {
+    return {
+      type: "template_status",
+      idempotencyKey: `template_status:${value.message_template_id}:${value.event}:${entry?.time}`,
+      // Template updates are scoped to the WABA, not one phone number - entry[].id IS the WABA id
+      // per Meta's own envelope convention, used here so findWebhookAccount can still locate the
+      // right account (it already checks businessAccountId as one of its lookup fields).
+      businessAccountId: entry?.id || "",
+      templateId: String(value.message_template_id || ""),
+      templateName: value.message_template_name || "",
+      templateLanguage: value.message_template_language || "",
+      event: String(value.event || "").toUpperCase(),
+      reason: value.reason || value.rejection_info?.reason || "",
+      raw: payload,
+    };
+  }
+
+  // Quality-rating change. Field-shape confirmed against Meta's own docs for the general
+  // envelope; the specific quality-rating field names (current_quality_rating/quality_rating)
+  // came from secondary sources during this build and were NOT independently verified against a
+  // real fired webhook - read both possible names defensively, and the raw payload is always kept
+  // on the WebhookEvent record so a real occurrence can be inspected and this adjusted if the
+  // actual field name differs.
+  if (change?.field === "phone_number_quality_update") {
+    return {
+      type: "quality_update",
+      idempotencyKey: `quality_update:${value.phone_number_id || value.display_phone_number}:${entry?.time}`,
+      phoneNumberId: value.phone_number_id || "",
+      displayPhoneNumber: value.display_phone_number || "",
+      currentQualityRating: String(value.current_quality_rating || value.quality_rating || "").toUpperCase(),
+      previousQualityRating: String(value.previous_quality_rating || "").toUpperCase(),
+      event: String(value.event || "").toUpperCase(),
       raw: payload,
     };
   }

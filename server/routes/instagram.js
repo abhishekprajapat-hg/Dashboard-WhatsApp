@@ -232,104 +232,113 @@ instagramPublicRouter.post("/webhook", async (req, res) => {
     }
   }
 
-  if (normalized.type === "comment") {
-    // Comments are stored separately from Message/Conversation - a comment on a post isn't a DM,
-    // shoehorning it into the same model the Inbox is built around would misrepresent what it is.
-    // Idempotent the same way inbound messages are, just keyed on commentId instead of
-    // providerMessageId (the unique index on {workspaceId, commentId} enforces this at the DB level
-    // too, so a duplicate webhook delivery can't create a second row even under a race).
-    await InstagramComment.findOneAndUpdate(
-      { workspaceId: account.workspaceId, commentId: normalized.commentId },
-      {
+  // Ack immediately, before the real work (comment/message DB writes, automation triggering) - same
+  // reasoning and pattern as whatsapp.js's handleProviderWebhook. Everything below is wrapped in
+  // try/catch specifically because the response is already sent: an uncaught error here would
+  // otherwise reach Express's default error handler, which would try to send a second response and
+  // crash with ERR_HTTP_HEADERS_SENT.
+  res.sendStatus(200);
+
+  try {
+    if (normalized.type === "comment") {
+      // Comments are stored separately from Message/Conversation - a comment on a post isn't a DM,
+      // shoehorning it into the same model the Inbox is built around would misrepresent what it is.
+      // Idempotent the same way inbound messages are, just keyed on commentId instead of
+      // providerMessageId (the unique index on {workspaceId, commentId} enforces this at the DB level
+      // too, so a duplicate webhook delivery can't create a second row even under a race).
+      await InstagramComment.findOneAndUpdate(
+        { workspaceId: account.workspaceId, commentId: normalized.commentId },
+        {
+          organizationId: account.organizationId,
+          workspaceId: account.workspaceId,
+          instagramAccountId: account._id,
+          commentId: normalized.commentId,
+          mediaId: normalized.mediaId,
+          parentId: normalized.parentId,
+          fromId: normalized.fromId,
+          fromUsername: normalized.fromUsername,
+          text: normalized.text,
+        },
+        { upsert: true, setDefaultsOnInsert: true }
+      );
+      return;
+    }
+
+    const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");
+    if (existingMessage) return;
+
+    let contact = await Contact.findOne({ workspaceId: account.workspaceId, instagramScopedId: normalized.from });
+    if (!contact) {
+      contact = await Contact.create({
         organizationId: account.organizationId,
         workspaceId: account.workspaceId,
+        name: normalized.from,
+        channel: "instagram",
+        instagramScopedId: normalized.from,
+        source: "Instagram",
+        lifecycleStatus: "lead",
+        lastMessageAt: new Date(),
+      });
+    } else {
+      await Contact.updateOne({ _id: contact._id }, { $set: { lastMessageAt: new Date() } });
+    }
+
+    const existingConversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "instagram" });
+    const isNewConversation = !existingConversation;
+    const conversation = existingConversation
+      ? await Conversation.findByIdAndUpdate(existingConversation._id, { instagramAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
+      : await Conversation.create({
+        organizationId: account.organizationId,
+        workspaceId: account.workspaceId,
+        contactId: contact._id,
         instagramAccountId: account._id,
-        commentId: normalized.commentId,
-        mediaId: normalized.mediaId,
-        parentId: normalized.parentId,
-        fromId: normalized.fromId,
-        fromUsername: normalized.fromUsername,
-        text: normalized.text,
-      },
-      { upsert: true, setDefaultsOnInsert: true }
-    );
-    return res.sendStatus(200);
-  }
+        channel: "instagram",
+        status: "open",
+        lastMessageAt: new Date(),
+      });
 
-  const existingMessage = await Message.findOne({ workspaceId: account.workspaceId, providerMessageId: normalized.providerMessageId }).select("_id");
-  if (existingMessage) return res.sendStatus(200);
-
-  let contact = await Contact.findOne({ workspaceId: account.workspaceId, instagramScopedId: normalized.from });
-  if (!contact) {
-    contact = await Contact.create({
+    const message = await Message.create({
       organizationId: account.organizationId,
       workspaceId: account.workspaceId,
-      name: normalized.from,
-      channel: "instagram",
-      instagramScopedId: normalized.from,
-      source: "Instagram",
-      lifecycleStatus: "lead",
-      lastMessageAt: new Date(),
-    });
-  } else {
-    await Contact.updateOne({ _id: contact._id }, { $set: { lastMessageAt: new Date() } });
-  }
-
-  const existingConversation = await Conversation.findOne({ workspaceId: account.workspaceId, contactId: contact._id, channel: "instagram" });
-  const isNewConversation = !existingConversation;
-  const conversation = existingConversation
-    ? await Conversation.findByIdAndUpdate(existingConversation._id, { instagramAccountId: account._id, status: "open", lastMessageAt: new Date() }, { new: true })
-    : await Conversation.create({
-      organizationId: account.organizationId,
-      workspaceId: account.workspaceId,
+      conversationId: conversation._id,
       contactId: contact._id,
       instagramAccountId: account._id,
       channel: "instagram",
-      status: "open",
-      lastMessageAt: new Date(),
+      direction: "inbound",
+      type: normalized.attachments?.[0]?.type || "text",
+      body: normalized.body,
+      attachments: normalized.attachments,
+      providerMessageId: normalized.providerMessageId,
+      status: "delivered",
+      receivedAt: new Date(),
     });
 
-  const message = await Message.create({
-    organizationId: account.organizationId,
-    workspaceId: account.workspaceId,
-    conversationId: conversation._id,
-    contactId: contact._id,
-    instagramAccountId: account._id,
-    channel: "instagram",
-    direction: "inbound",
-    type: normalized.attachments?.[0]?.type || "text",
-    body: normalized.body,
-    attachments: normalized.attachments,
-    providerMessageId: normalized.providerMessageId,
-    status: "delivered",
-    receivedAt: new Date(),
-  });
+    const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
+    for (const membership of memberships) {
+      const key = membership.userId.toString();
+      const current = Number(conversation.unreadCountByUser?.get?.(key) || 0);
+      conversation.unreadCountByUser.set(key, current + 1);
+    }
+    conversation.markModified("unreadCountByUser");
+    conversation.lastMessageId = message._id;
+    await conversation.save();
+    await publishConversationChanged(conversation._id);
 
-  const memberships = await Membership.find({ workspaceId: account.workspaceId, status: "active" }).select("userId");
-  for (const membership of memberships) {
-    const key = membership.userId.toString();
-    const current = Number(conversation.unreadCountByUser?.get?.(key) || 0);
-    conversation.unreadCountByUser.set(key, current + 1);
+    // Same trigger.accountId/env.account mechanism whatsapp.js already uses - runInboundAutomations
+    // only needs workspaceId/organizationId/_id off "account", it doesn't care which collection it
+    // came from. env.account (automationEngine.js's loadRunEnv) will resolve to null for these runs
+    // since it looks up WhatsAppAccount specifically - harmless, since send_instagram (unlike
+    // send_message) deliberately doesn't depend on env.account, it looks up the Instagram account
+    // itself. WhatsApp-only nodes (send_message, etc.) correctly no-op via their own
+    // missing-account-skip path, same as any other flow with no connected account.
+    await runInboundAutomations({
+      account,
+      contact,
+      conversation,
+      inboundMessage: message,
+      isNewConversation,
+    });
+  } catch (error) {
+    logger.error({ err: error, instagramUserId: normalized.instagramUserId }, "Instagram webhook processing failed after ack");
   }
-  conversation.markModified("unreadCountByUser");
-  conversation.lastMessageId = message._id;
-  await conversation.save();
-  await publishConversationChanged(conversation._id);
-
-  // Same trigger.accountId/env.account mechanism whatsapp.js already uses - runInboundAutomations
-  // only needs workspaceId/organizationId/_id off "account", it doesn't care which collection it
-  // came from. env.account (automationEngine.js's loadRunEnv) will resolve to null for these runs
-  // since it looks up WhatsAppAccount specifically - harmless, since send_instagram (unlike
-  // send_message) deliberately doesn't depend on env.account, it looks up the Instagram account
-  // itself. WhatsApp-only nodes (send_message, etc.) correctly no-op via their own
-  // missing-account-skip path, same as any other flow with no connected account.
-  await runInboundAutomations({
-    account,
-    contact,
-    conversation,
-    inboundMessage: message,
-    isNewConversation,
-  });
-
-  res.sendStatus(200);
 });
