@@ -44,12 +44,12 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   email: z.string().trim().min(1, "Email is required.").email("Must be a valid email address."),
   token: trimmedString("A reset token is required."),
-  password: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+  password: z.string().refine((value) => passwordPolicy(value).valid, { error: (iss) => passwordPolicy(iss.input).message }),
 });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required."),
-  newPassword: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+  newPassword: z.string().refine((value) => passwordPolicy(value).valid, { error: (iss) => passwordPolicy(iss.input).message }),
 });
 
 export const loginSchema = z.object({
@@ -60,7 +60,7 @@ export const loginSchema = z.object({
 export const registerSchema = z.object({
   name: trimmedString("Name is required."),
   email: z.string().refine(isEmail, "A valid email is required."),
-  password: z.string().refine((value) => passwordPolicy(value).valid, (value) => ({ message: passwordPolicy(value).message })),
+  password: z.string().refine((value) => passwordPolicy(value).valid, { error: (iss) => passwordPolicy(iss.input).message }),
   workspaceName: trimmedString("Workspace name is required."),
 });
 
