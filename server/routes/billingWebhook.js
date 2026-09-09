@@ -58,6 +58,8 @@ billingWebhookRouter.post("/", async (req, res) => {
       if (error.code !== 11000) throw error;
     }
     organization.billingStatus = "active";
+    if (subscriptionEntity.current_start) organization.currentPeriodStart = new Date(subscriptionEntity.current_start * 1000);
+    if (subscriptionEntity.current_end) organization.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
     await organization.save();
     return res.sendStatus(200);
   }
@@ -68,6 +70,11 @@ billingWebhookRouter.post("/", async (req, res) => {
     if (nextStatus === "active" && subscriptionEntity.customer_id) {
       organization.razorpayCustomerId = subscriptionEntity.customer_id;
     }
+    // Razorpay includes current_start/current_end on every subscription-entity payload, not just
+    // "charged" - keep the denormalized period in sync on every event that carries it (e.g.
+    // "activated" fires before the first "charged" and already has real cycle dates).
+    if (subscriptionEntity.current_start) organization.currentPeriodStart = new Date(subscriptionEntity.current_start * 1000);
+    if (subscriptionEntity.current_end) organization.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
     await organization.save();
   }
 

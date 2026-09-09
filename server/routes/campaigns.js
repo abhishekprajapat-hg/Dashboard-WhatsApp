@@ -2,6 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
+import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody } from "../middleware/validate.js";
 import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
 import { enqueueCampaignRecipients } from "../services/campaignSender.js";
@@ -586,7 +587,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
   res.status(201).json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), validateBody(sendCampaignSchema), async (req, res) => {
+campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireActiveBilling(), validateBody(sendCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }

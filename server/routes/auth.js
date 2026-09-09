@@ -86,7 +86,14 @@ export const whatsappOtpVerifySchema = z.object({
 // same Organization+Workspace+admin-Role+Membership sequence workspace.js's POST / already uses
 // for "an existing admin spins up another workspace", just starting from a freshly-created User
 // instead of req.user.sub.
-export async function provisionWorkspaceForNewUser(user, workspaceName) {
+const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// startTrialClock defaults true for every real self-serve signup path (register, OAuth complete,
+// WhatsApp OTP signup). admin.js's POST /admin/tenants (a platform owner manually provisioning a
+// real, already-sold client) passes false - that org is billingStatus "active" from creation, with
+// no trialEndsAt at all, since it was never on a self-serve trial to begin with and must not be
+// subject to the same expiry enforcement (see services/billingGate.js).
+export async function provisionWorkspaceForNewUser(user, workspaceName, { startTrialClock = true } = {}) {
   const trimmedName = workspaceName.trim();
   const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
 
@@ -95,7 +102,8 @@ export async function provisionWorkspaceForNewUser(user, workspaceName) {
     slug: `${slug}-${Date.now()}`,
     ownerUserId: user._id,
     plan: "basic",
-    billingStatus: "trial",
+    billingStatus: startTrialClock ? "trial" : "active",
+    trialEndsAt: startTrialClock ? new Date(Date.now() + TRIAL_DURATION_MS) : null,
   });
 
   const workspace = await Workspace.create({

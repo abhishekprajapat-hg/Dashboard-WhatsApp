@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { MetaAdCampaign, MetaAdsAccount } from "../models/index.js";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
+import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody } from "../middleware/validate.js";
 import { notifyWorkspace } from "../services/notifications.js";
 import { trimmedString } from "../utils/zodHelpers.js";
@@ -260,7 +261,7 @@ async function loadCampaignWithAccount(req, res) {
   return { campaign, account };
 }
 
-adsRouter.post("/campaigns/:id/activate", requirePermission("ads:write"), requireEntitlement("ads"), async (req, res) => {
+adsRouter.post("/campaigns/:id/activate", requirePermission("ads:write"), requireEntitlement("ads"), requireActiveBilling(), async (req, res) => {
   const loaded = await loadCampaignWithAccount(req, res);
   if (!loaded) return;
   const { campaign, account } = loaded;

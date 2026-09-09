@@ -729,7 +729,10 @@ adminRouter.post(
       status: "active",
     });
 
-    const { organization, workspace } = await provisionWorkspaceForNewUser(user, businessName);
+    // A real, already-sold client onboarded by a platform owner - not a self-serve trial, so
+    // billingStatus starts "active" with no trial clock (see provisionWorkspaceForNewUser's own
+    // comment).
+    const { organization, workspace } = await provisionWorkspaceForNewUser(user, businessName, { startTrialClock: false });
 
     if (plan !== organization.plan) {
       organization.plan = plan;

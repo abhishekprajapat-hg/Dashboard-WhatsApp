@@ -5,6 +5,7 @@ import { conversations } from "../data/demoData.js";
 import { AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
 import { FacebookAccount, InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
@@ -814,7 +815,7 @@ conversationsRouter.post("/:id/template", requirePermission("inbox:write"), vali
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), validateBody(sendMessageSchema), async (req, res) => {
+conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requireActiveBilling(), validateBody(sendMessageSchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 

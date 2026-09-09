@@ -8,6 +8,7 @@ import { config } from "../config.js";
 import { PLAN_PRICES } from "../services/entitlements.js";
 import { cancelRazorpaySubscription, createRazorpaySubscription, isRazorpayConfigured, verifySubscriptionSignature } from "../services/razorpayProvider.js";
 import { notifyVega } from "../services/vegaIntegration.js";
+import { getBillingGate } from "../middleware/billingGate.js";
 
 export const billingRouter = Router();
 
@@ -37,6 +38,10 @@ billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
     plan: organization.plan,
     billingStatus: organization.billingStatus,
     razorpaySubscriptionId: organization.razorpaySubscriptionId || "",
+    trialEndsAt: organization.trialEndsAt || null,
+    currentPeriodStart: organization.currentPeriodStart || null,
+    currentPeriodEnd: organization.currentPeriodEnd || null,
+    gate: getBillingGate(organization),
     // Publishable, not secret - Checkout.js needs this client-side, same as any payment gateway's
     // public key.
     razorpayKeyId: config.razorpay.keyId,
@@ -49,6 +54,8 @@ billingRouter.get("/", requirePermission("billing:read"), async (req, res) => {
       currency: invoice.currency,
       status: invoice.status,
       createdAt: invoice.createdAt,
+      periodStart: invoice.periodStart || null,
+      periodEnd: invoice.periodEnd || null,
     })),
   });
 });

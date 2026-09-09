@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { CreditCard, ReceiptText } from "lucide-react";
+import { AlertTriangle, CalendarClock, CreditCard, ReceiptText } from "lucide-react";
 import { cancelBillingSubscription, getBilling, subscribeBillingPlan, verifyBillingPayment } from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
@@ -26,6 +26,13 @@ interface Invoice {
   currency: string;
   status: string;
   createdAt: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+interface BillingGate {
+  locked: boolean;
+  reason?: string;
 }
 
 interface BillingState {
@@ -34,9 +41,24 @@ interface BillingState {
   razorpaySubscriptionId: string;
   razorpayKeyId: string;
   configured: boolean;
+  trialEndsAt: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  gate: BillingGate;
   prices: Record<string, PlanPrice>;
   invoices: Invoice[];
 }
+
+function formatDate(value: string | null) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const GATE_REASON_LABEL: Record<string, string> = {
+  trial_expired: "Your 7-day trial has ended.",
+  payment_failed: "Your last payment failed and Meta's automatic retries are exhausted.",
+  subscription_cancelled: "Your subscription has ended.",
+};
 
 const PLAN_ORDER = ["basic", "medium", "pro"];
 const PLAN_LABELS: Record<string, string> = { basic: "Basic", medium: "Medium", pro: "Pro" };
@@ -153,13 +175,39 @@ export function BillingSettingsPanel() {
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading...</p>
         ) : billing ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-foreground">{PLAN_LABELS[billing.plan] || billing.plan}</span>
-            <Badge variant={statusVariant(billing.billingStatus)}>{billing.billingStatus}</Badge>
-            {!billing.configured && (
-              <span className="text-xs text-muted-foreground">Billing is not configured yet - contact your dev team to connect Razorpay.</span>
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-foreground">{PLAN_LABELS[billing.plan] || billing.plan}</span>
+              <Badge variant={statusVariant(billing.billingStatus)}>{billing.billingStatus}</Badge>
+              {!billing.configured && (
+                <span className="text-xs text-muted-foreground">Billing is not configured yet - contact your dev team to connect Razorpay.</span>
+              )}
+            </div>
+            {(billing.currentPeriodStart || billing.currentPeriodEnd) && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CalendarClock size={13} />
+                Current cycle: {formatDate(billing.currentPeriodStart)} - {formatDate(billing.currentPeriodEnd)}
+              </div>
             )}
-          </div>
+            {billing.billingStatus === "trial" && billing.trialEndsAt && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CalendarClock size={13} />
+                Trial ends {formatDate(billing.trialEndsAt)}
+              </div>
+            )}
+            {billing.gate.locked && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium">Sending messages and campaigns is paused</p>
+                  <p className="mt-0.5">
+                    {GATE_REASON_LABEL[billing.gate.reason || ""] || "Billing needs attention."} Subscribe or update your payment
+                    method below to resume.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
         ) : null}
         {canCancel && (
           <Button type="button" size="sm" variant="outline" className="mt-3 h-8 text-xs border-border" onClick={handleCancel} disabled={cancelling}>
@@ -220,7 +268,12 @@ export function BillingSettingsPanel() {
               <div key={invoice.id} className="flex items-center justify-between rounded-md border border-border/80 bg-background/60 p-2">
                 <div>
                   <p className="text-sm text-foreground">{PLAN_LABELS[invoice.plan] || invoice.plan}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(invoice.createdAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(invoice.createdAt).toLocaleDateString()}
+                    {invoice.periodStart && invoice.periodEnd
+                      ? ` · ${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}`
+                      : ""}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-foreground">{formatAmount(invoice.amount, invoice.currency)}</span>
