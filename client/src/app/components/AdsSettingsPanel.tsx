@@ -83,7 +83,7 @@ export function AdsSettingsPanel() {
   const [creativeFile, setCreativeFile] = useState<File | null>(null);
   const [testingAccountId, setTestingAccountId] = useState("");
   const [campaignActionId, setCampaignActionId] = useState("");
-  const [billingStatusById, setBillingStatusById] = useState<Record<string, { hasPaymentMethod: boolean; accountStatusLabel?: string }>>({});
+  const [billingStatusById, setBillingStatusById] = useState<Record<string, { status: "ok" | "missing" | "unknown"; detailText?: string }>>({});
 
   async function loadData() {
     setLoading(true);
@@ -95,12 +95,30 @@ export function AdsSettingsPanel() {
       ]);
       setAccounts(accountsResponse.data);
       setCampaigns(campaignsResponse.data);
-      // Best-effort, per account, after the main list resolves - a billing check failing (e.g. a
-      // stale token) shouldn't block the accounts list itself from rendering.
+      // Per account, after the main list resolves - a billing check failing shouldn't block the
+      // accounts list itself from rendering, but IS recorded as "unknown" rather than silently
+      // dropped (see BillingStatusBanner's own comment for why that distinction matters).
       accountsResponse.data.forEach((account) => {
         getAdsBillingStatus<{ data: { hasPaymentMethod: boolean; accountStatusLabel?: string } }>(account.id)
-          .then((response) => setBillingStatusById((current) => ({ ...current, [account.id]: response.data })))
-          .catch(() => undefined);
+          .then((response) =>
+            setBillingStatusById((current) => ({
+              ...current,
+              [account.id]: response.data.hasPaymentMethod
+                ? { status: "ok" }
+                : {
+                    status: "missing",
+                    detailText: response.data.accountStatusLabel
+                      ? `Meta reports this ad account as "${response.data.accountStatusLabel}".`
+                      : undefined,
+                  },
+            }))
+          )
+          .catch((error) =>
+            setBillingStatusById((current) => ({
+              ...current,
+              [account.id]: { status: "unknown", detailText: error instanceof Error ? error.message : undefined },
+            }))
+          );
       });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Ads settings could not be loaded.");
@@ -320,14 +338,10 @@ export function AdsSettingsPanel() {
                 </Button>
               </div>
             </div>
-            {billingStatusById[account.id] && !billingStatusById[account.id].hasPaymentMethod && (
+            {billingStatusById[account.id] && billingStatusById[account.id].status !== "ok" && (
               <BillingStatusBanner
-                hasPaymentMethod={false}
-                reasonText={
-                  billingStatusById[account.id].accountStatusLabel
-                    ? `Meta reports this ad account as "${billingStatusById[account.id].accountStatusLabel}".`
-                    : "Ads on this account will get no delivery without one."
-                }
+                status={billingStatusById[account.id].status as "missing" | "unknown"}
+                detailText={billingStatusById[account.id].detailText}
               />
             )}
           </Card>

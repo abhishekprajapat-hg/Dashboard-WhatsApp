@@ -338,7 +338,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   const [conversionTesting, setConversionTesting] = useState("");
   const [accountNotice, setAccountNotice] = useState<Record<string, string>>({});
   const [embeddedSignupPin, setEmbeddedSignupPin] = useState("");
-  const [whatsappBillingStatusById, setWhatsappBillingStatusById] = useState<Record<string, { hasPaymentMethod: boolean; canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] }>>({});
+  const [whatsappBillingStatusById, setWhatsappBillingStatusById] = useState<Record<string, { status: "ok" | "missing" | "unknown"; detailText?: string }>>({});
 
   async function handleEmbeddedSignupConnected({ pin }: { accountId: string; pin: string }) {
     setEmbeddedSignupPin(pin);
@@ -357,12 +357,26 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
       setWhatsappConsole(consoleResponse);
       setIntegrationForm(settingsResponse.integrations || initialSettings.integrations);
       setNotificationsForm(settingsResponse.notifications || initialSettings.notifications);
-      // Best-effort, per account - a billing check failing (e.g. a stale token) shouldn't block
-      // the accounts list itself from rendering.
+      // Per account, after the main list resolves - a billing check failing (e.g. a token missing
+      // business_management, confirmed live) shouldn't block the accounts list itself from
+      // rendering, but IS recorded as "unknown" rather than silently dropped, so the UI can tell
+      // "confirmed fine" apart from "couldn't check" instead of treating both the same.
       (settingsResponse.whatsappAccounts || []).forEach((account) => {
         getWhatsAppBillingStatus<{ data: { hasPaymentMethod: boolean; canSendMessage?: string; issues?: { error_description?: string; possible_solution?: string }[] } }>(account.id)
-          .then((response) => setWhatsappBillingStatusById((current) => ({ ...current, [account.id]: response.data })))
-          .catch(() => undefined);
+          .then((response) =>
+            setWhatsappBillingStatusById((current) => ({
+              ...current,
+              [account.id]: response.data.hasPaymentMethod
+                ? { status: "ok" }
+                : { status: "missing", detailText: response.data.issues?.[0]?.error_description },
+            }))
+          )
+          .catch((error) =>
+            setWhatsappBillingStatusById((current) => ({
+              ...current,
+              [account.id]: { status: "unknown", detailText: error instanceof Error ? error.message : undefined },
+            }))
+          );
       });
     } catch (error) {
       setSettingsNotice(error instanceof Error ? error.message : "Settings could not be loaded.");
@@ -1191,10 +1205,10 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                       {account.credentials?.lastError && (
                         <p className="text-[11px] text-destructive mt-1">{account.credentials.lastError}</p>
                       )}
-                      {whatsappBillingStatusById[account.id] && !whatsappBillingStatusById[account.id].hasPaymentMethod && (
+                      {whatsappBillingStatusById[account.id] && whatsappBillingStatusById[account.id].status !== "ok" && (
                         <BillingStatusBanner
-                          hasPaymentMethod={false}
-                          reasonText={whatsappBillingStatusById[account.id].issues?.[0]?.error_description}
+                          status={whatsappBillingStatusById[account.id].status as "missing" | "unknown"}
+                          detailText={whatsappBillingStatusById[account.id].detailText}
                         />
                       )}
                     </div>
