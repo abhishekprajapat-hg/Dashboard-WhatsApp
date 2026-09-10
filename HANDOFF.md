@@ -113,6 +113,42 @@ unlike the test calls it *can* be completed.
 Also visible on that page: `ads_management` shows **App Review rejected** with 374 API calls -
 consistent with the four rejections recorded on 2026-08-29 in the 2026-09-08 entry below.
 
+### Privacy policy written and wired up - App Review prerequisite cleared (`32eac6a`, `408cbda`)
+
+Chasing the Data handling questions gate turned up a real hole: **the app had no privacy policy at
+all.** `server/routes/legal.js` only had `/terms-of-service` and `/data-deletion`; `/legal/privacy`
+404'd, the word "privacy" didn't appear in the file, and the terms page linked to "our data handling
+practices" as though a policy existed. Meta requires a Privacy Policy URL in Settings > Basic and
+**validates it by fetching it** - confirmed live, the field rejected the URL with "should represent
+a valid URL" while it 404'd, and accepted it once the page was actually live (Terms, already live,
+validated fine throughout - a useful A/B).
+
+`32eac6a` adds `/legal/privacy`, written against what the code actually does rather than boilerplate,
+because the data handling answers have to match it: the controller/processor split, an explicit
+Meta Platform Data section (used only for enabled features, never sold, no data brokers, no ad
+profiling), and **only security claims that were verified in the source first** - AES-256-GCM with
+per-record IV/auth tag for channel credentials (`encodeCredentials`), salted scrypt for passwords
+(`server/utils/password.js`), hashed API keys, per-workspace isolation, audit trail. Third parties
+listed honestly, including the easily-forgotten one: the AI assist features send message content to
+OpenAI/Google/Anthropic.
+
+`408cbda` links the legal pages from the product - the client previously linked to **none** of them.
+Signup now carries a "By creating an account you agree to..." line; login has a Privacy / Terms /
+Data Deletion footer row (the page a reviewer lands on first).
+
+**Deliberately not claimed: data residency.** The policy makes no storage-region claim because the
+VPS location wasn't verified. If the data handling questions ask, confirm the region and add it.
+
+**Deploy note**: this shipped only after a *manual* `git pull` + client build +
+`sudo -u dashboard pm2 restart dashboard-api` on the VPS. The cron had pulled and rebuilt but never
+restarted the API - `/legal/terms-of-service` returned 200 while `/legal/privacy` 404'd from the
+same router, which is the clean tell that the server is running old code. Twenty minutes of waiting
+confirmed it wasn't just slow.
+
+**Still outstanding on this thread**: the Data handling questions themselves (Meta blocks submission
+without them), and possibly the "additional contracts" the Human Agent docs mention. Both are
+completable now, unlike the test calls.
+
 ### Unchanged from the entry below
 
 Razorpay production setup (still unconfirmed by the user), the Facebook Login App Review submission
