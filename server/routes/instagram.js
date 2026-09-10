@@ -100,16 +100,27 @@ instagramRouter.delete("/accounts/:id", requirePermission("settings:write"), asy
   res.status(204).send();
 });
 
-instagramRouter.post("/accounts/:id/send", requirePermission("templates:write"), validateBody(z.object({ to: trimmedString("A recipient is required."), body: trimmedString("Message body is required.") })), async (req, res) => {
-  const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
-  if (!account) return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
-  try {
-    const result = await sendInstagramMessage({ account, to: req.body.to, body: req.body.body });
-    res.json({ data: result });
-  } catch (error) {
-    res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_SEND_FAILED", message: error.message });
+// humanAgent defaults false everywhere this route is used from the normal Inbox reply flow
+// (conversations.js hardcodes it false until Meta approves the tag - see that file's own comment).
+// This manual test-send panel (Settings > Instagram) is the one deliberate exception: a real admin
+// choosing to send a genuine reply outside the 24h window, exactly the tag's real intended use -
+// not automation, not the default Inbox path. Exists specifically so a real HUMAN_AGENT test call
+// can be generated for Meta App Review without touching the safety-gated default.
+instagramRouter.post(
+  "/accounts/:id/send",
+  requirePermission("templates:write"),
+  validateBody(z.object({ to: trimmedString("A recipient is required."), body: trimmedString("Message body is required."), humanAgent: z.boolean().optional().default(false) })),
+  async (req, res) => {
+    const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+    if (!account) return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+    try {
+      const result = await sendInstagramMessage({ account, to: req.body.to, body: req.body.body, humanAgent: req.body.humanAgent });
+      res.json({ data: result });
+    } catch (error) {
+      res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_SEND_FAILED", message: error.message });
+    }
   }
-});
+);
 
 instagramRouter.get("/accounts/:id/insights", requirePermission("settings:read"), async (req, res) => {
   const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });

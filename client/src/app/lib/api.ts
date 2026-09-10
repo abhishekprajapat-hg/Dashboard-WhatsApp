@@ -1146,7 +1146,7 @@ export function deleteInstagramAccount(id: string) {
   });
 }
 
-export function sendInstagramTestMessage<T>(id: string, payload: { to: string; body: string }) {
+export function sendInstagramTestMessage<T>(id: string, payload: { to: string; body: string; humanAgent?: boolean }) {
   return request<T>(`/instagram/accounts/${id}/send`, {
     method: "POST",
     body: JSON.stringify(payload),

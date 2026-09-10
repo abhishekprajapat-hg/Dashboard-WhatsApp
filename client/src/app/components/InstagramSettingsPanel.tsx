@@ -45,7 +45,7 @@ export function InstagramSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [notice, setNotice] = useState("");
-  const [sendTargets, setSendTargets] = useState<Record<string, { to: string; body: string }>>({});
+  const [sendTargets, setSendTargets] = useState<Record<string, { to: string; body: string; humanAgent?: boolean }>>({});
   const [busyId, setBusyId] = useState("");
   const [insightsByAccountId, setInsightsByAccountId] = useState<Record<string, InsightMetric[]>>({});
   const [insightsLoadingId, setInsightsLoadingId] = useState("");
@@ -234,7 +234,7 @@ export function InstagramSettingsPanel() {
     setBusyId(id);
     setNotice("");
     try {
-      await sendInstagramTestMessage(id, target);
+      await sendInstagramTestMessage(id, { to: target.to, body: target.body, humanAgent: target.humanAgent });
       setNotice("Message sent.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not send the message.");
@@ -312,9 +312,24 @@ export function InstagramSettingsPanel() {
                     <Send size={12} className="mr-1" /> Send
                   </Button>
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  Only delivers if this IGSID has messaged your account within the last 24 hours - same session-window
-                  rule as WhatsApp.
+                <label className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={sendTargets[account.id]?.humanAgent || false}
+                    onChange={(event) =>
+                      setSendTargets((current) => ({
+                        ...current,
+                        [account.id]: { to: current[account.id]?.to || "", body: current[account.id]?.body || "", humanAgent: event.target.checked },
+                      }))
+                    }
+                    className="h-3 w-3"
+                  />
+                  Reply outside the 24h window (HUMAN_AGENT tag) - only for a real, deliberate agent reply, never routine testing
+                </label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {sendTargets[account.id]?.humanAgent
+                    ? "Will deliver even if this IGSID hasn't messaged in the last 24 hours."
+                    : "Only delivers if this IGSID has messaged your account within the last 24 hours - same session-window rule as WhatsApp."}
                 </p>
 
                 <div className="mt-3">
