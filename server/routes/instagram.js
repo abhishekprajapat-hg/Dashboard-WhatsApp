@@ -117,7 +117,17 @@ instagramRouter.post(
       const result = await sendInstagramMessage({ account, to: req.body.to, body: req.body.body, humanAgent: req.body.humanAgent });
       res.json({ data: result });
     } catch (error) {
-      res.status(error.status || 502).json({ error: error.code || "INSTAGRAM_SEND_FAILED", message: error.message });
+      // Meta's full error object (code/error_subcode/type) is already captured server-side as
+      // error.meta - previously discarded, only the translated message string ever reached the
+      // browser. Surfaced here (this manual test-send panel only, not the normal Inbox send path)
+      // because the generic message text alone isn't enough to tell "recipient genuinely doesn't
+      // exist" apart from "this specific tag/permission is blocked" - two very different problems
+      // that read identically in plain English.
+      res.status(error.status || 502).json({
+        error: error.code || "INSTAGRAM_SEND_FAILED",
+        message: error.message,
+        meta: error.meta?.error || null,
+      });
     }
   }
 );

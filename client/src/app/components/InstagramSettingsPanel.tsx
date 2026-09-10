@@ -4,7 +4,19 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
 import { BarChart2, ImagePlus, Instagram, MessageCircle, Send, Trash2 } from "lucide-react";
-import { connectInstagramAccount, deleteInstagramAccount, getInstagramAccounts, getInstagramAuthorizeUrl, getInstagramComments, getInstagramInsights, publishInstagramPost, replyToInstagramComment, sendInstagramTestMessage, uploadMediaWithProgress } from "../lib/api";
+import {
+  connectInstagramAccount,
+  deleteInstagramAccount,
+  getInstagramAccounts,
+  getInstagramAuthorizeUrl,
+  getInstagramComments,
+  getInstagramInsights,
+  publishInstagramPost,
+  replyToInstagramComment,
+  sendInstagramTestMessage,
+  uploadMediaWithProgress,
+  type ApiError,
+} from "../lib/api";
 
 const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
@@ -237,7 +249,10 @@ export function InstagramSettingsPanel() {
       await sendInstagramTestMessage(id, { to: target.to, body: target.body, humanAgent: target.humanAgent });
       setNotice("Message sent.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not send the message.");
+      const apiError = error as ApiError;
+      const meta = apiError.meta as { code?: number; error_subcode?: number; type?: string } | null | undefined;
+      const metaDetail = meta ? ` [Meta code ${meta.code ?? "?"}${meta.error_subcode ? `/${meta.error_subcode}` : ""}, ${meta.type ?? "?"}]` : "";
+      setNotice(error instanceof Error ? `${error.message}${metaDetail}` : "Could not send the message.");
     } finally {
       setBusyId("");
     }
