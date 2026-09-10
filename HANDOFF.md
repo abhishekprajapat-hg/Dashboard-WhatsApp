@@ -1,5 +1,80 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-11: the Human Agent mystery was a red herring - it's a recipient-resolution failure, and the locale fix can't ever work
+
+**Read this section first if resuming.** Closes out two open threads from the entry below, both with
+real evidence rather than theory. Commit: `5fee1c0`.
+
+### The HUMAN_AGENT failure has nothing to do with HUMAN_AGENT (`5fee1c0`)
+
+The retry the entry below asked for was run - and the notice came back with **no** `[Meta code X/Y]`
+suffix at all, despite `f6fabd9` having supposedly added exactly that. Confirmed the client fix was
+genuinely live (pulled the production bundle, `assets/index-ejqJq_LR.js`, and grepped it for the
+`Meta code` string - present) and that `api.ts:99` correctly copies `payload.meta` onto the thrown
+error. So the server was sending `meta: null`.
+
+**Root cause of the diagnostic gap**: `graph.instagram.com` returns errors in *two* different
+envelopes - the Graph-standard `{error:{message,code,error_subcode,type}}` and Instagram's own flat
+`{error_type,code,error_message}`. `parseOrThrow` stores the whole payload as `error.meta`, but the
+route only ever read `error.meta?.error`, which is `undefined` for the flat shape. Deduced from the
+code before testing: the notice text could only have come from `payload.error_message`, since
+`payload.error?.message` would have implied a non-null `meta`. `f6fabd9` had fixed exactly half the
+problem. New exported `instagramErrorDetail()` normalizes both envelopes; 3 unit tests in
+`server/tests/instagramErrorDetail.unit.test.js`.
+
+**The actual error, once surfaced**:
+`The requested user cannot be found. [Meta code 100/2534014, IGApiException]`
+
+- `100` is **invalid parameter**, not `10` (permissions) - and the type is `IGApiException`, not
+  `OAuthException`. A permission blocked by `Pending App Review` would surface as `10`. **The
+  leading theory in the entry below is therefore wrong.**
+- `2534014` is the "recipient genuinely unreachable" subcode, explicitly *not* `2534022`
+  ("outside the allowed window"). Meta is rejecting the recipient before the window or the tag is
+  ever evaluated.
+- **Decisive confirmation**: the identical send with the HUMAN_AGENT checkbox **off** returns a
+  byte-identical error. Tagged and untagged fail the same way. The tag is not involved at all, and
+  the two failed attempts recorded in the entry below were never evidence about Human Agent.
+
+Also observed: the account badge flipped from `needs_attention` to `connected` on refresh, so the
+token/connection are healthy - not an auth problem either.
+
+**Still open - why `138545963630017794` doesn't resolve.** Leading hypothesis (NOT yet confirmed):
+Instagram-scoped IDs are scoped to the app that received them, and this integration uses a separate
+Instagram App ID/Secret from the WhatsApp/Ads app - so an IGSID captured under a different app or a
+different connection is genuinely "not found" under the current credentials, even though the human
+account behind it is real and active. Fits the evidence (it worked once before; the account is
+unquestionably alive). **Next step**: send a fresh DM to @nemnidhi.official, let the webhook capture
+a new IGSID, and reply from the Inbox inside the 24h window. Succeeds → the old ID is simply stale
+and this thread closes. Fails with `2534014` too → something structural in how recipients are
+addressed, a much more serious bug.
+
+**Consequence for App Review**: generating a real HUMAN_AGENT test call needs a genuinely reachable
+IGSID first. Nothing about the pending review was ever blocking these sends, so waiting on it
+changes nothing here.
+
+### The `locale=en_US` localization fix cannot work - it's a Meta limitation (no code change)
+
+Tested directly with curl against both `graph.instagram.com` and `graph.facebook.com`, with
+`locale=en_US`, `locale=ar_AR` and `locale=hi_IN`. All three returned **byte-identical English**
+error text. Meta does not apply the `locale` query parameter to Graph API error strings at all -
+`locale` localizes *content* (names, categories), not errors. So `6d07e83` is inert, and theory (a)
+in the entry below is correct. Left in place (harmless, and correct for content endpoints) rather
+than reverted.
+
+Caveat on the evidence: the test used an invalid token, so there was no account context for Meta to
+localize *from*. It proves `locale` can't *force* a language; it doesn't strictly prove it fails to
+*override* an account's own setting. **The durable answer is not to fight Meta over language** - the
+numeric code is the only language-neutral part of an error, which is exactly what
+`instagramErrorDetail()` now guarantees reaches the browser. Worth considering extending that same
+surfacing to the normal Inbox send path, which still returns prose only.
+
+### Unchanged from the entry below
+
+Razorpay production setup (still unconfirmed by the user), the Facebook Login App Review submission
+(still can't find where to submit while the Instagram review is pending), Embedded Signup end-to-end
+test with a real unclaimed number (still the actual top priority), and Sundrishti's business
+verification (passive wait).
+
 ## 2026-09-10 (late): Instagram scope fix, a capabilities/permissions audit, and a still-unresolved Human Agent test-call mystery
 
 **Read this section first if resuming - continues directly from the entry below it (same day).**
