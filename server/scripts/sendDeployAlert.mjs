@@ -56,7 +56,14 @@ async function main() {
       process.exit(1);
     }
 
-    await sendWhatsAppTemplate({ account: systemAccount, to: config.deployAlert.phone, template, parameters: [message] });
+    // Meta rejects template parameters containing newlines or tabs ("Parameter text cannot have
+    // new-line/tab characters or more than 4 consecutive spaces"), and deploy-health-check.sh
+    // deliberately builds a multi-line message - one bullet per problem. Flatten to a single line
+    // here rather than in the caller, so any future caller is covered too. Truncated well under
+    // Meta's 1024-char parameter cap, since a multi-problem alert can get long.
+    const flattened = message.replace(/\s+/g, " ").trim().slice(0, 900);
+
+    await sendWhatsAppTemplate({ account: systemAccount, to: config.deployAlert.phone, template, parameters: [flattened] });
     console.log("Deploy alert sent to", config.deployAlert.phone);
   } finally {
     await mongoose.disconnect();
