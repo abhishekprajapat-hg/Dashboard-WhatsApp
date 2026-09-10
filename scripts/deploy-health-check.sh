@@ -6,15 +6,23 @@
 #
 #   */5 * * * * /home/dashboard/dashboard-whatsapp/scripts/deploy-health-check.sh >> /home/dashboard/dashboard-whatsapp/deploy-health.log 2>&1
 #
-# Two things are checked, both against .last-deploy-sha - deploy-vps.sh's own marker for "the last
-# commit I fully pulled, built, AND restarted the process for" (not just git HEAD, which can drift
-# out of sync with what's actually running - see deploy-vps.sh's own comment on this):
-#   1. Is .last-deploy-sha stuck behind origin/main for longer than a grace period (deploy-vps.sh
-#      isn't succeeding - a stuck git pull, a failing build, anything that stops it short of
-#      updating the marker)?
-#   2. Did the dashboard-api PM2 process actually restart at-or-after the marker's own last-write
-#      time (catches deploy-vps.sh believing it deployed but the restart step itself failing or,
-#      previously, being silently skipped by the HEAD-vs-marker diff bug this same change fixed)?
+# Three things are checked, against deploy-vps.sh's own markers rather than git HEAD (which can
+# drift out of sync with what's actually running - see deploy-vps.sh's own comment on this):
+#   1. Is .last-deploy-sha - "the last commit deploy-vps.sh fully finished processing" - stuck
+#      behind origin/main for longer than a grace period (deploy-vps.sh isn't succeeding: a stuck
+#      git pull, a failing build, anything that stops it short of updating the marker)?
+#   2. Is the dashboard-api PM2 process there at all?
+#   3. Did that process actually restart at-or-after .last-restart-sha's last-write time (catches
+#      deploy-vps.sh believing it restarted but the restart itself failing, or - the original bug
+#      this check was built for - being silently skipped by a bad diff)?
+#
+# Check 3 deliberately uses .last-restart-sha, NOT .last-deploy-sha. deploy-vps.sh only builds and
+# restarts when the diff since the last deploy actually touched client/ or server/, so a docs-only
+# commit is a legitimate no-op: it advances .last-deploy-sha without restarting anything. Comparing
+# PM2's uptime against .last-deploy-sha's mtime would read that correct behaviour as "the process is
+# still serving old code" and fire a false alert on every documentation commit. .last-restart-sha is
+# written only immediately after a successful `pm2 restart`, so its mtime is the only file mtime here
+# that genuinely claims "the process was restarted at this moment".
 #
 # Alerts at most once per incident (tracked in .deploy-health-alerted, gitignored) - not once per
 # 5-minute tick - and sends a follow-up when it recovers.
@@ -25,6 +33,7 @@ cd "$(dirname "$0")/.."
 GRACE_PERIOD_SECONDS=1200 # 20 minutes - longer than deploy-vps.sh's own 5-minute cron interval,
                           # so one slow build or one missed tick never fires a false alarm.
 MARKER=".last-deploy-sha"
+RESTART_MARKER=".last-restart-sha"
 ALERT_STATE=".deploy-health-alerted"
 PM2_APP=dashboard-api
 LOCKFILE="$(pwd)/.deploy.lock"
@@ -64,32 +73,33 @@ if [ "$LAST_DEPLOYED" != "$REMOTE_SHA" ]; then
   fi
 fi
 
-if [ -f "$MARKER" ]; then
-  MARKER_MTIME=$(stat -c %Y "$MARKER" 2>/dev/null || stat -f %m "$MARKER" 2>/dev/null)
-  PM2_START_MS=$(pm2 jlist 2>/dev/null | node -e '
-    let data = "";
-    process.stdin.on("data", (d) => (data += d));
-    process.stdin.on("end", () => {
-      try {
-        const apps = JSON.parse(data);
-        const app = apps.find((a) => a.name === process.argv[1]);
-        process.stdout.write(app ? String(app.pm2_env.pm_uptime) : "");
-      } catch {
-        process.stdout.write("");
-      }
-    });
-  ' "$PM2_APP")
+PM2_START_MS=$(pm2 jlist 2>/dev/null | node -e '
+  let data = "";
+  process.stdin.on("data", (d) => (data += d));
+  process.stdin.on("end", () => {
+    try {
+      const apps = JSON.parse(data);
+      const app = apps.find((a) => a.name === process.argv[1]);
+      process.stdout.write(app ? String(app.pm2_env.pm_uptime) : "");
+    } catch {
+      process.stdout.write("");
+    }
+  });
+' "$PM2_APP")
 
-  if [ -z "$PM2_START_MS" ]; then
-    PROBLEMS+=("PM2 process \"$PM2_APP\" was not found at all - it may have crashed out entirely.")
-  else
-    PM2_START_SECONDS=$((PM2_START_MS / 1000))
-    # A little slack (60s) for the normal gap between the marker write and the restart call inside
-    # deploy-vps.sh - only flag a real, meaningfully-stale gap, not this expected few-second offset.
-    if [ "$PM2_START_SECONDS" -lt "$((MARKER_MTIME - 60))" ]; then
-      STALE_MINUTES=$(( (MARKER_MTIME - PM2_START_SECONDS) / 60 ))
-      PROBLEMS+=("$PM2_APP hasn't restarted in the time since the last deploy was marked complete (~${STALE_MINUTES}min stale) - the running process may still be serving old code despite a clean git pull/build.")
-    fi
+if [ -z "$PM2_START_MS" ]; then
+  PROBLEMS+=("PM2 process \"$PM2_APP\" was not found at all - it may have crashed out entirely.")
+elif [ -f "$RESTART_MARKER" ]; then
+  # Absent on a checkout that hasn't yet deployed a commit touching server/ since this marker was
+  # introduced - there is simply no recorded restart to compare against yet, so skip this check
+  # rather than guess. The first server-side deploy after that creates it.
+  RESTART_MTIME=$(stat -c %Y "$RESTART_MARKER" 2>/dev/null || stat -f %m "$RESTART_MARKER" 2>/dev/null)
+  PM2_START_SECONDS=$((PM2_START_MS / 1000))
+  # A little slack (60s) for the normal gap between the restart call and the marker write right
+  # after it in deploy-vps.sh - only flag a real, meaningfully-stale gap, not that few-second offset.
+  if [ "$PM2_START_SECONDS" -lt "$((RESTART_MTIME - 60))" ]; then
+    STALE_MINUTES=$(( (RESTART_MTIME - PM2_START_SECONDS) / 60 ))
+    PROBLEMS+=("$PM2_APP hasn't restarted in the time since the last deploy recorded restarting it (~${STALE_MINUTES}min stale) - the running process may still be serving old code despite a clean git pull/build.")
   fi
 fi
 

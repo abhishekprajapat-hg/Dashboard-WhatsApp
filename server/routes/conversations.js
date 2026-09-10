@@ -246,15 +246,25 @@ conversationsRouter.get("/channel-counts", validateQuery(listConversationsQueryS
   }
 
   const filter = await buildConversationFilter(req);
-  const rows = await Conversation.aggregate([{ $match: filter }, { $group: { _id: "$channel", count: { $sum: 1 } } }]);
 
-  const counts = { whatsapp: 0, instagram: 0, facebook: 0 };
-  for (const row of rows) {
-    if (row._id === "instagram") counts.instagram = row.count;
-    else if (row._id === "facebook") counts.facebook = row.count;
-    else counts.whatsapp += row.count; // matches ConversationList.tsx's "not instagram/facebook" bucket, incl. legacy null channel
-  }
-  res.json(counts);
+  // Counted with countDocuments, NOT aggregate. An aggregate pipeline bypasses Mongoose's schema
+  // casting entirely, and buildConversationFilter's ids arrive as strings (auth.js puts
+  // workspaceId on req.user via .toString(), and assignedToUserId in the visibility $or is the raw
+  // JWT sub) - so `$match: { workspaceId: "<24-hex string>" }` never matched the stored ObjectId
+  // and every channel came back 0 while the list endpoint right below, using the same filter
+  // through find(), worked correctly. countDocuments goes through the same casting as that list
+  // query, so the two can't drift apart again, and any id field added to buildConversationFilter
+  // later is cast automatically rather than needing to be remembered here.
+  //
+  // $nin also matches documents where channel is null or absent, which is the legacy-WhatsApp
+  // bucket ConversationList.tsx renders as "not instagram/facebook".
+  const [instagram, facebook, whatsapp] = await Promise.all([
+    Conversation.countDocuments({ ...filter, channel: "instagram" }),
+    Conversation.countDocuments({ ...filter, channel: "facebook" }),
+    Conversation.countDocuments({ ...filter, channel: mongoose.trusted({ $nin: ["instagram", "facebook"] }) }),
+  ]);
+
+  res.json({ whatsapp, instagram, facebook });
 });
 
 conversationsRouter.get("/", validateQuery(listConversationsQuerySchema), async (req, res) => {
