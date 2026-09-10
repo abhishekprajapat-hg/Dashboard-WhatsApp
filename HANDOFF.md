@@ -1,5 +1,160 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-10: billing/GST built end-to-end, Meta scaling-readiness fixes, Facebook Login scope fix, and a real production incident (Sundrishti) diagnosed and fixed live
+
+**Read this section first if resuming.** Long session, several independent workstreams. Commits in
+order: `572f895` (channel counts) → `3c90b91` (password bug) → `5dbb036`/`b48377a`/`ef766cd`
+(billing status) → `6ea755b` (subscription enforcement) → `56ffc89` (GST invoices) → `27443b4`
+(scaling fixes) → `c70d669` (Facebook Login scope). All pushed and deploy-verified against
+production (curl checks after each push, not just trusting a clean `git push`), except where noted
+"not yet deployed" below.
+
+### Inbox conversation list - per-channel counts were badly wrong (`572f895`)
+
+Found live: a real unread Instagram DM sat in the Inbox showing "Instagram 0" in the sidebar,
+because `ConversationList.tsx`'s WhatsApp/Instagram/Facebook badges were derived from whichever
+~50 conversations happened to be paginated in client-side, not a real count. New
+`GET /api/conversations/channel-counts` (server-side aggregate, same filter as the main list via a
+shared `buildConversationFilter()`) fixes this properly.
+
+### Password reset/signup - a real Zod v4 migration bug (`3c90b91`)
+
+`registerSchema`/`resetPasswordSchema`/`changePasswordSchema`'s password field used Zod v3's
+`.refine(check, fn)` shape (bare function as the second arg) - Zod v4 requires `{ error: fn }`
+instead, with the function receiving an issue object (`iss.input`), not the raw value. Silently
+fell back to Zod's generic `"Invalid input"` instead of the real policy message
+("Password must contain..."), which is why a user with a genuinely too-short password had no way
+to know what was wrong. Reproduced against production before and after the fix.
+
+### Meta billing status - a real dead end, then a real fix (`5dbb036` → `b48377a` → `ef766cd`)
+
+Built a "does this WhatsApp/Ads account have a payment method" check (Settings > WhatsApp / Ads).
+First version read `primary_funding_id` on the WABA - live-tested and got
+`"This action requires that the Business that owns this App is a Business Solution Provider for
+WhatsApp"`, even from an Administrator token with `business_management` freshly added. **This is a
+partnership-tier gate, not a token-scope problem** - Nemnidhi is a Tech Provider, not a BSP, so no
+token will ever unlock that field. Reworked to use `health_status`'s `can_send_message` instead
+(confirmed live, no such gate) - a strictly better signal anyway, since it catches any
+delivery-blocking issue, not just billing. `BillingStatusBanner` distinguishes a confirmed "issue"
+from "couldn't check" (e.g. a genuine permission gap) rather than treating both as silence.
+
+### Billing period tracking + real subscription enforcement (`6ea755b`)
+
+`Organization.billingStatus` was already correctly updated by real Razorpay webhooks but nothing
+ever enforced it - a halted/cancelled org kept full access silently. Added soft-lock enforcement
+(sending messages, WhatsApp campaigns, ad campaign activation only - login/Settings/Billing stay
+reachable) via `middleware/billingGate.js`'s `getBillingGate()`.
+
+**Real safety issue found and fixed while building this**: `POST /admin/tenants` (how a platform
+owner onboards an already-sold client - this is literally how Sundrishti was onboarded 2026-09-04)
+never set `billingStatus` at all, leaving it at the schema default `"trial"` forever with no
+expiry. Shipping the planned 7-day trial-expiry rule as originally scoped would have soft-locked
+every existing admin-provisioned client, Sundrishti included, within days. Fixed:
+`provisionWorkspaceForNewUser` takes a `startTrialClock` option (true for every self-serve path,
+false for admin-provisioned tenants - `billingStatus: "active"`, no trial clock at all). Every
+org that predates this field also has `trialEndsAt: null` and is equally grandfathered - **verified
+live during the Sundrishti incident below**: confirmed their real send wasn't blocked by this gate
+(no `402 BILLING_LOCKED`), consistent with the grandfather clause.
+
+### GST tax invoices, auto-generated and emailed on every payment (`56ffc89`)
+
+Gapless sequential numbering per financial year (`NEM-WA-2026-27-0001`, atomic `Counter` model -
+GST Rule 46(b) explicitly allows multiple series under one GSTIN, this is deliberately this
+product's own series, separate from Nemnidhi's other products). CGST+SGST vs IGST computed from
+Nemnidhi's real GSTIN (`23CGZPB7175E1Z5`, Madhya Pradesh, `config.gstSupplier` - env-overridable)
+against the client's own billing state (new Settings > Billing form, GSTIN-validated). Real PDF via
+`pdfkit` (no headless-browser overhead on the shared VPS), emailed through the existing SendGrid
+setup. Verified by rendering real PDFs for both tax paths and reading them back - caught and fixed
+a real layout bug (the total amount wrapped onto two lines past the page margin). A client with no
+billing state on file defaults to IGST, flagged via `placeOfSupplyAssumed` rather than silently
+guessed as same-state.
+
+### Meta scaling-readiness fixes (`27443b4`)
+
+Prompted by an external research thread on what "Meta Tech Partner" scale requires - each claim
+was verified against the real codebase or Meta's own docs before deciding what to fix, not taken on
+the thread's word (it was wrong about one thing - see below).
+
+- **Webhook ack timing** - `whatsapp.js`/`instagram.js`/`facebookPages.js`'s webhook handlers did
+  signature verification, media downloads, and all DB writes/automation *before* ever acking. Meta
+  requires a response within 20s or disables the subscription after repeated timeouts. Now acks
+  200 immediately, processes in the background (same fire-and-forget shape as `notifyVega`)  -
+  chosen over a full BullMQ move since the queue needs Redis + a feature flag active in this
+  deployment and this is the one live client's real message path; the lower-risk fix shipped first.
+- **Rate-limit backoff** - new `metaGraphFetch()` (drop-in `fetch()` replacement) reads
+  `X-App-Usage`/`X-Business-Use-Case-Usage` and retries 429s with exponential backoff, wired into
+  the two actual bulk-send paths (`sendWhatsAppText`, `sendWhatsAppTemplate` - the latter is what
+  campaigns use). Mocked-fetch tests caught a real bug: `Number(null)` is `0` not `NaN`, so an
+  absent `Retry-After` header and an explicit `"Retry-After: 0"` were colliding and both got the
+  wrong delay.
+- **Opt-out handling** - `Contact.optInStatus` already existed in the schema but nothing ever wrote
+  `"opted_out"` to it, and no campaign audience query excluded it even when set. STOP/UNSUBSCRIBE/
+  CANCEL/etc are now detected (exact-match against the whole message, not substring - "can I cancel
+  my order?" must never trip this) and hard-excluded from every campaign audience type in
+  `getLegacyAudienceFilter`, not just the existing "opted_in" targeting choice.
+- **Quality-rating tracking** - the research thread claimed `account_update` carries quality-rating
+  changes; checked Meta's own webhook reference directly and that's wrong - it's
+  `phone_number_quality_update`. Wired to auto-pause campaign sends on that number when rating
+  drops off GREEN (`WhatsAppAccount.marketingPaused`, enforced in `campaignSender.js`), notify the
+  workspace, and require an admin to manually clear the pause once they've confirmed real recovery
+  (Meta doesn't push a "quality restored" signal to auto-clear on).
+- **Template status push** - `message_template_status_update` webhook now updates `Template.status`
+  the moment Meta approves/rejects, not only on manual "Sync templates".
+- **Meta Batch API - deliberately not implemented.** WhatsApp message sends aren't batchable via
+  that mechanism; no genuine batching opportunity exists in this codebase's real usage today.
+- 11 new/updated tests across 4 files.
+
+### Facebook Login scope fix + App Review submission - code done, submission itself still blocked (`c70d669`)
+
+Confirmed via live testing: the plain "Sign in with Facebook" button's `email,public_profile`-only
+OAuth request needs a third permission paired in (Facebook Login for Business product requirement,
+not a token-scope issue). Code now requests `email,public_profile,business_management` - deployed
+and confirmed live in the real authorize URL. `business_management` already shows 430+ test API
+calls ("Ready for testing") from earlier session work, so the test-call wait isn't a blocker.
+
+**Not yet resolved**: spent real time in the App Dashboard trying to find where to actually submit
+this for Advanced Access review while the Instagram permissions review is still "in progress" -
+Meta's own docs say a second submission should be addable while one is pending, but no "start new
+submission" button was found on the App Review page, the submission-details view (read-only
+feedback for the already-resolved WhatsApp renewal), or Facebook Login for Business > Settings (just
+OAuth redirect URI config, no rollback link either - confirms this app was created as Business-type
+natively, not switched from classic Login). Last unexplored lead: click directly into the "Connect
+with customers through WhatsApp" use case card itself (where these three permissions already show
+"Testing complete") rather than the general Review section - not yet checked. A third-party source
+suggested cancelling the in-progress Instagram review and resubmitting together, but that would
+lose 3 days of progress on a 20-day review - don't do this without confirming there's truly no
+other path first.
+
+### Real production incident - Sundrishti not receiving messages, root cause found and fixed live
+
+Client-reported issue, diagnosed directly in Meta's WhatsApp Manager (Partner overview > click the
+phone number's status badge > "Onboarding progress" popup), not guessed from app logs:
+**`Account Live` had failed**, with two Meta error codes:
+- **`141006`** - "There is an error with the payment method. This will block business initiated
+  conversations."
+- **`141010`** - "The Business has not passed business verification."
+
+Both are real gaps on Sundrishti's own WABA, not an app bug. User connected a payment method
+(clears `141006`) and resubmitted business verification (`141010` - Meta states up to 48h). Before
+concluding messaging would work again, traced the actual send code path (`conversations.js`'s
+`POST /:id/messages` → `requireActiveBilling()`, added earlier this same session) to rule out the
+new billing-gate code compounding this - confirmed Sundrishti is grandfathered (pre-existing org,
+no `trialEndsAt`), so that gate correctly does not apply. **Verified live**: sent a real test reply
+in Sundrishti's Inbox, delivered successfully (visible read receipt) with only a brief delay,
+consistent with Meta's own systems still propagating the `141006` fix rather than a residual
+problem. Re-test recommended once business verification clears (up to 48h from ~2026-09-10 evening)
+to confirm delivery speed is fully back to normal and business-initiated (template) sends work,
+not just replies within an open session.
+
+### Also outstanding from this session
+
+- **Embedded Signup end-to-end test with a real unclaimed number** - user confirmed they had a new
+  number ready to test, but the Sundrishti incident interrupted before this happened. Still the
+  actual top priority (replacing the manual onboarding runbook) once picked back up.
+- App Review submission for `email`/`public_profile`/`business_management` - see above, blocked on
+  finding the actual submit action in the Meta UI.
+- Sundrishti's business verification - passive wait, up to 48h from ~2026-09-10 evening.
+
 ## 2026-09-08: webhook auto-subscribe fix shipped, Facebook Login root cause actually nailed down (and it wasn't the second-app theory), Inbox pagination bug fixed, theme/UI overhaul, manual onboarding runbook written
 
 **Webhook auto-subscribe fix (closing out the top outstanding item from the entry below).**
