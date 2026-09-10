@@ -1,5 +1,97 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-10 (late): Instagram scope fix, a capabilities/permissions audit, and a still-unresolved Human Agent test-call mystery
+
+**Read this section first if resuming - continues directly from the entry below it (same day).**
+Commits in order: `c0822f6` (Instagram scope) → `d775492` (HUMAN_AGENT toggle) → `a20007f` (wrong
+localization fix) → `6d07e83` (correct localization fix). All pushed and deploy-verified.
+
+### Capabilities/permissions audit → found and fixed a real scope mismatch (`c0822f6`)
+
+Built a full capabilities + Meta-permissions status page (published as an Artifact - "Meta
+Permissions Ledger" - ask the user for the link if it's needed again, not saved anywhere in-repo).
+It surfaced a real bug while compiling it: `instagramProvider.js`'s `buildInstagramAuthorizeUrl()`
+only ever requested `instagram_business_basic,instagram_business_manage_messages` in its literal
+OAuth scope, but the connected account is also used by `fetchInstagramInsights`,
+`replyToInstagramComment`, and `publishInstagramPost` - three permissions
+(`instagram_business_manage_insights`, `_manage_comments`, `_content_publish`) were being exercised
+without ever being requested. Confirmed all three are real, live functions (not stubs) before
+fixing. This is precisely the category of mismatch that already got the Ads submission rejected
+once ("Screencast Not Aligned with Use Case Details") - fixed immediately, deployed, confirmed live
+via the real `/api/instagram/oauth/authorize-url` response.
+
+### HUMAN_AGENT test-call generation - built the tooling, root cause still open
+
+`Human Agent` (part of the pending Instagram review bundle) had 0 real test calls - genuinely
+uncertain whether that blocks approval. Found the actual code gap: `sendInstagramMessage` already
+supported a `humanAgent` flag (extends the 24h window to 7 days), but every real caller hardcoded it
+false (`conversations.js`'s normal Inbox reply explicitly waits for Meta's approval before ever
+using it - a real chicken-and-egg problem, since Meta needs a real test call to approve it).
+
+**Built** (`d775492`): a checkbox on the existing Settings > Instagram test-send panel -
+"Reply outside the 24h window (HUMAN_AGENT tag)" - a deliberate admin-only action, not automation,
+matching the exact safety boundary already documented on `sendInstagramMessage` itself. Verified via
+DevTools Network tab that the checkbox state, the full untruncated recipient ID, and `humanAgent:
+true` are all sent correctly in the request payload - ruled out every client-side explanation.
+
+**What's still failing**: sending to a real aged Instagram conversation
+(`138545963630017794`, an existing thread with @nemnidhi.official, last activity >24h old)
+consistently returns a genuine `400` with Meta's own "user not found"-equivalent error - not a
+client bug, not a truncated ID, a real rejection from Meta's `/messages` endpoint.
+
+**Leading theory, not yet confirmed**: that specific test conversation's message history ("Hi",
+"Hi this is a test message for instagram verification", "Message is being received") reads like an
+internal test conversation from earlier debugging sessions, not a real customer - if that Instagram
+account was ever a Meta sandbox test account (which Meta's own docs say expire and deactivate after
+30 days) or has otherwise been deleted, "user not found" would be the exact, mundane, expected
+result, unrelated to the tag, the pending permission, or any of today's code changes.
+
+**Next step, not yet done**: retry the exact same flow (checkbox on, Settings > Instagram test-send
+panel) against a genuinely different, currently-active, real customer conversation - not a test
+message - where the last inbound message is >24h old. If that succeeds, the sandbox-account theory
+is confirmed and a real, valid `HUMAN_AGENT` test call now exists for the pending review. If it
+still fails the same way, the real cause is something about the tag itself being blocked while
+`Human Agent`'s permission is mid-review (status showed "Pending App Review", not "Ready for
+testing" - a meaningfully different Meta-side state from every other permission tested this session,
+worth investigating specifically if the sandbox-account theory doesn't pan out).
+
+### Two localization bugs found live, one still not confirmed working
+
+While debugging the above, a real "user not found" error came back **in Arabic** - purely because
+@nemnidhi.official's own connected account happens to be set to that language, confirmed
+reproducible via Graph API Explorer and the app's own live responses.
+
+- First attempt (`a20007f`): added `Accept-Language: en_US` header. **Wrong mechanism** - Facebook's
+  Graph API documents `locale` as a query parameter (underscore format), not the standard HTTP
+  header. Confirmed still reproducing in Arabic after this deployed.
+- Second attempt (`6d07e83`): new `graphUrl()` helper builds every Instagram Graph API request URL
+  with `locale=en_US` already set (all 8 call sites in `instagramProvider.js`, including two that
+  predated the first fix entirely - `exchangeForLongLivedToken`, `fetchInstagramAccountInfo`).
+  Deployed and server-health-verified, **but the live "user not found" error was still observed in
+  Arabic in DevTools after this deploy too** - not yet root-caused. Possible explanations, none
+  confirmed: (a) Meta doesn't honor `locale` for this specific `OAuthException`/error class
+  (some Meta error text may be generated by a layer that only reads the account's own profile
+  language, ignoring per-request locale), (b) a caching issue on an unchanged aspect of the request,
+  (c) something else not yet considered. **Needs real investigation next session** - start by
+  confirming via curl or Graph API Explorer directly (bypassing the dashboard) whether `locale=en_US`
+  changes the response language for the exact same failing call, to isolate whether this is a Meta
+  platform limitation or still something in this app's request construction.
+
+### Also outstanding
+
+- **Razorpay setup** - walked through the exact required values (Key ID/Secret, webhook secret, 3
+  plan IDs, webhook URL `https://dashboard.nemnidhi.com/webhooks/razorpay` with events
+  `subscription.activated/charged/pending/halted/cancelled`) - user has not yet confirmed this was
+  done. Blocks the GST invoicing + subscription auto-pay feature (shipped `56ffc89`/`6ea755b`
+  earlier today) from actually functioning end-to-end; `isRazorpayConfigured()` still returns false
+  until these are set.
+- The App Review submission blocker from the entry below (`email`/`public_profile`/
+  `business_management` - couldn't find where to actually submit while the Instagram review is
+  pending) - not revisited this session, still open.
+- Embedded Signup end-to-end test with a real unclaimed number - still not done, still the actual
+  top priority once picked back up (per the entry below).
+- Sundrishti's business verification - passive wait, up to 48h from ~2026-09-10 evening.
+
 ## 2026-09-10: billing/GST built end-to-end, Meta scaling-readiness fixes, Facebook Login scope fix, and a real production incident (Sundrishti) diagnosed and fixed live
 
 **Read this section first if resuming.** Long session, several independent workstreams. Commits in
