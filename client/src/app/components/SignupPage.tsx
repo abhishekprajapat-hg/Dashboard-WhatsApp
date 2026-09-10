@@ -226,6 +226,18 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
             Sign in
           </button>
         </p>
+
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          By creating an account you agree to our{" "}
+          <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
+            Terms of Service
+          </a>{" "}
+          and{" "}
+          <a href="/legal/privacy" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
+            Privacy Policy
+          </a>
+          .
+        </p>
       </div>
     </div>
   );

@@ -311,6 +311,20 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
               Create one
             </button>
           </p>
+
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Privacy Policy
+            </a>
+            <span className="mx-2 opacity-50">&middot;</span>
+            <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Terms
+            </a>
+            <span className="mx-2 opacity-50">&middot;</span>
+            <a href="/legal/data-deletion" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Data Deletion
+            </a>
+          </p>
         </div>
       </main>
     </div>
