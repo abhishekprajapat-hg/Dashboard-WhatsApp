@@ -20,6 +20,35 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Refuse to run as root, BEFORE touching any file. Running a deploy as root is what has repeatedly
+# broken this pipeline: root's `npm run build` rewrites client/dist/assets as root:root, and the
+# next cron tick - which runs as `dashboard` - then dies with
+# "EACCES, Permission denied: client/dist/assets" inside vite's emptyDir, aborting under `set -e`
+# before it ever reaches `pm2 restart`. That fails silently, someone deploys by hand as root to
+# recover, and the cycle repeats. Confirmed as the real cause of the 2026-09-11 stale-server
+# incident, and almost certainly the unexplained "something keeps writing to this repo as root"
+# behind the 2026-09-04 and 2026-09-06 incidents too.
+#
+# This check sits above the lock file and the log write on purpose - as root, both of those would
+# themselves be created root-owned and poison the next run.
+if [ "$(id -u)" -eq 0 ]; then
+  cat >&2 <<'ROOTMSG'
+deploy-vps.sh: refusing to run as root.
+
+Running as root leaves client/dist and .git owned by root:root, which breaks every
+subsequent cron deploy (they run as `dashboard`) with EACCES during the client build.
+
+Run it as the deploy user instead:
+
+  sudo -u dashboard /home/dashboard/dashboard-whatsapp/scripts/deploy-vps.sh
+
+If a previous root run already broke ownership, repair it first:
+
+  chown -R dashboard:dashboard /home/dashboard/dashboard-whatsapp
+ROOTMSG
+  exit 1
+fi
+
 MARKER=".last-deploy-sha"
 RESTART_MARKER=".last-restart-sha"
 LOG="$(pwd)/deploy.log"
