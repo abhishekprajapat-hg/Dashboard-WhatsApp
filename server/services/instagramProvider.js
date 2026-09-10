@@ -17,9 +17,19 @@ const GRAPH_BASE = `https://graph.instagram.com/${config.metaGraphApiVersion}`;
 // explicit language is requested - confirmed live: a real "user not found" error came back in
 // Arabic, unreadable to whoever's debugging it, purely because @nemnidhi.official's own account
 // happens to be set to that language. Forcing English here means an error is always something the
-// team can actually act on, regardless of which account is connected.
+// team can actually act on, regardless of which account is connected. Meta's documented mechanism
+// for this is the `locale` query parameter (underscore format, e.g. "en_US"), not the standard HTTP
+// Accept-Language header - graphUrl() below is the one place every request URL is built, so locale
+// is never forgotten on a new call site. The header is kept alongside it since it's harmless if
+// Meta ignores it and free insurance if some endpoint does honor it.
 function authHeaders(accessToken, extra = {}) {
   return { Authorization: `Bearer ${accessToken}`, "Accept-Language": "en_US", ...extra };
+}
+
+function graphUrl(path) {
+  const url = new URL(`${GRAPH_BASE}/${path}`);
+  url.searchParams.set("locale", "en_US");
+  return url;
 }
 
 export function decodeInstagramCredentials(account) {
@@ -82,13 +92,14 @@ export async function exchangeForLongLivedToken(shortLivedToken) {
   url.searchParams.set("grant_type", "ig_exchange_token");
   url.searchParams.set("client_secret", config.instagram.appSecret);
   url.searchParams.set("access_token", shortLivedToken);
+  url.searchParams.set("locale", "en_US");
   const response = await fetch(url.toString());
   const payload = await parseOrThrow(response, "INSTAGRAM_LONG_LIVED_TOKEN_FAILED");
   return { accessToken: payload.access_token, expiresInSeconds: payload.expires_in };
 }
 
 export async function fetchInstagramAccountInfo(accessToken) {
-  const url = new URL(`${GRAPH_BASE}/me`);
+  const url = graphUrl("me");
   url.searchParams.set("fields", "user_id,username,profile_picture_url");
   url.searchParams.set("access_token", accessToken);
   const response = await fetch(url.toString());
@@ -122,12 +133,12 @@ export async function fetchInstagramInsights(account) {
   const credentials = decodeCredentials(account);
   const authHeader = authHeaders(credentials.accessToken);
 
-  const insightsUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
+  const insightsUrl = graphUrl(`${account.instagramUserId}/insights`);
   insightsUrl.searchParams.set("metric", "reach,accounts_engaged,total_interactions");
   insightsUrl.searchParams.set("period", "day");
   insightsUrl.searchParams.set("metric_type", "total_value");
 
-  const profileUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}`);
+  const profileUrl = graphUrl(account.instagramUserId);
   profileUrl.searchParams.set("fields", "followers_count");
 
   const [insightsResponse, profileResponse] = await Promise.all([
@@ -172,7 +183,7 @@ const INSTAGRAM_ATTACHMENT_TYPE = { image: "image", video: "video", audio: "audi
 // docs - if Meta rejects this shape, that rejection is the real answer, not another docs guess.
 export async function sendInstagramMessage({ account, to, body, attachments = [], humanAgent = false }) {
   const credentials = decodeCredentials(account);
-  const url = `${GRAPH_BASE}/${account.instagramUserId}/messages`;
+  const url = graphUrl(`${account.instagramUserId}/messages`).toString();
   const attachment = attachments[0];
 
   async function post(message) {
@@ -285,7 +296,7 @@ export function normalizeInstagramWebhookPayload(payload) {
 
 export async function replyToInstagramComment(account, commentId, message) {
   const credentials = decodeCredentials(account);
-  const url = new URL(`${GRAPH_BASE}/${commentId}/replies`);
+  const url = graphUrl(`${commentId}/replies`);
   const response = await fetch(url.toString(), {
     method: "POST",
     headers: authHeaders(credentials.accessToken, { "Content-Type": "application/x-www-form-urlencoded" }),
@@ -310,7 +321,7 @@ export async function publishInstagramPost(account, { imageUrl, caption }) {
   const credentials = decodeCredentials(account);
   const authHeader = authHeaders(credentials.accessToken);
 
-  const containerUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/media`);
+  const containerUrl = graphUrl(`${account.instagramUserId}/media`);
   const containerResponse = await fetch(containerUrl.toString(), {
     method: "POST",
     headers: { ...authHeader, "Content-Type": "application/x-www-form-urlencoded" },
@@ -322,7 +333,7 @@ export async function publishInstagramPost(account, { imageUrl, caption }) {
   let statusCode = "IN_PROGRESS";
   for (let attempt = 0; attempt < 10 && statusCode === "IN_PROGRESS"; attempt += 1) {
     if (attempt > 0) await sleep(2000);
-    const statusUrl = new URL(`${GRAPH_BASE}/${containerId}`);
+    const statusUrl = graphUrl(containerId);
     statusUrl.searchParams.set("fields", "status_code");
     const statusResponse = await fetch(statusUrl.toString(), { headers: authHeader });
     const status = await parseOrThrow(statusResponse, "INSTAGRAM_PUBLISH_STATUS_FAILED");
@@ -336,7 +347,7 @@ export async function publishInstagramPost(account, { imageUrl, caption }) {
     throw error;
   }
 
-  const publishUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/media_publish`);
+  const publishUrl = graphUrl(`${account.instagramUserId}/media_publish`);
   const publishResponse = await fetch(publishUrl.toString(), {
     method: "POST",
     headers: { ...authHeader, "Content-Type": "application/x-www-form-urlencoded" },
