@@ -39,21 +39,26 @@ true` are all sent correctly in the request payload - ruled out every client-sid
 consistently returns a genuine `400` with Meta's own "user not found"-equivalent error - not a
 client bug, not a truncated ID, a real rejection from Meta's `/messages` endpoint.
 
-**Leading theory, not yet confirmed**: that specific test conversation's message history ("Hi",
-"Hi this is a test message for instagram verification", "Message is being received") reads like an
-internal test conversation from earlier debugging sessions, not a real customer - if that Instagram
-account was ever a Meta sandbox test account (which Meta's own docs say expire and deactivate after
-30 days) or has otherwise been deleted, "user not found" would be the exact, mundane, expected
-result, unrelated to the tag, the pending permission, or any of today's code changes.
+**Sandbox-account theory ruled out**: user confirmed `138545963630017794` is their own real,
+currently-active personal Instagram account, not a test/sandbox account - and this same conversation
+already had one genuinely successful send earlier (the pre-existing "Message is being received"
+message in that thread), proving the ID and endpoint work correctly under normal (within-window)
+conditions. Two fresh attempts through the fixed checkbox both failed again, visible as red
+failed-send icons in the Inbox thread itself, not just the settings panel.
 
-**Next step, not yet done**: retry the exact same flow (checkbox on, Settings > Instagram test-send
-panel) against a genuinely different, currently-active, real customer conversation - not a test
-message - where the last inbound message is >24h old. If that succeeds, the sandbox-account theory
-is confirmed and a real, valid `HUMAN_AGENT` test call now exists for the pending review. If it
-still fails the same way, the real cause is something about the tag itself being blocked while
-`Human Agent`'s permission is mid-review (status showed "Pending App Review", not "Ready for
-testing" - a meaningfully different Meta-side state from every other permission tested this session,
-worth investigating specifically if the sandbox-account theory doesn't pan out).
+**Real diagnostic gap found and fixed while investigating (`f6fabd9`)**: `parseOrThrow` already
+captures Meta's full error object (`code`/`error_subcode`/`type`) server-side as `error.meta`, but
+the send route only ever returned the translated message string to the browser - not enough to tell
+"recipient genuinely doesn't exist" apart from "this specific tag/permission is blocked", which read
+identically in plain English. Settings > Instagram's test-send route (this one only, not the normal
+Inbox path) now returns `meta: error.meta?.error` too, and the panel's notice appends
+`[Meta code X/Y, type]` when present. **Not yet re-tested against this fix** - next session's first
+step should be retrying the exact same failing send (checkbox on, recipient
+`138545963630017794`, any message) and reading the real Meta error code this surfaces, rather than
+guessing further. The leading theory now: the code will point at `Human Agent`'s own permission
+being blocked while `Pending App Review` (a meaningfully different Meta-side state than every other
+permission tested this session, which all showed "Ready for testing" instead) rather than anything
+about the recipient ID itself - but read the actual code before assuming this.
 
 ### Two localization bugs found live, one still not confirmed working
 
