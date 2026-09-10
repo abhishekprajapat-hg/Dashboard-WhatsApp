@@ -149,6 +149,69 @@ confirmed it wasn't just slow.
 without them), and possibly the "additional contracts" the Human Agent docs mention. Both are
 completable now, unlike the test calls.
 
+### The deploy pipeline's recurring failure - root cause finally found (`ddad0e2`, `c97d905`)
+
+Every previous session diagnosed a different *symptom* of this (deleted cron path, stuck git pull,
+skipped restart). `deploy-cron.log` - as opposed to `deploy.log`, which only showed the marker stuck
+- finally showed the cause:
+
+```
+EACCES, Permission denied: /home/dashboard/dashboard-whatsapp/client/dist/assets
+    at Object.rmSync ... emptyDir ... prepareOutDir
+```
+
+**It is a self-perpetuating loop, and the recovery procedure was causing it:**
+
+1. A manual deploy is run **as root** → `npm run build` rewrites `client/dist` as `root:root`.
+2. The next cron tick runs as `dashboard`, can't `rmSync` that directory, so the build dies.
+3. `set -e` aborts **before `pm2 restart`** → the server silently keeps serving old code.
+4. Someone notices the stale server and deploys by hand as root to recover → back to step 1.
+
+This is the "something keeps writing to this repo as root, never traced" noted in two earlier
+entries. It was the fix-it-by-hand step all along.
+
+**Fixed three ways:**
+- `c97d905` - `deploy-vps.sh` now **refuses to run as root**, printing the repair command. The guard
+  sits above the lock file and the log write, because as root those would themselves be created
+  root-owned and poison the next run.
+- `ddad0e2` - build and restart are decided separately, from a diff against the last commit actually
+  deployed (the old `${LAST_DEPLOYED:-HEAD}` fallback resolved to an empty diff on an already-pulled
+  checkout, skipping the restart while still rebuilding the client - the exact fresh-bundle/stale-
+  server signature seen twice this session). New `.last-restart-sha` records only real restarts.
+- `ddad0e2` - **silent failures are now loud.** Every bail-out below the lock previously wrote
+  nothing, so a failed tick was indistinguishable from "nothing to deploy". A skipped lock logs, and
+  an ERR+EXIT trap pair records the exit status and the true failing line (two traps because
+  `$LINENO` inside an EXIT trap reports the trap's own line - verified, the single-trap version
+  logged a misleading number).
+
+**The correct manual deploy from now on** - the same script the cron runs, so hand and automatic
+deploys can no longer drift:
+```bash
+sudo -u dashboard /home/dashboard/dashboard-whatsapp/scripts/deploy-vps.sh
+```
+If ownership is ever broken again: `chown -R dashboard:dashboard /home/dashboard/dashboard-whatsapp`.
+
+**Still worth checking**: `deploy-health-check.sh` IS installed in cron (confirmed via
+`crontab -l -u dashboard`) and its grace period is 20 minutes, but this stall ran ~25 minutes with
+no alert reaching anyone. Read `deploy-health.log` - if it stayed quiet, the alerting has its own
+bug, and it's the thing meant to catch exactly this.
+
+### Inbox per-channel counts read 0 for every channel (`ddad0e2`)
+
+Reported live: WhatsApp and Instagram both showed `0` badges while clearly listing conversations.
+`GET /conversations/channel-counts` used `Conversation.aggregate()`, and **aggregate pipelines
+bypass Mongoose's schema casting entirely**. `req.user.workspaceId` is a string (`auth.js` sets it
+via `.toString()`), so `$match: { workspaceId: "<24-hex>" }` never matched the stored ObjectId and
+every count came back 0 - while the list endpoint directly below, using the same filter through
+`find()`, worked correctly because `find()` does cast. `dashboard.js` already got this right with
+`new mongoose.Types.ObjectId(...)`; this route just never did.
+
+Fixed with `countDocuments` rather than by casting inside the pipeline, deliberately: it goes
+through the same casting as the list query, so the two can't drift, and any id field added to
+`buildConversationFilter` later is handled automatically instead of needing to be remembered in two
+places (`assignedToUserId` in the visibility `$or` is a raw JWT `sub` string and would have had the
+identical bug).
+
 ### Unchanged from the entry below
 
 Razorpay production setup (still unconfirmed by the user), the Facebook Login App Review submission
