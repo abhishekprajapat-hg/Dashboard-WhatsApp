@@ -35,6 +35,7 @@ GRACE_PERIOD_SECONDS=1200 # 20 minutes - longer than deploy-vps.sh's own 5-minut
 MARKER=".last-deploy-sha"
 RESTART_MARKER=".last-restart-sha"
 ALERT_STATE=".deploy-health-alerted"
+BEHIND_SINCE=".deploy-behind-since"
 PM2_APP=dashboard-api
 LOCKFILE="$(pwd)/.deploy.lock"
 
@@ -66,11 +67,34 @@ NOW=$(date +%s)
 PROBLEMS=()
 
 if [ "$LAST_DEPLOYED" != "$REMOTE_SHA" ]; then
-  REMOTE_COMMIT_TIME=$(git log -1 --format=%ct "$REMOTE_SHA")
-  BEHIND_SECONDS=$((NOW - REMOTE_COMMIT_TIME))
-  if [ "$BEHIND_SECONDS" -gt "$GRACE_PERIOD_SECONDS" ]; then
-    PROBLEMS+=("Deploy stuck: origin/main has been at $REMOTE_SHA for $((BEHIND_SECONDS / 60))min, but the last fully-deployed commit is ${LAST_DEPLOYED:-none}. Check deploy.log/deploy-cron.log for a stuck git pull or a failing build.")
+  # Staleness is measured from when this check FIRST saw the deploy fall behind, recorded in
+  # $BEHIND_SINCE - not from the newest commit's own timestamp, which is what this used to do:
+  #
+  #   REMOTE_COMMIT_TIME=$(git log -1 --format=%ct "$REMOTE_SHA")
+  #   BEHIND_SECONDS=$((NOW - REMOTE_COMMIT_TIME))
+  #
+  # That asked "how old is the latest commit?", not "how long have we been failing to deploy it".
+  # Every new push reset it to ~0, so during an active session - pushing every 10-20 minutes, which
+  # is exactly when a broken pipeline matters most - it could never reach the 20-minute grace and
+  # never alerted. Confirmed against the 2026-09-11 incident: the deploy was broken for ~25 minutes
+  # across three pushes and this check stayed silent the whole time.
+  #
+  # Anchoring to first-seen-behind keeps the same protection against false alarms (a fresh push
+  # still gets a full grace period before it can alert, because the first tick after it just records
+  # the timestamp), while measuring the thing we actually care about.
+  if [ ! -f "$BEHIND_SINCE" ]; then
+    echo "$NOW" > "$BEHIND_SINCE"
   fi
+  BEHIND_START=$(cat "$BEHIND_SINCE" 2>/dev/null || echo "$NOW")
+  case "$BEHIND_START" in
+    ''|*[!0-9]*) BEHIND_START=$NOW; echo "$NOW" > "$BEHIND_SINCE" ;;
+  esac
+  BEHIND_SECONDS=$((NOW - BEHIND_START))
+  if [ "$BEHIND_SECONDS" -gt "$GRACE_PERIOD_SECONDS" ]; then
+    PROBLEMS+=("Deploy stuck: origin/main has been ahead of the last fully-deployed commit for $((BEHIND_SECONDS / 60))min (origin/main $REMOTE_SHA, last deployed ${LAST_DEPLOYED:-none}). Check deploy-cron.log - not just deploy.log - for a failing build or a stuck git pull.")
+  fi
+else
+  rm -f "$BEHIND_SINCE"
 fi
 
 PM2_START_MS=$(pm2 jlist 2>/dev/null | node -e '

@@ -31,6 +31,7 @@ server/uploads/
 .last-restart-sha
 .deploy.lock
 .deploy-health-alerted
+.deploy-behind-since
 
 # OS/editor
 .DS_Store
