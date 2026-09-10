@@ -21,6 +21,7 @@ import {
   fetchInstagramAccountInfo,
   fetchInstagramInsights,
   hasValidInstagramSignature,
+  instagramErrorDetail,
   normalizeInstagramWebhookPayload,
   publishInstagramPost,
   replyToInstagramComment,
@@ -126,7 +127,7 @@ instagramRouter.post(
       res.status(error.status || 502).json({
         error: error.code || "INSTAGRAM_SEND_FAILED",
         message: error.message,
-        meta: error.meta?.error || null,
+        meta: instagramErrorDetail(error),
       });
     }
   }

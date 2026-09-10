@@ -59,6 +59,27 @@ export function buildInstagramAuthorizeUrl(state) {
   return url.toString();
 }
 
+// graph.instagram.com returns errors in two different envelopes: the Graph-standard
+// {error:{message,code,error_subcode,type}} and Instagram's own flat {error_type,code,error_message}.
+// Callers that only read payload.error silently lose the machine-readable code on the flat shape -
+// which is what happened to the HUMAN_AGENT send debugging: the browser got "The requested user
+// cannot be found." with no code attached, because that response used the flat envelope. The
+// numeric code is the only language-neutral part of a Meta error (Meta localizes the prose to the
+// connected account's own language and ignores the `locale` param on errors), so never drop it.
+export function instagramErrorDetail(error) {
+  const payload = error?.meta;
+  if (payload?.error && typeof payload.error === "object") return payload.error;
+  if (payload?.error_message || payload?.error_type) {
+    return {
+      message: payload.error_message,
+      code: payload.code,
+      error_subcode: payload.error_subcode,
+      type: payload.error_type,
+    };
+  }
+  return null;
+}
+
 async function parseOrThrow(response, errorCode) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.error || payload.error_message) {
