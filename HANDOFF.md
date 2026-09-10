@@ -191,10 +191,23 @@ sudo -u dashboard /home/dashboard/dashboard-whatsapp/scripts/deploy-vps.sh
 ```
 If ownership is ever broken again: `chown -R dashboard:dashboard /home/dashboard/dashboard-whatsapp`.
 
-**Still worth checking**: `deploy-health-check.sh` IS installed in cron (confirmed via
-`crontab -l -u dashboard`) and its grace period is 20 minutes, but this stall ran ~25 minutes with
-no alert reaching anyone. Read `deploy-health.log` - if it stayed quiet, the alerting has its own
-bug, and it's the thing meant to catch exactly this.
+**The health check was also broken, and this is now confirmed from its own log (`50f2224`).**
+`deploy-health.log` printed `healthy` on all four ticks through the stall (19:50-20:05) while the
+marker sat frozen at `a8cc311` and every build was failing. Cause: the stuck-deploy check measured
+staleness from the **newest commit's timestamp**
+(`BEHIND_SECONDS=$((NOW - $(git log -1 --format=%ct $REMOTE_SHA)))`), i.e. "how old is the latest
+commit", not "how long have we failed to deploy it". Every push reset it to ~0, so during an active
+session - pushing every 10-20 minutes, exactly when this matters - it could never reach its
+20-minute grace. Now anchored to when the check first saw the deploy fall behind
+(`.deploy-behind-since`, cleared on catch-up); a fresh push still gets a full grace period because
+the first tick after it only records the timestamp. Logic simulated against the real timeline
+before shipping.
+
+**Consequence still open**: because detection never fired, `send_alert`/`sendDeployAlert.mjs` has
+never actually run for a real incident - the WhatsApp alert path remains **unverified**. Test it
+directly (sends a real message to `DEPLOY_ALERT_PHONE`):
+`sudo -u dashboard bash -c 'cd /home/dashboard/dashboard-whatsapp/server && node scripts/sendDeployAlert.mjs "test"'`.
+That script has a history of silently loading no `.env` when invoked from the wrong cwd.
 
 ### Inbox per-channel counts read 0 for every channel (`ddad0e2`)
 

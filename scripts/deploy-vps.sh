@@ -59,8 +59,18 @@ PM2_APP=dashboard-api
 # manually sometimes - without a lock, an overlapping run would race the first one on the same
 # git checkout/build/pm2 restart. If another instance already holds the lock, just skip this
 # tick; the next one will pick up wherever things stand.
+# Wait briefly rather than giving up instantly. deploy-health-check.sh shares this same lock for its
+# own `git fetch`, and both scripts are on a */5 cron - so they start in the same second and the
+# health check, which waits (flock -w 30), routinely wins the race. With a non-blocking flock here
+# the deploy then bailed immediately, every single tick: observed 2026-09-11 as three consecutive
+# "skipped: another run holds" lines while origin/main sat two commits ahead. The health check only
+# holds it for a fetch (a second or two), so a short wait clears that contention entirely.
+#
+# 60s still preserves what the non-blocking version was for - preventing genuinely overlapping
+# deploys. A real deploy holds the lock for a build far longer than 60s, so a tick that collides
+# with one still gives up and lets the next tick pick things up.
 exec 200>"$LOCKFILE"
-flock -n 200 || { echo "$(date -Iseconds) skipped: another run holds $LOCKFILE" >> "$LOG"; exit 0; }
+flock -w 60 200 || { echo "$(date -Iseconds) skipped: another run held $LOCKFILE for >60s" >> "$LOG"; exit 0; }
 
 # Every failure path below this point used to be completely silent. `set -e` aborts without writing
 # anything, and the first log line isn't reached until after `git fetch`, so a failing fetch, a
