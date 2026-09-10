@@ -1,6 +1,6 @@
 # Handoff — WhatsApp CRM engine work
 
-## 2026-09-11: the Human Agent mystery was a red herring - it's a recipient-resolution failure, and the locale fix can't ever work
+## 2026-09-11: RESOLVED - the Human Agent blocker was real all along, hidden behind a two-digit typo in a hand-typed IGSID
 
 **Read this section first if resuming.** Closes out two open threads from the entry below, both with
 real evidence rather than theory. Commit: `5fee1c0`.
@@ -36,32 +36,53 @@ all) - but it fixed a latent gap, not the one that was actually blocking this. 3
 **The actual error, once surfaced**:
 `The requested user cannot be found. [Meta code 100/2534014, IGApiException]`
 
-- `100` is **invalid parameter**, not `10` (permissions) - and the type is `IGApiException`, not
-  `OAuthException`. A permission blocked by `Pending App Review` would surface as `10`. **The
-  leading theory in the entry below is therefore wrong.**
-- `2534014` is the "recipient genuinely unreachable" subcode, explicitly *not* `2534022`
-  ("outside the allowed window"). Meta is rejecting the recipient before the window or the tag is
-  ever evaluated.
-- **Decisive confirmation**: the identical send with the HUMAN_AGENT checkbox **off** returns a
-  byte-identical error. Tagged and untagged fail the same way. The tag is not involved at all, and
-  the two failed attempts recorded in the entry below were never evidence about Human Agent.
+`2534014` is the "recipient genuinely unreachable" subcode, and it was the literal truth. **The
+recipient ID being typed into the test panel was wrong.** Found by opening the actual Instagram
+conversation in the Inbox and reading the ID off the contact record:
+
+```
+Real (webhook-captured):  1385459630017794      (16 digits)
+Typed into test panel:    138545963630017794    (18 digits)
+```
+
+Both start `138545963`; the typed one then repeats `63` before continuing `0017794`. A two-digit
+transcription slip. Every layer beneath it behaved correctly the whole time - Meta was accurately
+reporting that no such user exists. **Two prior sessions of Human Agent investigation were built on
+this typo**, including the "sandbox account ruled out" and "the ID and endpoint work correctly"
+notes in the entry below (that earlier successful send used the *correct* ID, which is why it
+worked).
+
+**Re-tested with the correct ID, and both results are decisive:**
+
+- **Checkbox off** → `10/2534022, IGApiException` - "This message is sent outside of allowed
+  window." The recipient resolves fine; the thread is simply >24h stale. Expected and correct.
+- **Checkbox on** → HTTP **403**, `Meta code 10, IGApiException`: *"To use 'Human Agent', your use
+  of this endpoint must be reviewed and approved by Facebook."*
+
+**So the leading theory in the entry below was RIGHT after all** - Human Agent is blocked pending
+App Review. It was invisible for two sessions only because the bad ID failed earlier in the
+pipeline, before Meta ever evaluated the tag.
+
+**Two things this settles permanently:**
+
+1. **The request shape is correct - do not add `messaging_type`.** Meta parsed `tag: "HUMAN_AGENT"`
+   and rejected it *by name*, which it could only do having understood it. The top-level `tag`
+   field with no `messaging_type` is therefore the right shape on `graph.instagram.com`. This
+   resolves the open question in `sendInstagramMessage`'s own comment (which honestly flagged the
+   placement as unconfirmed) and is worth recording because **Meta's docs never state it** - the
+   `messaging_type: "MESSAGE_TAG"` convention is documented only for the Page-linked Messenger Send
+   API on `graph.facebook.com`, and there is no message-tags or human-agent page under the
+   Instagram-with-Instagram-Login docs at all (probed directly - 404).
+2. **The `0 test calls` chicken-and-egg is real, and confirmed by Meta's own error.** A successful
+   HUMAN_AGENT call is impossible before approval, so that gap cannot be closed by trying harder -
+   the review has to be approvable without them. Stop treating it as an action item.
+
+**No code change needed.** `conversations.js` correctly continues to hardcode `humanAgent: false`;
+once Meta approves, that's the line to revisit. The Settings > Instagram checkbox stays as the
+deliberate admin-only path.
 
 Also observed: the account badge flipped from `needs_attention` to `connected` on refresh, so the
-token/connection are healthy - not an auth problem either.
-
-**Still open - why `138545963630017794` doesn't resolve.** Leading hypothesis (NOT yet confirmed):
-Instagram-scoped IDs are scoped to the app that received them, and this integration uses a separate
-Instagram App ID/Secret from the WhatsApp/Ads app - so an IGSID captured under a different app or a
-different connection is genuinely "not found" under the current credentials, even though the human
-account behind it is real and active. Fits the evidence (it worked once before; the account is
-unquestionably alive). **Next step**: send a fresh DM to @nemnidhi.official, let the webhook capture
-a new IGSID, and reply from the Inbox inside the 24h window. Succeeds → the old ID is simply stale
-and this thread closes. Fails with `2534014` too → something structural in how recipients are
-addressed, a much more serious bug.
-
-**Consequence for App Review**: generating a real HUMAN_AGENT test call needs a genuinely reachable
-IGSID first. Nothing about the pending review was ever blocking these sends, so waiting on it
-changes nothing here.
+token/connection were healthy throughout - never an auth problem.
 
 ### The `locale=en_US` localization fix cannot work - it's a Meta limitation (no code change)
 
@@ -78,6 +99,19 @@ localize *from*. It proves `locale` can't *force* a language; it doesn't strictl
 numeric code is the only language-neutral part of an error, which is exactly what
 `instagramErrorDetail()` now guarantees reaches the browser. Worth considering extending that same
 surfacing to the normal Inbox send path, which still returns prose only.
+
+### Possible unmet App Review prerequisite - worth checking
+
+Meta's App Dashboard (Instagram API > Permissions and features) confirms `Human Agent` as
+**Pending App Review** with an empty API Calls column, consistent with everything above. Its
+Requirements tooltip lists three gates: Business Verification (green), App Review (green), and
+**Data handling questions (grey/incomplete)**. Not confirmed which row that tooltip belonged to -
+click Requirements on the Human Agent row directly. If Data handling questions really are
+outstanding, that is an actionable prerequisite that could stall or sink the pending review, and
+unlike the test calls it *can* be completed.
+
+Also visible on that page: `ads_management` shows **App Review rejected** with 374 API calls -
+consistent with the four rejections recorded on 2026-08-29 in the 2026-09-08 entry below.
 
 ### Unchanged from the entry below
 
