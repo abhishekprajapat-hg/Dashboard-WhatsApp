@@ -26,7 +26,16 @@ export function buildInstagramAuthorizeUrl(state) {
   url.searchParams.set("client_id", config.instagram.appId);
   url.searchParams.set("redirect_uri", config.instagram.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "instagram_business_basic,instagram_business_manage_messages");
+  // Previously requested only basic+messages, but the connected account is also used for
+  // fetchInstagramInsights, replyToInstagramComment, and publishInstagramPost below - those calls
+  // were relying on the three extra permissions being granted some other way (per HANDOFF.md, via
+  // Meta's separate per-permission "Request advanced access" dialog, not this authorize URL). A
+  // scope string that doesn't match what the app actually uses is exactly the kind of mismatch App
+  // Review flags, so the OAuth request now asks for everything the connected account is used for.
+  url.searchParams.set(
+    "scope",
+    "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_insights,instagram_business_manage_comments,instagram_business_content_publish"
+  );
   url.searchParams.set("state", state);
   return url.toString();
 }
