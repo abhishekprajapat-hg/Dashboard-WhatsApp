@@ -13,13 +13,24 @@ genuinely live (pulled the production bundle, `assets/index-ejqJq_LR.js`, and gr
 `Meta code` string - present) and that `api.ts:99` correctly copies `payload.meta` onto the thrown
 error. So the server was sending `meta: null`.
 
-**Root cause of the diagnostic gap**: `graph.instagram.com` returns errors in *two* different
-envelopes - the Graph-standard `{error:{message,code,error_subcode,type}}` and Instagram's own flat
-`{error_type,code,error_message}`. `parseOrThrow` stores the whole payload as `error.meta`, but the
-route only ever read `error.meta?.error`, which is `undefined` for the flat shape. Deduced from the
-code before testing: the notice text could only have come from `payload.error_message`, since
-`payload.error?.message` would have implied a non-null `meta`. `f6fabd9` had fixed exactly half the
-problem. New exported `instagramErrorDetail()` normalizes both envelopes; 3 unit tests in
+**Root cause of the diagnostic gap: the deploy cron failed again - NOT a code bug.** The first
+theory this session (that Instagram's flat `{error_type,code,error_message}` envelope was bypassing
+the route's `error.meta?.error` read) was **wrong**, and the way it was proven wrong is worth
+recording. The raw DevTools response body shows `meta` containing `fbtrace_id` - a field the flat
+normalizer would have stripped - so the payload was Graph-standard `{error:{...}}` all along, and
+`f6fabd9`'s original code would have worked fine *had it been running*.
+
+What actually happened: `f6fabd9`'s **client** half deployed (the production bundle really did
+contain the `Meta code` string - that was checked and confirmed) but the **server never restarted**,
+so the API kept returning no `meta`. Pushing `5fee1c0` forced the pm2 restart that finally brought
+both changes live, which is why the code appeared immediately afterwards. Checking the client bundle
+was treated as proof the whole fix was live; it only ever proved the client was. This is the known
+recurring failure mode - see the deploy-cron notes - and it cost a wrong diagnosis. **Verify the
+server independently of the client: a fresh bundle hash says nothing about whether pm2 restarted.**
+
+`5fee1c0`'s `instagramErrorDetail()` is kept anyway - it normalizes both envelopes, and the flat
+shape is real on some Instagram endpoints (it's why `parseOrThrow` tests `payload.error_message` at
+all) - but it fixed a latent gap, not the one that was actually blocking this. 3 unit tests in
 `server/tests/instagramErrorDetail.unit.test.js`.
 
 **The actual error, once surfaced**:
