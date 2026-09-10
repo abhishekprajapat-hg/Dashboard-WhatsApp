@@ -13,6 +13,15 @@ const OAUTH_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 const OAUTH_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const GRAPH_BASE = `https://graph.instagram.com/${config.metaGraphApiVersion}`;
 
+// Meta localizes Graph API error text based on the connected account's own language setting when no
+// explicit language is requested - confirmed live: a real "user not found" error came back in
+// Arabic, unreadable to whoever's debugging it, purely because @nemnidhi.official's own account
+// happens to be set to that language. Forcing English here means an error is always something the
+// team can actually act on, regardless of which account is connected.
+function authHeaders(accessToken, extra = {}) {
+  return { Authorization: `Bearer ${accessToken}`, "Accept-Language": "en_US", ...extra };
+}
+
 export function decodeInstagramCredentials(account) {
   return decodeCredentials(account);
 }
@@ -111,7 +120,7 @@ const INSTAGRAM_METRIC_LABELS = {
 
 export async function fetchInstagramInsights(account) {
   const credentials = decodeCredentials(account);
-  const authHeader = { Authorization: `Bearer ${credentials.accessToken}` };
+  const authHeader = authHeaders(credentials.accessToken);
 
   const insightsUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/insights`);
   insightsUrl.searchParams.set("metric", "reach,accounts_engaged,total_interactions");
@@ -169,7 +178,7 @@ export async function sendInstagramMessage({ account, to, body, attachments = []
   async function post(message) {
     const response = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/json" },
+      headers: authHeaders(credentials.accessToken, { "Content-Type": "application/json" }),
       body: JSON.stringify({ recipient: { id: to }, message, ...(humanAgent ? { tag: "HUMAN_AGENT" } : {}) }),
     });
     return parseOrThrow(response, "INSTAGRAM_SEND_FAILED");
@@ -279,7 +288,7 @@ export async function replyToInstagramComment(account, commentId, message) {
   const url = new URL(`${GRAPH_BASE}/${commentId}/replies`);
   const response = await fetch(url.toString(), {
     method: "POST",
-    headers: { Authorization: `Bearer ${credentials.accessToken}`, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: authHeaders(credentials.accessToken, { "Content-Type": "application/x-www-form-urlencoded" }),
     body: new URLSearchParams({ message }),
   });
   return parseOrThrow(response, "INSTAGRAM_COMMENT_REPLY_FAILED");
@@ -299,7 +308,7 @@ function sleep(ms) {
 // full scheduling/queue system), then publish the container.
 export async function publishInstagramPost(account, { imageUrl, caption }) {
   const credentials = decodeCredentials(account);
-  const authHeader = { Authorization: `Bearer ${credentials.accessToken}` };
+  const authHeader = authHeaders(credentials.accessToken);
 
   const containerUrl = new URL(`${GRAPH_BASE}/${account.instagramUserId}/media`);
   const containerResponse = await fetch(containerUrl.toString(), {
