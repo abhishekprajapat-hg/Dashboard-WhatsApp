@@ -39,12 +39,19 @@ async function main() {
       return;
     }
 
-    // One positional parameter, carrying the whole problem summary. The example is not optional -
-    // Meta rejects any template containing {{n}} placeholders without sample values to review.
+    // One positional parameter, carrying the whole problem summary.
+    //
+    // Two Meta constraints are baked into this shape, both learned by having it rejected:
+    //   1. The example is not optional - Meta rejects any template containing {{n}} placeholders
+    //      without sample values to review.
+    //   2. A variable may not be the first or last thing in the body ("Leading or trailing params
+    //      not allowed", code 100 / subcode 2388299). The original text ended with "{{1}}" and was
+    //      refused, hence the trailing sentence - it is load-bearing, not decoration. Keep static
+    //      text on BOTH sides of {{1}} if this is ever reworded.
     const components = [
       {
         type: "BODY",
-        text: "Dashboard-WhatsApp deploy alert: {{1}}",
+        text: "Dashboard-WhatsApp deploy alert: {{1}} - check deploy.log and deploy-cron.log on the VPS.",
         example: { body_text: [["Deploy stuck: origin/main has been ahead of the last deployed commit for 25min"]] },
       },
     ];
