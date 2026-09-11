@@ -14,6 +14,66 @@ was wrong** - the VPS does accept SSH, on **72.60.97.58 port 2424** (per `~/.ssh
 port 22. Future sessions can read `deploy.log`/`deploy-cron.log`/`pm2` directly instead of asking
 for pastes.
 
+### Destructive actions now need a second password, and are audit-logged (`5dc40a2`)
+
+**The threat model, which is the reason this exists**: the platform is operated from a shared
+`admin@test.com` login whose credentials **were submitted to Meta for App Review**, so reviewers
+legitimately hold them and the password cannot be changed. Those credentials could previously
+disconnect a paying client's WhatsApp number, wipe its templates, delete a contact along with every
+message they had ever exchanged, and change billing plans - unconfirmed, and with no record of who
+did it.
+
+**Authorization was already correct** and is NOT the gap: plan/billing-status need
+`admin:write` + `requirePlatformOwner`; channel changes need `settings:write`, which only `admin`
+and `super_admin` hold (Manager/Agent/Viewer cannot reach any of it - verified in `utils/rbac.js`).
+What was missing was everything *around* the action.
+
+**`DESTRUCTIVE_ACTION_PASSWORD_HASH`** - a salted-scrypt secret in `server/.env`, with deliberately
+**no UI to set or change it**. Anything settable in-app would be settable by whoever holds the
+shared login, which is exactly who this guards against; rotating it requires server access. **Unset
+means the guarded routes are refused (503), not allowed through** - fail closed.
+
+Rotate it (prompts silently; password never in argv, history, or on screen), then **restart** -
+`config.js` does `import "dotenv/config"` so it reads the file at process start, and the deploy cron
+will NOT restart for an `.env`-only change:
+```bash
+read -rsp "New password: " PW && echo && NEW=$(PW="$PW" node -e "const c=require('crypto');const s=c.randomBytes(16).toString('hex');console.log('scrypt:'+s+':'+c.scryptSync(process.env.PW,s,64).toString('hex'))") && unset PW && sudo -u dashboard sed -i '/^DESTRUCTIVE_ACTION_PASSWORD_HASH=/d' /home/dashboard/dashboard-whatsapp/server/.env && echo "DESTRUCTIVE_ACTION_PASSWORD_HASH=$NEW" | sudo -u dashboard tee -a /home/dashboard/dashboard-whatsapp/server/.env > /dev/null && unset NEW && grep -c '^DESTRUCTIVE_ACTION_PASSWORD_HASH=scrypt:' /home/dashboard/dashboard-whatsapp/server/.env && sudo -u dashboard pm2 restart dashboard-api
+```
+(PM2's "Use --update-env" warning does not apply - the app loads `.env` itself, not via PM2's env.)
+
+**Guarded**: tenant plan change, billing-status change, WhatsApp/Instagram/Facebook disconnect,
+`DELETE /contacts/:id`, and `POST /conversations/:id/reset-for-testing`. Single-message deletes are
+deliberately left unguarded. Note `DELETE /contacts/:id` is a **bulk** delete wearing a
+single-record label - it cascades to every Conversation and Message for that contact.
+
+**Answers 428, not 401** - `api.ts`'s `request()` calls `clearToken()` on any 401, so a 401 here
+would have logged the operator out instead of prompting. There is a test asserting it is not 401.
+Handled centrally in `request()`, so the server decides which routes need the password and the
+client cannot drift out of sync as routes are added.
+
+**Also**: the guard is exported as `actionPasswordGuard` = [rate limiter, check] so no call site can
+mount the check without a brute-force budget; every attempt is audit-logged **including failures**
+(the more interesting signal); WhatsApp disconnect now refuses a number that has conversations
+unless forced, and **no longer deletes its Template rows** (Meta-approved records that take days to
+re-approve and repopulate on reconnect).
+
+**Audit logging added where there was none** - `whatsapp`, `instagram`, `facebookPages`, `team`,
+`billing` all had **zero**. The Instagram entry directly addresses the account that vanished from
+production on 2026-08-22 with no trail to investigate.
+
+**Verified live end-to-end**: wrong password → rejected, operator stays logged in; correct password
+→ change applied; `Admin → Logs` shows `security.action_password_rejected` ×3 then
+`security.action_password_accepted`. Rotation verified by confirming the OLD password is refused
+after restart.
+
+**Known cosmetic issue, deliberately left**: browsers offer to save the action password against
+`admin@test.com` because the field is `type="password"`. The fix is masking via CSS
+(`-webkit-text-security`) so it is never classified as a credential field. User chose to leave it -
+**do not save it in the password manager when prompted.**
+
+**Not done from the same audit**: confirm dialogs on the remaining non-guarded deletes (template,
+automation, campaign, task, team member), and staging the plan dropdown behind an explicit Apply.
+
 ### Test-tenant cleanup: 47 organizations down to 3 (`a731697`, `a8e497c`)
 
 The Admin → Companies list had grown to **47 organizations**, 44 of them husks left by my own
