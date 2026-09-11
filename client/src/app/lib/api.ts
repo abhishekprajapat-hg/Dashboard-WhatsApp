@@ -1,3 +1,4 @@
+import { requestActionPassword } from "./actionPassword";
 export interface AuthSession {
   token: string;
   user: {
@@ -79,18 +80,30 @@ export function clearToken() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, actionPassword?: string): Promise<T> {
   const token = getStoredToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(actionPassword ? { "x-action-password": actionPassword } : {}),
       ...options.headers,
     },
   });
 
   const payload = await response.json().catch(() => ({}));
+
+  // Handled here rather than at each call site on purpose: the server decides which routes need the
+  // destructive-action password, so the client should not keep its own duplicate list that can
+  // drift as routes are added. Any route that answers 428 gets the prompt automatically.
+  // `actionPassword` being already set means this IS the retry - never loop.
+  if (response.status === 428 && payload.error === "ACTION_PASSWORD_REQUIRED" && !actionPassword) {
+    const supplied = await requestActionPassword(payload.message || "This action requires the destructive-action password.");
+    if (supplied) {
+      return request<T>(path, options, supplied);
+    }
+  }
 
   if (!response.ok) {
     const error = new Error(payload.message || "Request failed.") as ApiError;

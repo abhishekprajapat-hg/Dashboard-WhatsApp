@@ -17,6 +17,7 @@ import { TasksView } from "./components/TasksView";
 import { AssistantView } from "./components/AssistantView";
 import { AdminView } from "./components/AdminView";
 import { SettingsView } from "./components/SettingsView";
+import { ActionPasswordDialog } from "./components/ActionPasswordDialog";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
 import { useTheme } from "./hooks/useTheme";
@@ -316,6 +317,9 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} />}
         </div>
       </main>
+      {/* Mounted once at the root: api.ts triggers it on any 428 ACTION_PASSWORD_REQUIRED, whichever
+          view the request came from, so no individual screen needs to know about it. */}
+      <ActionPasswordDialog />
     </div>
   );
 }

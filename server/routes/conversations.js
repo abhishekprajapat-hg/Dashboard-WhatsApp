@@ -2,9 +2,10 @@
 import mongoose from "mongoose";
 import { z } from "zod";
 import { conversations } from "../data/demoData.js";
-import { AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
+import { AuditLog, AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
 import { FacebookAccount, InstagramAccount, WhatsAppAccount } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
@@ -419,7 +420,10 @@ conversationsRouter.get("/:id", async (req, res) => {
 // and be treated as a brand-new lead - no need to burn through real test numbers. Gated behind
 // settings:write (admin-level), not inbox:write, since it's destructive and not a normal inbox
 // action.
-conversationsRouter.post("/:id/reset-for-testing", requirePermission("settings:write"), async (req, res) => {
+// Wipes every Message in the conversation plus its AutomationRuns. The button sits in the Inbox
+// header next to Resolve, so on a live client conversation a misclick destroys the whole thread -
+// hence the step-up password despite the "for testing" name.
+conversationsRouter.post("/:id/reset-for-testing", requirePermission("settings:write"), ...actionPasswordGuard, async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -430,10 +434,22 @@ conversationsRouter.post("/:id/reset-for-testing", requirePermission("settings:w
   }
 
   const contactId = conversation.contactId;
-  await Message.deleteMany({ conversationId: conversation._id, workspaceId: req.user.workspaceId });
+  const messageResult = await Message.deleteMany({ conversationId: conversation._id, workspaceId: req.user.workspaceId });
   await AutomationRun.deleteMany({ "trigger.conversationId": conversation._id, workspaceId: req.user.workspaceId });
   await Conversation.deleteOne({ _id: conversation._id });
   if (contactId) await Contact.deleteOne({ _id: contactId, workspaceId: req.user.workspaceId });
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "conversation.reset_for_testing",
+    entityType: "Conversation",
+    entityId: conversation._id.toString(),
+    before: { contactId: contactId?.toString() || "", messagesDeleted: messageResult.deletedCount || 0 },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
 
   logger.info({ conversationId: req.params.id, contactId: contactId?.toString() }, "Conversation reset for testing");
   res.json({ ok: true, message: "Reset - this phone number can message in fresh as a brand-new lead now." });

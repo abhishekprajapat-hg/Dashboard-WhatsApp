@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { Conversation, Membership, Role, User } from "../models/index.js";
+import { AuditLog, Conversation, Membership, Role, User } from "../models/index.js";
 import { hasPermission, requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { hashPassword } from "../utils/password.js";
@@ -185,6 +185,19 @@ teamRouter.patch("/:id", requirePermission("team:write"), validateBody(updateMem
   await membership.save();
   await membership.populate("userId");
   await membership.populate("roleId");
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "team.member_updated",
+    entityType: "Membership",
+    entityId: membership._id.toString(),
+    after: { userId: membership.userId?._id?.toString() || "", role: membership.roleId?.key || "", status: membership.status },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.json({ data: serializeMember(membership) });
 });
 
@@ -195,6 +208,19 @@ teamRouter.delete("/:id", requirePermission("team:write"), async (req, res) => {
 
   const membership = await Membership.findOneAndDelete({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!membership) return res.status(404).json({ error: "NOT_FOUND", message: "Member not found." });
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "team.member_removed",
+    entityType: "Membership",
+    entityId: membership._id.toString(),
+    before: { userId: membership.userId?.toString() || "", roleId: membership.roleId?.toString() || "", status: membership.status },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.sendStatus(204);
 });
 

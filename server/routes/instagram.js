@@ -2,8 +2,9 @@ import { Router } from "express";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { Contact, Conversation, InstagramAccount, InstagramComment, Membership, Message } from "../models/index.js";
+import { AuditLog, Contact, Conversation, InstagramAccount, InstagramComment, Membership, Message } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { validateBody } from "../middleware/validate.js";
 import { trimmedString } from "../utils/zodHelpers.js";
@@ -96,8 +97,34 @@ instagramRouter.post("/accounts", requirePermission("settings:write"), validateB
   }
 });
 
-instagramRouter.delete("/accounts/:id", requirePermission("settings:write"), async (req, res) => {
-  await InstagramAccount.deleteOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+// Audit logging here is not theoretical: on 2026-08-22 a connected Instagram account disappeared
+// from production the same day it was fixed, and the cause was never established because nothing
+// recorded who removed it or when. This route deleted silently, with no id validation and no trail.
+instagramRouter.delete("/accounts/:id", requirePermission("settings:write"), ...actionPasswordGuard, async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+  }
+
+  const account = await InstagramAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Instagram account not found." });
+  }
+
+  await InstagramAccount.deleteOne({ _id: account._id, workspaceId: req.user.workspaceId });
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "instagram.account_disconnected",
+    entityType: "InstagramAccount",
+    entityId: account._id.toString(),
+    before: { username: account.username, instagramUserId: account.instagramUserId, status: account.status },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.status(204).send();
 });
 

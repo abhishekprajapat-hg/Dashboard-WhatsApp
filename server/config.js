@@ -79,6 +79,11 @@ export const config = {
     phone: process.env.DEPLOY_ALERT_PHONE || "",
     templateName: process.env.DEPLOY_ALERT_TEMPLATE_NAME || "deploy_health_alert",
   },
+  // Second secret guarding destructive/re-billing actions (middleware/requireActionPassword.js).
+  // Env-only and intentionally unsettable from the app: the operating login is shared with Meta
+  // App Review, so anything changeable from inside the UI would be changeable by whoever holds
+  // that login. Rotating this requires server access, which is the boundary we actually want.
+  destructiveActionPasswordHash: process.env.DESTRUCTIVE_ACTION_PASSWORD_HASH || "",
   // Single Nemnidhi-owned Razorpay account billing every client's subscription - a global
   // platform secret like meta/instagram above, not a per-tenant credential, so plain env vars are
   // the right pattern (not whatsappProvider.js's per-account AES-GCM encryption, which is for

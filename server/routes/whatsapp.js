@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { config } from "../config.js";
 import {
+  AuditLog,
   Campaign,
   Contact,
   Conversation,
@@ -14,6 +15,7 @@ import {
   WhatsAppAccount,
 } from "../models/index.js";
 import { requireAuth, requirePermission, requirePlatformOwner } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { logger } from "../services/logger.js";
@@ -519,18 +521,67 @@ whatsappRouter.post("/accounts/embedded-signup", requirePermission("settings:wri
   res.status(201).json({ data: serializeAccount(account), pin });
 });
 
-whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), async (req, res) => {
+// Disconnecting a number is the single most destructive thing an operator can do to a live client:
+// the stored credentials are gone, inbound messages stop being attributed, and re-connecting means
+// re-onboarding with Meta. It previously ran on one unconfirmed click, deleted every Template row
+// for the account as a side effect, and left no audit trail at all. Now: step-up password, a
+// refusal when the number carries real conversation history unless explicitly forced, templates
+// preserved, and an audit entry either way.
+whatsappRouter.delete("/accounts/:id", requirePermission("settings:write"), ...actionPasswordGuard, async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
   }
 
-  const account = await WhatsAppAccount.findOneAndDelete({ _id: req.params.id, workspaceId: req.user.workspaceId });
+  // Read before deleting: the refusal below needs the account, and the audit entry needs to record
+  // what was actually removed - neither is possible from a findOneAndDelete's return alone once the
+  // decision to refuse exists.
+  const account = await WhatsAppAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 
   if (!account) {
     return res.status(404).json({ error: "NOT_FOUND", message: "WhatsApp account not found." });
   }
 
-  await Template.deleteMany({ whatsappAccountId: account._id, workspaceId: req.user.workspaceId });
+  const [conversationCount, templateCount] = await Promise.all([
+    Conversation.countDocuments({ whatsappAccountId: account._id, workspaceId: req.user.workspaceId }),
+    Template.countDocuments({ whatsappAccountId: account._id, workspaceId: req.user.workspaceId }),
+  ]);
+
+  // A number with history is a number a client is actually using. Requiring an explicit force here
+  // means the destructive case has to be chosen deliberately, and the count tells the operator what
+  // they are about to cut off rather than making them guess.
+  if (conversationCount > 0 && String(req.query.force || req.body?.force || "") !== "true") {
+    return res.status(409).json({
+      error: "ACCOUNT_IN_USE",
+      message: `This number has ${conversationCount} conversation(s). Disconnecting stops message delivery for them and requires re-onboarding with Meta to restore. Re-send with force=true to proceed.`,
+      meta: { conversationCount, templateCount },
+    });
+  }
+
+  await WhatsAppAccount.deleteOne({ _id: account._id, workspaceId: req.user.workspaceId });
+
+  // Templates are deliberately NOT deleted any more. They represent Meta-approved records that can
+  // take days to re-approve, the approval lives on Meta's side rather than here, and "sync
+  // templates" repopulates them on reconnect - so destroying them locally only loses information.
+  // They are left orphaned-but-recoverable rather than wiped.
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "whatsapp.account_disconnected",
+    entityType: "WhatsAppAccount",
+    entityId: account._id.toString(),
+    before: {
+      phoneNumber: account.phoneNumber,
+      displayName: account.displayName,
+      provider: account.provider,
+      conversationCount,
+      templateCount,
+    },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.sendStatus(204);
 });
 

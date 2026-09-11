@@ -16,6 +16,7 @@ import {
   Workspace,
 } from "../models/index.js";
 import { requirePermission, requirePlatformOwner } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { generateApiKey } from "../utils/apiKey.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { pruneAuditLogs } from "../services/auditLogRetention.js";
@@ -763,6 +764,7 @@ adminRouter.patch(
   "/tenants/:organizationId/plan",
   requirePermission("admin:write"),
   requirePlatformOwner,
+  ...actionPasswordGuard,
   validateBody(packTierUpdateSchema),
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
@@ -810,6 +812,7 @@ adminRouter.patch(
   "/tenants/:organizationId/billing-status",
   requirePermission("admin:write"),
   requirePlatformOwner,
+  ...actionPasswordGuard,
   validateBody(billingStatusUpdateSchema),
   async (req, res) => {
     if (mongoose.connection.readyState !== 1) {

@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { contacts } from "../data/demoData.js";
 import { requirePermission } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { Contact, Conversation, Message, Tag } from "../models/index.js";
+import { AuditLog, Contact, Conversation, Message, Tag } from "../models/index.js";
 import { serializeContact } from "../utils/serializers.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
@@ -316,7 +317,11 @@ contactsRouter.patch("/:id/owner", requirePermission("contacts:write"), validate
   res.json({ data: serializeContact(contact) });
 });
 
-contactsRouter.delete("/:id", requirePermission("contacts:write"), async (req, res) => {
+// Guarded as a bulk delete, not a single-record one, because that is what it actually is: removing
+// a contact cascades to every Conversation and every Message they ever exchanged. For a paying
+// client that is their entire history with a customer, gone, with no undo - the fact that the UI
+// presents it as deleting one row is exactly why it needs the step-up password.
+contactsRouter.delete("/:id", requirePermission("contacts:write"), ...actionPasswordGuard, async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }
@@ -327,10 +332,28 @@ contactsRouter.delete("/:id", requirePermission("contacts:write"), async (req, r
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }
 
-  await Promise.all([
+  const [conversationResult, messageResult] = await Promise.all([
     Conversation.deleteMany({ contactId: contact._id, workspaceId: req.user.workspaceId }),
     Message.deleteMany({ contactId: contact._id, workspaceId: req.user.workspaceId }),
   ]);
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "contact.deleted",
+    entityType: "Contact",
+    entityId: contact._id.toString(),
+    before: {
+      name: contact.name,
+      phone: contact.phone,
+      conversationsDeleted: conversationResult.deletedCount || 0,
+      messagesDeleted: messageResult.deletedCount || 0,
+    },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.sendStatus(204);
 });
 

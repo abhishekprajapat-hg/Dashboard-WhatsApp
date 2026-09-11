@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { Invoice, Organization, User } from "../models/index.js";
+import { AuditLog, Invoice, Organization, User } from "../models/index.js";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { config } from "../config.js";
@@ -255,7 +255,22 @@ billingRouter.post("/cancel", requirePermission("billing:write"), async (req, re
     return res.status(error.status || 502).json({ error: error.code || "RAZORPAY_CANCEL_FAILED", message: error.message });
   }
 
+  const previousStatus = organization.billingStatus;
   organization.billingStatus = "cancelling";
   await organization.save();
+
+  await AuditLog.create({
+    organizationId: organization._id,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "billing.subscription_cancelled",
+    entityType: "Organization",
+    entityId: organization._id.toString(),
+    before: { billingStatus: previousStatus },
+    after: { billingStatus: organization.billingStatus },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.json({ ok: true, billingStatus: organization.billingStatus });
 });

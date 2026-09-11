@@ -1,8 +1,10 @@
 import { Router } from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import { z } from "zod";
-import { Contact, Conversation, FacebookAccount, Membership, Message } from "../models/index.js";
+import { AuditLog, Contact, Conversation, FacebookAccount, Membership, Message } from "../models/index.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { requireWorkspaceContext } from "../middleware/workspace.js";
 import { validateBody } from "../middleware/validate.js";
 import { trimmedString } from "../utils/zodHelpers.js";
@@ -103,8 +105,31 @@ facebookPagesRouter.post("/accounts", requirePermission("settings:write"), valid
   }
 });
 
-facebookPagesRouter.delete("/accounts/:id", requirePermission("settings:write"), async (req, res) => {
-  await FacebookAccount.deleteOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+facebookPagesRouter.delete("/accounts/:id", requirePermission("settings:write"), ...actionPasswordGuard, async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Facebook Page not found." });
+  }
+
+  const account = await FacebookAccount.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
+
+  if (!account) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Facebook Page not found." });
+  }
+
+  await FacebookAccount.deleteOne({ _id: account._id, workspaceId: req.user.workspaceId });
+
+  await AuditLog.create({
+    organizationId: req.user.organizationId,
+    workspaceId: req.user.workspaceId,
+    actorUserId: req.user.sub,
+    action: "facebook.page_disconnected",
+    entityType: "FacebookAccount",
+    entityId: account._id.toString(),
+    before: { pageId: account.pageId, pageName: account.pageName, status: account.status },
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent") || "",
+  });
+
   res.status(204).send();
 });
 
