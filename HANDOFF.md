@@ -1,5 +1,84 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-11 (afternoon): second client onboarded manually; Embedded Signup still blocked for external users, but six hypotheses eliminated
+
+**Outcome**: second real client onboarded via `docs/MANUAL_ONBOARDING_RUNBOOK.md`, verified live
+alongside Sundrishti (both confirmed working). Manual connect remains the only path that works for
+real clients.
+
+**Also today**: the dev machine's D: drive died. Everything was recoverable - all work was already
+pushed to GitHub, and the 27 memory files live on C:. Repos re-cloned to **`C:\Projects\`**
+(`Dashboard-WhatsApp`, `samvid-lead-engine`, `Vega`). Only genuine loss: local `.env` files (never
+in git by design) and `Samvid_OS_vs_SellDo_Comparison.pdf`. **The VPS SSH note in earlier entries
+was wrong** - the VPS does accept SSH, on **72.60.97.58 port 2424** (per `~/.ssh/known_hosts`), not
+port 22. Future sessions can read `deploy.log`/`deploy-cron.log`/`pm2` directly instead of asking
+for pastes.
+
+### Embedded Signup: what is now ELIMINATED (do not re-test these)
+
+The error is unchanged and exact: **"Facebook Login is currently unavailable for this app as we are
+updating additional details for this app."** Confirmed still reproducing today from a real external
+(no-role) account, on the client's own laptop. Ruled out, each verified rather than assumed:
+
+1. **Privacy policy** - was genuinely missing until last night; now live, validated by Meta's own
+   URL check, and the error is unchanged. Not it.
+2. **Marketing Messages API product** - the old config required customers to onboard onto it.
+   Removed via a new config; error unchanged. **Note: the first test of this was invalid** (browser
+   served a cached `index.html` pointing at the old bundle) - re-tested properly after a hard
+   refresh, confirmed by the popup's terms dropping to Cloud API only.
+3. **Configuration permissions** - the config requests exactly `whatsapp_business_management` and
+   `whatsapp_business_messaging`, nothing more.
+4. **Tech Provider / Access Verification** - App Dashboard shows **Verified Tech Provider**.
+5. **Required actions / Data Use Checkup / Business Verification** - all clean.
+6. **`email` Advanced Access** - Meta's Embedded Signup docs state only the two WhatsApp permissions
+   are needed. The `email` theory in the 2026-09-07 entry came from two community threads, not from
+   Meta, and was never verified. Treat it as unsupported, not as established fact.
+
+**Confirmed still true today**: the admin/external split is real and current. The app admin gets
+fully into the flow (through to "Add your WhatsApp phone number"); external accounts never get past
+login. Everything hinges on that difference.
+
+### The one thing NOT yet checked - start here next session
+
+**App Review → Permissions and Features → the ACCESS LEVEL column** (Standard vs Advanced) for
+`whatsapp_business_management` and `whatsapp_business_messaging`. Meta's own text on the
+configuration page says:
+
+> *"Permissions in standard access will only be requested from people with roles on this app."*
+
+That is a precise description of the observed symptom, and it has never been read directly. The
+2026-09-07 entry records these as "Renewed", but a renewed *request* is not the same as the
+permission's current *access level*. If they read Standard, that is the answer and the fix is a new
+Advanced Access submission (days, not minutes).
+
+If they read Advanced, we have exhausted everything visible from our side - open a Meta support case
+via **Ask a question** on the App Review page, with these Embedded Signup session IDs:
+`01a09003-2fbe-7c12-8cbf-86728757a9c9`, `01a09005-78ea-72fb-bc09-a8d6f4f1c05f`.
+
+### Config change made today (live in production)
+
+New Facebook Login for Business configuration **`Cloud API only - ES test`**, ID
+**`2722664838127790`** - WhatsApp Cloud API only (no Marketing Messages), System-user access token,
+expiration **Never**, WhatsApp accounts asset, same 7 advanced tasks, the two WhatsApp permissions.
+`client/.env`'s `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID` was repointed to it and the client rebuilt;
+verified present in the live bundle. The original `2138964750340250` config still exists untouched.
+
+**Do not use the "60 Expiration Token" template** if rebuilding this: it issues a 60-day token, and
+`embeddedSignup.js` stores the token with no refresh logic - every client onboarded that way would
+silently break two months later.
+
+### Ops facts worth keeping
+
+- **Generating a system-user token does NOT revoke existing ones.** Only the adjacent **"Revoke
+  tokens"** button does, and it kills every token for that system user at once - which would take
+  down every connected client simultaneously. Verified today: a new token was generated for
+  `Dashboardlink` and both clients stayed live.
+- **Phone Number ID vs WABA ID**: in Business Settings → WhatsApp accounts, the `ID:` under the
+  account name is the **WABA ID**; the **Phone Number ID** is a different value, found under that
+  account's **Phone numbers** tab. Mixing them up is the classic manual-onboarding mistake.
+- Nemnidhi Empire's **Business Portfolio ID** (what clients enter under "Assign partner") is in the
+  `business_id=` query parameter of any Business Settings URL.
+
 ## 2026-09-11: RESOLVED - the Human Agent blocker was real all along, hidden behind a two-digit typo in a hand-typed IGSID
 
 **Read this section first if resuming.** Closes out two open threads from the entry below, both with
