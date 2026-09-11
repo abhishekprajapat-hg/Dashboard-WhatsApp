@@ -119,10 +119,14 @@ const emptyOverview: AdminOverview = {
   whiteLabelBranding: {},
 };
 
+// "Organizations" and "Workspaces" rather than "Companies"/"Tenants": the old labels used "tenant"
+// for two different levels of the data model on the same screen - the Companies table listed
+// Organizations while calling them tenants, and the Tenants tab listed Workspaces. These names match
+// the actual models (Organization -> Workspace -> Membership).
 const tabs = [
   "Overview",
-  "Companies",
-  "Tenants",
+  "Organizations",
+  "Workspaces",
   "Users",
   "Access",
   "WhatsApp",
@@ -727,14 +731,19 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
   const currentCompany = overview.companies[0];
   const metrics = useMemo(
     () => [
-      { label: "Companies", value: overview.companies.length, icon: <Building2 size={18} /> },
-      { label: "Tenants", value: overview.tenants.length, icon: <Database size={18} /> },
+      // overview.companies is always just the current organization (the /admin route is
+      // workspace-scoped), so this tile used to read "1" while the Organizations table beside it
+      // listed every organization on the server - 1 vs 3 with the same label. `tenants` holds the
+      // real platform-wide list and is only loaded for platform owners, so falling back keeps the
+      // tile correct for everyone else.
+      { label: "Organizations", value: tenants.length || overview.companies.length, icon: <Building2 size={18} /> },
+      { label: "Workspaces", value: overview.tenants.length, icon: <Database size={18} /> },
       { label: "Users", value: overview.users.length, icon: <Users2 size={18} /> },
       { label: "WhatsApp Numbers", value: overview.whatsappNumbers.length, icon: <MessageSquareText size={18} /> },
       { label: "Automations", value: overview.automation.length, icon: <Zap size={18} /> },
       { label: "Failed Webhooks", value: overview.analytics.failedWebhooks || 0, icon: <Webhook size={18} />, tone: "text-destructive" },
     ],
-    [overview]
+    [overview, tenants]
   );
 
   async function saveAdminSettings() {
@@ -826,18 +835,18 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 <>
                   <SectionHeader icon={<Activity size={17} />} title="Operating Overview" detail="Tenant health, usage, ownership, and live system posture." />
                   <div className="grid gap-4 xl:grid-cols-2">
-                    <DataTable title="Companies" rows={overview.companies} columns={[{ key: "name", label: "Company" }, { key: "slug", label: "Slug" }, { key: "plan", label: "Plan" }, { key: "billingStatus", label: "Billing" }, { key: "tenants", label: "Tenants" }]} />
+                    <DataTable title="Organization" rows={overview.companies} columns={[{ key: "name", label: "Organization" }, { key: "slug", label: "Slug" }, { key: "plan", label: "Plan" }, { key: "billingStatus", label: "Billing" }, { key: "tenants", label: "Workspaces" }]} />
                     <DataTable title="Usage" rows={[overview.usage]} columns={[{ key: "messages", label: "Messages" }, { key: "campaigns", label: "Campaigns" }, { key: "automations", label: "Automations" }, { key: "templates", label: "Templates" }, { key: "users", label: "Users" }]} />
                   </div>
                 </>
               )}
 
-              {activeTab === "Companies" && (
+              {activeTab === "Organizations" && (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <SectionHeader icon={<Building2 size={17} />} title="Companies" detail="Every real tenant on this server - create one, see its plan, workspaces, and usage." />
+                    <SectionHeader icon={<Building2 size={17} />} title="Organizations" detail="Every customer organization on this server - create one, see its plan, workspaces, and usage." />
                     <Button size="sm" onClick={() => { setCreatingTenant((current) => !current); setCreateTenantError(""); }}>
-                      <PlusCircle size={14} className="mr-1.5" /> Create Tenant
+                      <PlusCircle size={14} className="mr-1.5" /> Create Organization
                     </Button>
                   </div>
 
@@ -903,7 +912,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                           )}
                           <div className="flex gap-2 md:col-span-2">
                             <Button type="submit" size="sm" disabled={createTenantSubmitting}>
-                              {createTenantSubmitting ? "Creating..." : "Create Tenant"}
+                              {createTenantSubmitting ? "Creating..." : "Create Organization"}
                             </Button>
                             <Button type="button" size="sm" variant="outline" onClick={() => setCreatingTenant(false)}>
                               Cancel
@@ -918,8 +927,8 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
 
                   <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
                     <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
-                      <CardTitle className="text-sm font-semibold">Tenant Directory</CardTitle>
-                      <Badge variant="outline" className="text-[10px]">{tenants.length} tenants</Badge>
+                      <CardTitle className="text-sm font-semibold">Organization Directory</CardTitle>
+                      <Badge variant="outline" className="text-[10px]">{tenants.length} organizations</Badge>
                     </CardHeader>
                     <CardContent className="px-4 pb-4">
                       <div className="overflow-x-auto rounded-md border border-border/80">
@@ -1098,10 +1107,10 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 </>
               )}
 
-              {activeTab === "Tenants" && (
+              {activeTab === "Workspaces" && (
                 <>
-                  <SectionHeader icon={<Database size={17} />} title="Tenants" detail="Workspace isolation for numbers, users, templates, automations, and CRM data." />
-                  <DataTable title="Tenant Workspaces" rows={overview.tenants} columns={[{ key: "name", label: "Tenant" }, { key: "slug", label: "Slug" }, { key: "status", label: "Status" }, { key: "timezone", label: "Timezone" }, { key: "businessCategory", label: "Category" }, { key: "createdAt", label: "Created" }]} />
+                  <SectionHeader icon={<Database size={17} />} title="Workspaces" detail="Workspaces inside this organization - the isolation boundary for numbers, users, templates, automations, and CRM data." />
+                  <DataTable title="Workspaces" rows={overview.tenants} columns={[{ key: "name", label: "Workspace" }, { key: "slug", label: "Slug" }, { key: "status", label: "Status" }, { key: "timezone", label: "Timezone" }, { key: "businessCategory", label: "Category" }, { key: "createdAt", label: "Created" }]} />
                 </>
               )}
 
@@ -1109,8 +1118,8 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 <>
                   <SectionHeader icon={<Users2 size={17} />} title="Users, Agents, Departments and Teams" detail="People operations with tenant-aware assignment and ownership." />
                   <div className="grid gap-4 xl:grid-cols-2">
-                    <DataTable title="Users" rows={overview.users} columns={[{ key: "name", label: "Name" }, { key: "email", label: "Email" }, { key: "role", label: "Role" }, { key: "tenant", label: "Tenant" }, { key: "status", label: "Status" }]} />
-                    <DataTable title="Agents" rows={overview.agents} columns={[{ key: "name", label: "Agent" }, { key: "department", label: "Department" }, { key: "tenant", label: "Tenant" }, { key: "status", label: "Status" }]} />
+                    <DataTable title="Users" rows={overview.users} columns={[{ key: "name", label: "Name" }, { key: "email", label: "Email" }, { key: "role", label: "Role" }, { key: "tenant", label: "Workspace" }, { key: "status", label: "Status" }]} />
+                    <DataTable title="Agents" rows={overview.agents} columns={[{ key: "name", label: "Agent" }, { key: "department", label: "Department" }, { key: "tenant", label: "Workspace" }, { key: "status", label: "Status" }]} />
                     <DataTable title="Departments" rows={overview.departments} columns={[{ key: "name", label: "Department" }, { key: "agents", label: "Agents" }, { key: "sla", label: "SLA" }]} />
                     <DataTable title="Teams" rows={overview.teams} columns={[{ key: "name", label: "Team" }, { key: "department", label: "Department" }, { key: "members", label: "Members" }]} />
                   </div>
@@ -1121,7 +1130,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 <>
                   <SectionHeader icon={<LockKeyhole size={17} />} title="Roles, Permissions and API Tokens" detail="Least-privilege controls for admins, agents, integrations, and automation." />
                   <div className="grid gap-4 xl:grid-cols-2">
-                    <DataTable title="Roles" rows={overview.roles} columns={[{ key: "name", label: "Role" }, { key: "key", label: "Key" }, { key: "tenant", label: "Tenant" }, { key: "permissions", label: "Permissions" }, { key: "isSystemRole", label: "System" }]} />
+                    <DataTable title="Roles" rows={overview.roles} columns={[{ key: "name", label: "Role" }, { key: "key", label: "Key" }, { key: "tenant", label: "Workspace" }, { key: "permissions", label: "Permissions" }, { key: "isSystemRole", label: "System" }]} />
                     <ApiKeysPanel apiKeys={overview.apiKeys} onChanged={loadOverview} />
                     <DataTable title="API Tokens" rows={overview.apiTokens} columns={[{ key: "name", label: "Token" }, { key: "token", label: "Value" }, { key: "expiresAt", label: "Expires" }, { key: "status", label: "Status" }]} />
                     <Card className="rounded-lg border-border/70">
@@ -1144,7 +1153,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 <>
                   <SectionHeader icon={<MessageSquareText size={17} />} title="WhatsApp, Templates and Webhooks" detail="Number provisioning, template review state, provider health, and webhook delivery." />
                   <div className="grid gap-4">
-                    <DataTable title="WhatsApp Numbers" rows={overview.whatsappNumbers} columns={[{ key: "displayName", label: "Name" }, { key: "phoneNumber", label: "Phone" }, { key: "tenant", label: "Tenant" }, { key: "provider", label: "Provider" }, { key: "status", label: "Status" }, { key: "webhookStatus", label: "Webhook" }]} />
+                    <DataTable title="WhatsApp Numbers" rows={overview.whatsappNumbers} columns={[{ key: "displayName", label: "Name" }, { key: "phoneNumber", label: "Phone" }, { key: "tenant", label: "Workspace" }, { key: "provider", label: "Provider" }, { key: "status", label: "Status" }, { key: "webhookStatus", label: "Webhook" }]} />
                     <DataTable title="Templates" rows={overview.templates} columns={[{ key: "name", label: "Template" }, { key: "language", label: "Language" }, { key: "category", label: "Category" }, { key: "status", label: "Status" }, { key: "updatedAt", label: "Updated" }]} />
                     <DataTable title="Webhooks" rows={overview.webhooks} columns={[{ key: "name", label: "Name" }, { key: "enabled", label: "Enabled" }, { key: "url", label: "URL" }, { key: "secret", label: "Secret" }]} />
                   </div>
