@@ -14,6 +14,50 @@ was wrong** - the VPS does accept SSH, on **72.60.97.58 port 2424** (per `~/.ssh
 port 22. Future sessions can read `deploy.log`/`deploy-cron.log`/`pm2` directly instead of asking
 for pastes.
 
+### Test-tenant cleanup: 47 organizations down to 3 (`a731697`, `a8e497c`)
+
+The Admin → Companies list had grown to **47 organizations**, 44 of them husks left by my own
+signup/OTP testing on 2026-09-09/10 (DV2-DV9, SV, SV2, BFT, Test WS). Each held exactly a
+`Workspace`, `Membership` and `Role`, occasionally an `AuditLog`.
+
+**Two things made this more than cosmetic:**
+- There is **no delete path** for organizations anywhere in the app - `admin.js` can create and
+  patch tenants but never delete one - and **27 collections reference `organizationId`**, so a
+  partial cleanup would have left orphans across the database.
+- **`User` is NOT organization-scoped.** It has no `organizationId` and is linked only through
+  `Membership`, so deleting an org strands its user record - and `User.email` and `User.phone` are
+  **unique indexes**, meaning every leftover husk permanently blocked that address or number from a
+  genuine future signup. 44 were stranded, including a real Gmail address.
+
+Two scripts added, both run from `server/` (the `dotenv/config` cwd constraint applies):
+- `scripts/reportTenantFootprint.mjs` - read-only, reports every org's real document count per
+  collection and labels it by whether it owns messages/channels/invoices.
+- `scripts/deleteTestTenants.mjs` - dry run by default, `--execute` to apply, `--keep <ids>` to
+  spare specific orgs.
+
+**Safety model is an allowlist, deliberately**: an org is deletable only if every collection it owns
+rows in is one of `Workspace`/`Membership`/`Role`/`AuditLog`. One `Message`, `Contact` or
+`WhatsAppAccount` - or any model added to the codebase later - makes it non-deletable automatically.
+A blocklist of "important" collections would treat a future model as unimportant by default, which
+is precisely how a cleanup script destroys a real tenant. Both scripts discover scoped collections
+from the registered schemas rather than a hardcoded list.
+
+**Result**: 44 organizations, 181 scoped documents and 44 orphaned users deleted after a fresh
+manual backup (`server/backups/2026-09-11T15-27-37-787Z`). Admin now shows exactly 3 tenants - The
+office on Rent, Sundrishti Solar Solutions, Main Organization (Platform Owner). Production healthy
+afterwards. Note `vaibhavibasal@gmail.com` was intentionally included, freeing that address for
+re-signup.
+
+**Also confirmed while doing this**: the 2am Mongo backup cron genuinely works (33 collections,
+written to `server/backups/`, not the repo root) - that had been carried as unverified since
+2026-09-04. **Separately worth investigating: `auditlogs` holds 75,314 documents**, dwarfing
+everything else (messages 799, webhookevents 1,719), essentially all on the platform-owner org.
+There is a 3am prune cron - check whether it is actually running.
+
+**Lesson for future sessions: delete test tenants as you create them.** These accumulated across
+several sessions into a client-facing admin screen and locked up real email addresses and phone
+numbers behind unique indexes.
+
 ### Embedded Signup: what is now ELIMINATED (do not re-test these)
 
 The error is unchanged and exact: **"Facebook Login is currently unavailable for this app as we are
