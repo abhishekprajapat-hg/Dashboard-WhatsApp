@@ -80,6 +80,7 @@ interface TaskItem {
   title: string;
   status: "open" | "completed";
   dueAt: string | null;
+  assignedToUserId: { id: string; name: string } | null;
 }
 
 interface MemberOption {
@@ -177,6 +178,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
   const [savingNote, setSavingNote] = useState(false);
   const [savingField, setSavingField] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssigneeId, setNewTaskAssigneeId] = useState("");
   const [savingTask, setSavingTask] = useState(false);
   const [dealValueInput, setDealValueInput] = useState("");
   const [savingDeal, setSavingDeal] = useState(false);
@@ -323,9 +325,14 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
     if (!detail || !newTaskTitle.trim()) return;
     setSavingTask(true);
     try {
-      const response = await createTask<{ data: TaskItem }>({ title: newTaskTitle.trim(), contactId: detail.contactId });
+      const response = await createTask<{ data: TaskItem }>({
+        title: newTaskTitle.trim(),
+        contactId: detail.contactId,
+        assignedToUserId: newTaskAssigneeId || undefined,
+      });
       setTasks((items) => [response.data, ...items]);
       setNewTaskTitle("");
+      setNewTaskAssigneeId("");
     } finally {
       setSavingTask(false);
     }
@@ -545,20 +552,37 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
                         <span className={`min-w-0 flex-1 truncate ${task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}`}>
                           {task.title}
                         </span>
+                        {task.assignedToUserId && (
+                          <span className="shrink-0 truncate text-[10px] text-muted-foreground">{task.assignedToUserId.name}</span>
+                        )}
                       </button>
                     ))}
                   </div>
                   {canWrite && (
-                    <form onSubmit={handleAddTask} className="mt-2 flex gap-1.5">
-                      <input
-                        value={newTaskTitle}
-                        onChange={(event) => setNewTaskTitle(event.target.value)}
-                        placeholder="Quick add a task..."
-                        className="h-8 flex-1 rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      />
-                      <Button type="submit" size="sm" disabled={savingTask || !newTaskTitle.trim()}>
-                        <Plus size={13} />
-                      </Button>
+                    <form onSubmit={handleAddTask} className="mt-2 space-y-1.5">
+                      <div className="flex gap-1.5">
+                        <input
+                          value={newTaskTitle}
+                          onChange={(event) => setNewTaskTitle(event.target.value)}
+                          placeholder="Quick add a task..."
+                          className="h-8 flex-1 rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                        />
+                        <Button type="submit" size="sm" disabled={savingTask || !newTaskTitle.trim()}>
+                          <Plus size={13} />
+                        </Button>
+                      </div>
+                      <select
+                        value={newTaskAssigneeId}
+                        onChange={(event) => setNewTaskAssigneeId(event.target.value)}
+                        className="h-7 w-full rounded-md border border-input bg-input-background px-2 text-[11px] text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                      >
+                        <option value="">Assign to... (optional)</option>
+                        {members.map((member) => (
+                          <option key={member.userId} value={member.userId}>
+                            {member.name}
+                          </option>
+                        ))}
+                      </select>
                     </form>
                   )}
                 </section>
