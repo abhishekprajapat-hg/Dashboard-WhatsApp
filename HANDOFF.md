@@ -1,5 +1,24 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-12/13 (night): task assignment wired up in the lead quick-add-task form (`6dff4da`)
+
+**Small, verified fix**: the backend (`server/routes/tasks.js`) already fully supported
+`assignedToUserId` on task create/update, populated with the assignee's name in the response -
+`createTask()`/`updateTask()` in `lib/api.ts` already typed it too. The gap was purely in
+`LeadsView.tsx`'s "Quick add a task" form on a lead's detail panel: it only ever sent a title, with
+no way to pick who the task is for, even though the team-member list (`members`) was already loaded
+in the same component for the Owner dropdown.
+
+Added an "Assign to..." select (optional, defaults to unassigned) below the quick-add input,
+reusing the same team-members list, and the assignee's name now shows on each task row once set.
+
+**Deployed and verified for real, not just a clean build** - this app's deploy cron has broken
+silently multiple times before (see the long incident history further down this file), so: watched
+`.last-deploy-sha` advance to the new commit, then confirmed the literal string "Assign to" is
+present in the actual JS bundle `dashboard.nemnidhi.com` serves live - not just that a build
+succeeded somewhere. Took about 2 minutes for the cron to pick it up; no manual deploy needed this
+time.
+
 ## 2026-09-11 (afternoon): second client onboarded manually; Embedded Signup still blocked for external users, but six hypotheses eliminated
 
 **Outcome**: second real client onboarded via `docs/MANUAL_ONBOARDING_RUNBOOK.md`, verified live
