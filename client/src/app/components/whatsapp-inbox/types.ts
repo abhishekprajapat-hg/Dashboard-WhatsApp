@@ -93,6 +93,8 @@ export interface WhatsAppTemplate {
   language: string;
   category: string;
   status: "approved" | "pending" | "rejected";
+  body?: string;
+  variables?: string[];
 }
 
 export interface PendingMedia {

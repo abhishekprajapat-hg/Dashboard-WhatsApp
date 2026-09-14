@@ -13,6 +13,7 @@ import {
   markConversationRead,
   resetConversationForTesting,
   sendConversationNote,
+  sendConversationTemplate,
   updateConversationSettings,
   updateConversationStatus,
   updateMessageActions,
@@ -22,8 +23,10 @@ import { mediaCache } from "../services/mediaCache";
 import { messageQueue } from "../services/messageQueue";
 import { whatsAppRealtimeService } from "../services/realtimeService";
 import { useWhatsAppInboxStore } from "../store";
-import type { Attachment, Conversation, PendingMedia, QueuedMessage, TeamMember, WhatsAppMessage } from "../types";
-import { mediaKind, messageText, primaryAttachment, displayAttachmentUrl } from "../utils";
+import type { Attachment, Conversation, PendingMedia, QueuedMessage, TeamMember, WhatsAppMessage, WhatsAppTemplate } from "../types";
+import { mediaKind, messageText, messageTimestamp, primaryAttachment, displayAttachmentUrl } from "../utils";
+
+const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 interface UseWhatsAppEngineOptions {
   openContactId?: string | null;
@@ -73,6 +76,21 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
   );
   const selected = conversations.find((conversation) => conversation.id === store.selectedId) || conversations[0];
   const selectedMessages = selected ? store.messagesByConversationId[selected.id] || [] : [];
+
+  // WhatsApp only delivers free-form sends (text, media, Flows, product messages) to a contact who
+  // has messaged the business within the last 24h ("open session") - anything outside that window
+  // is silently dropped by Meta even though the send API still returns a real message id, see
+  // HANDOFF.md. Approved templates are exempt from this window, so once it closes the composer
+  // should steer the agent to a template instead of a plain reply that will never arrive. Computed
+  // from the already-loaded thread rather than a dedicated backend field - the last inbound message
+  // in `selectedMessages` is all that's needed.
+  const sessionExpired = useMemo(() => {
+    if (selected?.channel && selected.channel !== "whatsapp") return false;
+    const lastInbound = [...selectedMessages].reverse().find((message) => message.from === "contact");
+    const lastInboundAt = messageTimestamp(lastInbound);
+    if (!lastInboundAt) return true;
+    return Date.now() - lastInboundAt.getTime() > SESSION_WINDOW_MS;
+  }, [selected?.channel, selectedMessages]);
 
   const loadConversations = useCallback(async () => {
     store.setLoadingState({ loading: true, error: "" });
@@ -414,6 +432,39 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     }
   }, [clearDraftContext, inputText, selected, uploading]);
 
+  // Approved templates bypass the 24h session window (see `sessionExpired` above), so this is the
+  // only send path that still works once it's closed. Sent directly (like sendConversationNote)
+  // rather than through messageQueue - there's no attachment upload step and no offline-retry need
+  // for a single template call.
+  const sendTemplateMessage = useCallback(async (template: WhatsAppTemplate, parameters: string[]) => {
+    if (!selected || uploading) return;
+
+    setUploading(true);
+    setSendError(null);
+    try {
+      const id = clientMessageId();
+      const optimistic: WhatsAppMessage = {
+        id: `local_${id}`,
+        clientMessageId: id,
+        content: `Template sent: ${template.name}`,
+        from: "agent",
+        type: "template",
+        time: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        status: "sent",
+        attachments: [],
+      };
+      store.appendOptimisticMessage(selected.id, optimistic);
+      store.updateConversation(selected.id, { preview: `Template: ${template.name}`, unread: 0, lastMessageAt: new Date().toISOString() });
+
+      const response = await sendConversationTemplate<{ data: WhatsAppMessage }>(selected.id, template.id, parameters);
+      store.replaceMessage(selected.id, optimistic.id, response.data);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Failed to send the template.");
+    } finally {
+      setUploading(false);
+    }
+  }, [selected, uploading]);
+
   const handleTyping = useCallback((value: string) => {
     setInputText(value);
     if (!selected?.id) return;
@@ -506,6 +557,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     channelCounts,
     selected,
     selectedMessages,
+    sessionExpired,
     members,
     messageSearch,
     inputText,
@@ -525,6 +577,7 @@ export function useWhatsAppEngine({ openContactId, currentUserId, canWrite = fal
     clearDraftContext,
     handleSend,
     sendProductMessage,
+    sendTemplateMessage,
     handleTyping,
     setComposerMode,
     setMessageSearch,
