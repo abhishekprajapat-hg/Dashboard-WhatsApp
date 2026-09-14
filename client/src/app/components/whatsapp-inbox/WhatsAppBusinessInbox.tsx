@@ -28,6 +28,7 @@ interface WhatsAppBusinessInboxProps {
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
   suggestReplyError?: string;
+  sessionExpired?: boolean;
   crmSaving: boolean;
   assigning: boolean;
   mobileChatOpen: boolean;
@@ -47,6 +48,7 @@ interface WhatsAppBusinessInboxProps {
   onSend: () => void;
   onPickFiles: (kind: "media" | "document" | "audio") => void;
   onPickProduct?: () => void;
+  onOpenTemplatePicker?: () => void;
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
@@ -82,6 +84,7 @@ export function WhatsAppBusinessInbox({
   quickReplies = [],
   suggestingReply,
   suggestReplyError,
+  sessionExpired,
   crmSaving,
   assigning,
   mobileChatOpen,
@@ -100,6 +103,7 @@ export function WhatsAppBusinessInbox({
   onSend,
   onPickFiles,
   onPickProduct,
+  onOpenTemplatePicker,
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
@@ -155,6 +159,7 @@ export function WhatsAppBusinessInbox({
           quickReplies={quickReplies}
           suggestingReply={suggestingReply}
           suggestReplyError={suggestReplyError}
+          sessionExpired={sessionExpired}
           typing={selected ? typingIds.includes(selected.id) : false}
           crmSaving={crmSaving}
           isInCrm={Boolean(selectedMeta.isInCrm)}
@@ -165,6 +170,7 @@ export function WhatsAppBusinessInbox({
           onSend={onSend}
           onPickFiles={onPickFiles}
           onPickProduct={onPickProduct}
+          onOpenTemplatePicker={onOpenTemplatePicker}
           onRemoveMedia={onRemoveMedia}
           onClearContext={onClearContext}
           onToggleRecording={onToggleRecording}
@@ -220,6 +226,7 @@ export function WhatsAppBusinessInbox({
                 quickReplies={quickReplies}
                 suggestingReply={suggestingReply}
                 suggestReplyError={suggestReplyError}
+                sessionExpired={sessionExpired}
                 typing={selected ? typingIds.includes(selected.id) : false}
                 crmSaving={crmSaving}
                 isInCrm={Boolean(selectedMeta.isInCrm)}
@@ -230,6 +237,7 @@ export function WhatsAppBusinessInbox({
                 onSend={onSend}
                 onPickFiles={onPickFiles}
                 onPickProduct={onPickProduct}
+                onOpenTemplatePicker={onOpenTemplatePicker}
                 onRemoveMedia={onRemoveMedia}
                 onClearContext={onClearContext}
                 onToggleRecording={onToggleRecording}

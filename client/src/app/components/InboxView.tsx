@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { WhatsAppBusinessInbox } from "./whatsapp-inbox/WhatsAppBusinessInbox";
 import { ProductPickerModal } from "./whatsapp-inbox/ProductPickerModal";
+import { TemplatePickerModal } from "./whatsapp-inbox/TemplatePickerModal";
 import { useWhatsAppEngine } from "./whatsapp-inbox/hooks/useWhatsAppEngine";
 import { analyzeAssistantConversation, getTemplates, markTemplateUsed } from "../lib/api";
 import { isPlanLimitError } from "./PlanLockedState";
@@ -27,6 +28,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
   const [suggestingReply, setSuggestingReply] = useState(false);
   const [suggestReplyError, setSuggestReplyError] = useState("");
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   useEffect(() => {
     getTemplates<{ data: QuickReplyTemplate[] }>({ type: "quick_reply", status: "active" })
@@ -132,6 +134,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         quickReplies={quickReplies}
         suggestingReply={suggestingReply}
         suggestReplyError={suggestReplyError}
+        sessionExpired={engine.sessionExpired}
         crmSaving={engine.crmSaving}
         assigning={engine.assigning}
         mobileChatOpen={engine.store.mobileChatOpen}
@@ -151,6 +154,7 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
         onSend={engine.handleSend}
         onPickFiles={pickFiles}
         onPickProduct={engine.selected ? () => setShowProductPicker(true) : undefined}
+        onOpenTemplatePicker={engine.selected ? () => setShowTemplatePicker(true) : undefined}
         onRemoveMedia={engine.removePendingMedia}
         onClearContext={engine.clearDraftContext}
         onToggleRecording={() => engine.setRecording((value) => !value)}
@@ -171,6 +175,16 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
           onSelect={(product) => {
             setShowProductPicker(false);
             engine.sendProductMessage(product);
+          }}
+        />
+      )}
+
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          onClose={() => setShowTemplatePicker(false)}
+          onSelect={(template, parameters) => {
+            setShowTemplatePicker(false);
+            engine.sendTemplateMessage(template, parameters);
           }}
         />
       )}

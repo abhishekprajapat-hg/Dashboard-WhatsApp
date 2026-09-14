@@ -21,6 +21,7 @@ interface ChatWindowProps {
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
   suggestReplyError?: string;
+  sessionExpired?: boolean;
   typing: boolean;
   crmSaving: boolean;
   isInCrm: boolean;
@@ -31,6 +32,7 @@ interface ChatWindowProps {
   onSend: () => void;
   onPickFiles: (kind: "media" | "document" | "audio") => void;
   onPickProduct?: () => void;
+  onOpenTemplatePicker?: () => void;
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
@@ -79,6 +81,7 @@ export function ChatWindow({
   quickReplies = [],
   suggestingReply,
   suggestReplyError,
+  sessionExpired,
   typing,
   crmSaving,
   isInCrm,
@@ -89,6 +92,7 @@ export function ChatWindow({
   onSend,
   onPickFiles,
   onPickProduct,
+  onOpenTemplatePicker,
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
@@ -275,11 +279,13 @@ export function ChatWindow({
         quickReplies={quickReplies}
         suggestingReply={suggestingReply}
         suggestReplyError={suggestReplyError}
+        sessionExpired={sessionExpired}
         onValueChange={onInputChange}
         onModeChange={onComposerModeChange}
         onSend={onSend}
         onPickFiles={onPickFiles}
         onPickProduct={onPickProduct}
+        onOpenTemplatePicker={onOpenTemplatePicker}
         onRemoveMedia={onRemoveMedia}
         onClearContext={onClearContext}
         onToggleRecording={onToggleRecording}

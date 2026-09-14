@@ -1,4 +1,4 @@
-import { AlertTriangle, FileAudio, FileText, Image, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, ShoppingBag, Smile, Sparkles, Video, X } from "lucide-react";
+import { AlertTriangle, FileAudio, FileText, Image, LayoutTemplate, Loader2, MessageSquareText, Mic, Paperclip, Plus, Send, ShoppingBag, Smile, Sparkles, Video, X } from "lucide-react";
 import { mediaCache } from "./services/mediaCache";
 import type { PendingMedia, UploadState, WhatsAppMessage } from "./types";
 import { cn, formatBytes } from "./utils";
@@ -15,11 +15,13 @@ interface ComposerProps {
   quickReplies?: { id: string; name: string; body: string }[];
   suggestingReply?: boolean;
   suggestReplyError?: string;
+  sessionExpired?: boolean;
   onValueChange: (value: string) => void;
   onModeChange: (mode: "reply" | "note") => void;
   onSend: () => void;
   onPickFiles: (kind: "media" | "document" | "audio") => void;
   onPickProduct?: () => void;
+  onOpenTemplatePicker?: () => void;
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
@@ -39,11 +41,13 @@ export function Composer({
   quickReplies = [],
   suggestingReply = false,
   suggestReplyError,
+  sessionExpired = false,
   onValueChange,
   onModeChange,
   onSend,
   onPickFiles,
   onPickProduct,
+  onOpenTemplatePicker,
   onRemoveMedia,
   onClearContext,
   onToggleRecording,
@@ -51,6 +55,7 @@ export function Composer({
   onSuggestReply,
 }: ComposerProps) {
   const canSend = value.trim() || pendingMedia.length > 0;
+  const templateOnly = sessionExpired && mode === "reply";
 
   return (
     <div className="relative z-10 border-t border-border/80 bg-card/82 px-3 py-3 shadow-[0_-18px_45px_rgba(0,0,0,0.18)] backdrop-blur-xl">
@@ -118,6 +123,21 @@ export function Composer({
       {sendError ? (
         <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
           {sendError}
+        </div>
+      ) : null}
+
+      {templateOnly ? (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          <span>This contact hasn't messaged in the last 24 hours - a plain reply won't be delivered. Send an approved template instead.</span>
+          {onOpenTemplatePicker && (
+            <button
+              type="button"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-warning/20 px-2 py-1 font-medium text-warning hover:bg-warning/30"
+              onClick={onOpenTemplatePicker}
+            >
+              <LayoutTemplate size={13} /> Template
+            </button>
+          )}
         </div>
       ) : null}
 
@@ -216,7 +236,14 @@ export function Composer({
             recording ? "bg-destructive text-white" : "bg-primary text-primary-foreground hover:bg-primary/90"
           )}
           disabled={uploading}
-          onClick={canSend ? onSend : onToggleRecording}
+          title={templateOnly && canSend ? "This reply won't be delivered - send a template instead" : undefined}
+          onClick={() => {
+            if (templateOnly && canSend) {
+              onOpenTemplatePicker?.();
+              return;
+            }
+            canSend ? onSend() : onToggleRecording();
+          }}
         >
           {uploading ? <Plus size={16} className="animate-spin" /> : canSend ? <Send size={17} /> : <Mic size={18} />}
         </button>
