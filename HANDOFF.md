@@ -1,5 +1,64 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-14: inbox composer now warns and redirects to a template when the 24h session window is closed
+
+**The actual bug behind "can't send WhatsApp messages after 24 hours"**: not a delivery failure the
+app could detect - Meta's API returns a real 200 + message id even when the send is silently
+dropped for being outside the customer-service window (see `dashboard-whatsapp-24h-session-window`
+memory, confirmed twice before). The gap was that nothing in the inbox UI knew or cared: the
+backend already had a working template-send route (`POST /conversations/:id/template`) and even a
+client API wrapper (`sendConversationTemplate` in `lib/api.ts`) - but no component ever called it.
+Agents only ever saw the free-text composer, so every send past 24h quietly vanished.
+
+**Also found and avoided while building this**: `GET /whatsapp/templates` requires `settings:read`,
+which neither the `agent` nor `manager` role holds (only admin/super_admin) - so a template picker
+built against that endpoint would have 403'd for the exact roles that staff the inbox. Used the
+sibling `GET /templates` endpoint instead (permission `templates:read`, which Agent already has) -
+same `Template` collection, correct RBAC gate. The `settings:read` mismatch on `/whatsapp/templates`
+is a separate pre-existing bug, left alone (also blocks Manager from loading templates in
+Campaigns) - flagged, not fixed, out of scope for this change.
+
+**What changed, frontend-only, no schema changes:**
+1. `useWhatsAppEngine.ts` - new `sessionExpired` computed from the already-loaded message thread
+   (last message with `from === "contact"`, via the existing `messageTimestamp` util, vs 24h) rather
+   than a new backend field. `false` for Instagram/Facebook conversations (channel-specific, out of
+   scope here). New `sendTemplateMessage(template, parameters)`, modeled on the existing
+   `sendProductMessage` pattern (direct call + optimistic message, not the offline-retry
+   `messageQueue` - a template send has no attachment/upload step).
+2. `Composer.tsx` - when `sessionExpired && mode === "reply"`, shows a banner explaining the plain
+   reply won't deliver, and the primary Send button opens the template picker instead of sending
+   free text (the typed draft is left in place, not cleared, in case the agent still wants it after
+   picking a template). Note mode is untouched - notes never go to WhatsApp.
+3. New `TemplatePickerModal.tsx` (mirrors `ProductPickerModal.tsx`'s structure) - lists approved
+   WhatsApp templates via `getTemplates({type:"whatsapp", status:"approved"})`, renders each
+   template's `{{n}}` placeholders as fill-in inputs when it has any, live-previews the filled body,
+   then sends.
+4. Threaded `sessionExpired`/`onOpenTemplatePicker` through `ChatWindow.tsx` and
+   `WhatsAppBusinessInbox.tsx` (both the mobile and desktop `ChatWindow` instances) down to the
+   composer, and wired the modal + `sendTemplateMessage` call in `InboxView.tsx`.
+
+**Verified for real in a local dev pass** (`npm run dev` on both client/server, logged in as
+`admin@test.com`), not just typecheck - `npm run check` was clean but per this file's own
+2026-09-12 closing lesson that isn't sufficient on its own:
+- Opened a real seeded conversation (Ayesha Khan, last message Sep 8) and confirmed the warning
+  banner rendered with the exact copy above the composer.
+- Clicked through the template picker, which loaded three real approved templates from the seed
+  data via the corrected endpoint (confirming the RBAC fix actually matters, not just in theory).
+- Sent one for real (`campaign_announcement`) - it went through the mocked local-credential path in
+  `sendWhatsAppTemplate` (this seed's WhatsApp account uses a synthetic `zod_phone_id`/local
+  credential, not a real Meta connection, so nothing was sent to an actual phone), and the message
+  correctly appeared in the thread as "Template sent: campaign_announcement" with a sent checkmark,
+  and the conversation preview/ordering updated.
+- Confirmed the banner correctly disappeared after inserting a fresh inbound message directly in
+  Mongo (simulating the contact replying) and reloading, and correctly stayed absent in Note mode
+  throughout (notes are internal, never subject to the window).
+- Removed the test messages afterward so the local seed data is back to its original state.
+
+**Not tested**: the seed data's approved templates all have empty `body`/`variables`, so the
+per-placeholder fill-in inputs in `TemplatePickerModal` were reviewed carefully but never exercised
+against a template that actually has a `{{1}}` in it. Worth a real click-through the first time a
+template with variables is sent from the inbox.
+
 ## 2026-09-12/13 (night): task assignment wired up in the lead quick-add-task form (`6dff4da`)
 
 **Small, verified fix**: the backend (`server/routes/tasks.js`) already fully supported
