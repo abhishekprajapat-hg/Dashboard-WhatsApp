@@ -1,5 +1,79 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-15: the whole Instagram + Human Agent bundle came back REJECTED - not a code problem, a screencast-evidence problem
+
+**Confirmed via real screenshots of the App Dashboard's App Review → Requests → feedback page**
+(`developers.facebook.com/apps/1622746365465041/app-review/submissions/feedback`), continuing
+directly from [[dashboard-whatsapp-instagram-app-review-expansion]]'s "blocked on actually
+submitting" saga. It did eventually submit at some point after 2026-08-25 (not caught by this repo's
+own HANDOFF), and Meta has now reviewed and rejected all six items in that bundle:
+
+**Rejected**: `Human Agent`, `instagram_business_basic`, `instagram_business_manage_messages`,
+`instagram_business_content_publish`, `instagram_business_manage_insights`,
+`instagram_business_manage_comments`.
+
+**Renewed fine, unaffected**: `whatsapp_business_messaging`, `whatsapp_business_management` - this
+rejection is scoped entirely to Instagram + Human Agent, WhatsApp's own core permissions are not at
+risk.
+
+**Every single one gives the identical boilerplate reason**: "Screencast Not Aligned with Use Case
+Details" (Developer Policy 1.6 - Build a Trustworthy Product) - "the submitted screencast fails to
+demonstrate the end-to-end experience of the use case described in the submission notes." Meta's own
+resolution checklist for a resubmit, same on every item:
+1. The complete Meta login flow
+2. A user granting the app access to the permission/feature
+3. The end-to-end experience of the use case for the requested permission/feature
+4. Follow the Screen Recording Guide - English UI, captions/tool-tips, explain buttons/UI elements
+5. If this were a server-to-server/system-user-token app, say so (not applicable here - this app
+   genuinely has a frontend Meta login flow, so this bullet doesn't apply)
+
+**One item (appears attached to `instagram_business_manage_messages`, based on its position in the
+feedback page between that item and `content_publish`) has an actual human reviewer note, not just
+boilerplate - this is the real, specific, actionable finding**:
+
+> "Hello Team! We were unable to approve this submission because the screencast does not show a
+> message being sent from your app UI and the same message appearing in the native client
+> (Messenger, Instagram, or WhatsApp). Please re-record showing: (1) asset selection (Page, account,
+> or number visible), (2) a live send action from your app, and (3) the delivered message in the
+> native client."
+
+**This is very likely the real root cause for the whole bundle, not six separate problems.** Every
+one of these 5 permissions + Human Agent was genuinely built and proven live in earlier sessions -
+real DM delivered, real photo/video sent and received, real comment + reply nested on a real post,
+real Insights numbers (Follower count: 44), a real post published and confirmed live at
+`instagram.com/p/DcYJK0ajRqE/` (see [[dashboard-whatsapp-instagram-app-review-expansion]] for the
+full verification detail on each). The features are not the problem. What the reviewer is
+describing - a screencast that shows the app-side action but never cuts to the **native Instagram
+app/client** to prove the same message/comment/post actually landed there - matches a known gap:
+[[dashboard-whatsapp-instagram-app-review-expansion]] already records that the *first* screencast
+attempt was caught internally for missing the reply-*from*-dashboard step; this rejection reveals
+the mirror-image gap never got caught - showing the dashboard side without ever cutting to a second
+device/window with the real Instagram app open to show the result landing there.
+
+**How to apply when this gets picked back up (a human task, not something to automate from this
+session - screen-recording a phone's real Instagram app isn't something Claude can do)**: re-record
+a single new screencast covering the full bundle, and for **every** permission demonstrated, make
+the native-client proof explicit and impossible to miss:
+1. Full Meta/Instagram login (OAuth) flow, start to finish, in frame.
+2. The Instagram account/asset being selected, visibly named/visible on screen.
+3. The live action from Dashboard-WhatsApp's own UI (send a DM, publish a post, reply to a comment,
+   view Insights).
+4. Immediately after each action, cut to the **actual Instagram app or instagram.com** (a second
+   device, a second browser window/tab logged into the real Instagram account, or a phone screen
+   recording) showing that exact message/comment/post really landed there - not just a checkmark in
+   Dashboard-WhatsApp's own UI, which is exactly what the reviewer said they couldn't see.
+5. Insights doesn't have an equivalent "native client" delivery to show (it's a read, not a send) -
+   for that one, showing the real numbers on-screen next to Instagram's own native Insights view for
+   the same account/period is the closest equivalent proof.
+6. Human Agent specifically still can't be demonstrated live pre-approval (Meta 403s the tag until
+   this exact round is approved, confirmed in the 2026-08-23 session) - a real chicken-and-egg
+   Meta already seems to tolerate for this tag elsewhere in their own docs, but worth a support
+   question if it gets rejected on this specific point again after an otherwise-compliant resubmit.
+
+**Not yet done**: the actual re-recording and resubmission - this session only diagnosed and
+documented the rejection reason. Nothing in the codebase needs to change; all 5 features are already
+built and were already proven live against the real Graph API in prior sessions.
+
 ## 2026-09-14: inbox composer now warns and redirects to a template when the 24h session window is closed
 
 **The actual bug behind "can't send WhatsApp messages after 24 hours"**: not a delivery failure the
