@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Message, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Message, Organization, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
@@ -11,6 +11,7 @@ import { sendWhatsAppInteractive } from "./whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "./whatsappCommerce.js";
 import { sendInstagramMessage } from "./instagramProvider.js";
 import { bookVegaMeeting, cancelVegaMeeting, checkVegaOfficeHours, fetchVegaMeetingSlots } from "./vegaIntegration.js";
+import { bookSlot, cancelSlot, checkOfficeHoursNow, fetchOpenSlots } from "./meetingService.js";
 import { sendBillstackOrder } from "./billstackIntegration.js";
 import { runSandboxedCode } from "./codeSandbox.js";
 import { logger } from "./logger.js";
@@ -934,12 +935,27 @@ async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
   };
 }
 
-// "Open"/"closed" reads Vega's MeetingAvailability.weeklyWindows (the same config that gates
-// booking slots) via checkVegaOfficeHours - no separate schedule lives in this flow, on purpose.
-// Any failure to reach Vega (unconfigured, timeout, non-2xx) defaults to "closed" rather than
-// "open" - wrongly promising a live agent is worse than wrongly deferring to the async fallback.
-async function execCheckOfficeHours() {
-  const result = await checkVegaOfficeHours();
+// Which booking backend an organization's book_meeting/check_office_hours nodes use.
+// Unset (every organization that existed before the native system was built, including
+// Nemnidhi's own) defaults to "vega" - the exact behavior these nodes always had - so adding the
+// native path can never silently change where an existing live flow's meetings land. A new
+// client (e.g. Sundrishti) is opted into "native" explicitly, per-organization, in its own
+// MeetingAvailability setup, never by changing this default.
+async function resolveMeetingProvider(organizationId) {
+  if (!organizationId) return "vega";
+  const org = await Organization.findById(organizationId).select("settings.meetingProvider").lean();
+  return org?.settings?.meetingProvider === "native" ? "native" : "vega";
+}
+
+// "Open"/"closed" reads either Vega's MeetingAvailability.weeklyWindows (Nemnidhi's own, via
+// checkVegaOfficeHours) or this organization's own native MeetingAvailability
+// (checkOfficeHoursNow), decided by resolveMeetingProvider - no separate schedule lives in this
+// flow node itself, on purpose. Any failure to reach the resolved backend (unconfigured, timeout,
+// non-2xx) defaults to "closed" rather than "open" - wrongly promising a live agent is worse than
+// wrongly deferring to the async fallback.
+async function execCheckOfficeHours({ run }) {
+  const provider = await resolveMeetingProvider(run.organizationId);
+  const result = provider === "native" ? await checkOfficeHoursNow(run.organizationId) : await checkVegaOfficeHours();
   if (!result.ok) {
     logger.warn({ reason: result.reason }, "execCheckOfficeHours: check failed, defaulting to closed");
     return {
@@ -1004,7 +1020,21 @@ async function execBookMeeting({ node, config: cfg, env, run, flow, testMode }) 
       };
     }
 
-    const bookResult = await bookVegaMeeting({ contactName: contact.name, contactPhone: contact.phone, type: meetingType, dateKey, timeKey });
+    const provider = await resolveMeetingProvider(run.organizationId);
+    const bookResult =
+      provider === "native"
+        ? await bookSlot({
+            organizationId: run.organizationId,
+            workspaceId: run.workspaceId,
+            contactId: contact._id,
+            conversationId: conversation._id,
+            contactName: contact.name,
+            contactPhone: contact.phone,
+            type: meetingType,
+            dateKey,
+            timeKey,
+          })
+        : await bookVegaMeeting({ contactName: contact.name, contactPhone: contact.phone, type: meetingType, dateKey, timeKey });
 
     if (!bookResult.ok) {
       logger.warn({ nodeId: node.id, reason: bookResult.reason }, "execBookMeeting: booking failed");
@@ -1054,7 +1084,11 @@ async function execBookMeeting({ node, config: cfg, env, run, flow, testMode }) 
     return { status: "ok", action: { type: "book_meeting", status: "skipped", skipped: true }, logMessage: "Book meeting skipped in test mode" };
   }
 
-  const slotsResult = await fetchVegaMeetingSlots({ type: meetingType });
+  const slotsProvider = await resolveMeetingProvider(run.organizationId);
+  const slotsResult =
+    slotsProvider === "native"
+      ? await fetchOpenSlots({ organizationId: run.organizationId, type: meetingType })
+      : await fetchVegaMeetingSlots({ type: meetingType });
   const slots = slotsResult.ok ? slotsResult.slots || [] : [];
   if (!slots.length) {
     return {
@@ -1118,7 +1152,7 @@ async function execBookMeeting({ node, config: cfg, env, run, flow, testMode }) 
 // a customer who tapped Reschedule should still get offered new slots even if the old meeting
 // failed to cancel cleanly - pickNext dead-ends a run when a branch has no matching edge
 // (see automationEngine.js), so this stays a single default-edge step, not a fork.
-async function execCancelMeeting({ node, config: cfg, testMode }) {
+async function execCancelMeeting({ node, config: cfg, run, testMode }) {
   const meetingId = String(cfg?.meetingId || "").trim();
   if (!meetingId) return { status: "skipped", logMessage: "Skipped cancel_meeting: no meetingId", logLevel: "warn" };
 
@@ -1127,7 +1161,8 @@ async function execCancelMeeting({ node, config: cfg, testMode }) {
   }
 
   const reason = String(cfg?.reason || "Customer requested reschedule via WhatsApp").trim();
-  const result = await cancelVegaMeeting(meetingId, reason);
+  const provider = await resolveMeetingProvider(run.organizationId);
+  const result = provider === "native" ? await cancelSlot({ organizationId: run.organizationId, meetingId, reason }) : await cancelVegaMeeting(meetingId, reason);
   if (!result.ok) {
     logger.warn({ nodeId: node.id, meetingId, reason: result.reason }, "execCancelMeeting: cancel failed");
     return {

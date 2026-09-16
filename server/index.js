@@ -21,6 +21,7 @@ import { contactsRouter } from "./routes/contacts.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { leadsRouter } from "./routes/leads.js";
+import { meetingAvailabilityRouter } from "./routes/meetingAvailability.js";
 import { settingsRouter } from "./routes/settings.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { teamRouter } from "./routes/team.js";
@@ -126,6 +127,7 @@ app.use("/api/templates", requireAuth, requireWorkspaceContext, templatesRouter)
 app.use("/api/public", publicApiRouter);
 app.use("/api/events", eventsRouter);
 app.use("/api/settings", requireAuth, requireWorkspaceContext, settingsRouter);
+app.use("/api/meeting-availability", requireAuth, requireWorkspaceContext, meetingAvailabilityRouter);
 app.use("/api/billing", requireAuth, requireWorkspaceContext, billingRouter);
 app.use("/webhooks/razorpay", billingWebhookRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
