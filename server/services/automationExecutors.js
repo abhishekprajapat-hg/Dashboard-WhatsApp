@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, Message, Organization, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
+import { AutomationFlow, AutomationRun, CalendarEvent, Contact, Conversation, InstagramAccount, MeetingAvailability, Message, Tag, Task, Template, WhatsAppFlow } from "../models/index.js";
 import { ensureConversationInCrm } from "./crm.js";
 import { callGenericApi } from "./integrations.js";
 import { callAiProvider } from "./aiProviders.js";
@@ -935,16 +935,17 @@ async function execAskMcq({ node, config: cfg, env, run, flow, testMode }) {
   };
 }
 
-// Which booking backend an organization's book_meeting/check_office_hours nodes use.
-// Unset (every organization that existed before the native system was built, including
-// Nemnidhi's own) defaults to "vega" - the exact behavior these nodes always had - so adding the
-// native path can never silently change where an existing live flow's meetings land. A new
-// client (e.g. Sundrishti) is opted into "native" explicitly, per-organization, in its own
-// MeetingAvailability setup, never by changing this default.
+// Which booking backend an organization's book_meeting/check_office_hours nodes use. Deciding
+// this by whether a native MeetingAvailability document exists (rather than a separate settings
+// flag) means no organization can end up in this new path by accident: every organization that
+// existed before the native system was built, including Nemnidhi's own, has no such document and
+// keeps using Vega exactly as before with zero migration. A new client (e.g. Sundrishti) opts in
+// simply by configuring its own hours via PUT /api/meeting-availability - the act of setting up
+// availability *is* the opt-in, there's nothing else to remember to flip.
 async function resolveMeetingProvider(organizationId) {
   if (!organizationId) return "vega";
-  const org = await Organization.findById(organizationId).select("settings.meetingProvider").lean();
-  return org?.settings?.meetingProvider === "native" ? "native" : "vega";
+  const exists = await MeetingAvailability.exists({ organizationId });
+  return exists ? "native" : "vega";
 }
 
 // "Open"/"closed" reads either Vega's MeetingAvailability.weeklyWindows (Nemnidhi's own, via
