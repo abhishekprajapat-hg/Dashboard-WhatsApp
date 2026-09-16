@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { CalendarEvent, MeetingAvailability } from "../models/index.js";
 import { computeOpenSlots, formatSlotLabel, getMeetingDateKey, istWallTimeToUtc, timeKeyToMinutes, dayOfWeekForDateKey } from "../utils/meetingSlots.js";
 import { logger } from "./logger.js";
@@ -61,7 +62,11 @@ export async function fetchOpenSlots({ organizationId, type = "online", days } =
     organizationId,
     source: "meeting_booking",
     status: "confirmed",
-    startAt: { $gte: now, $lte: rangeEnd },
+    // This app runs with mongoose.set("sanitizeFilter", true) (see db.js) - a plain $gte/$lte
+    // object built by the app itself still needs mongoose.trusted() or it gets treated the same
+    // as untrusted user input and mangled instead of applied, which is exactly what happened
+    // live: Mongoose tried to cast the whole {$gte,$lte} object as a single Date value.
+    startAt: mongoose.trusted({ $gte: now, $lte: rangeEnd }),
   })
     .select("startAt")
     .lean();
