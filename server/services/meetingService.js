@@ -72,7 +72,12 @@ export async function fetchOpenSlots({ organizationId, type = "online", days } =
     .lean();
 
   const slots = computeOpenSlots({ availability, type, existingMeetings, now, days: windowDays });
-  return { ok: true, slots };
+  // WhatsApp interactive lists hard-cap at 10 rows (whatsappProvider.js's sendWhatsAppInteractive
+  // throws past that) - a real multi-day, multi-slot-per-day config easily produces far more open
+  // slots than that (confirmed live: Sundrishti's Mon-Sat/60min config alone generates 100+ across
+  // a 14-day window). computeOpenSlots already returns slots in chronological order (day-by-day,
+  // time-by-time), so slicing to the first 10 gives the soonest slots, not an arbitrary cut.
+  return { ok: true, slots: slots.slice(0, 10) };
 }
 
 export async function bookSlot({ organizationId, workspaceId, contactId, conversationId, contactName, contactPhone, type = "online", dateKey, timeKey }) {
