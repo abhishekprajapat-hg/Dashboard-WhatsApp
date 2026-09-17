@@ -1,5 +1,127 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-16/17: first real client automation flow built (Sundrishti Solar), a native per-organization meeting-booking system added alongside Vega, two real production bugs found and fixed live
+
+**Read this first if resuming.** Commits in order: `a5a7e62` (native meeting booking) →
+`9ef9c3f` (simplified provider resolution) → `b9597c3` (sanitizeFilter fix) → `db9380c` (10-slot
+cap fix). All pushed, deploy-cron-confirmed via `.last-deploy-sha`/`.last-restart-sha` matching
+after each push - not just trusted from a clean push.
+
+### The actual ask: an ad-driven WhatsApp qualifying flow for Sundrishti Solar
+
+Sundrishti runs "book your appointment" ads; the flow needed: greeting → 4 qualifying MCQs
+(monthly electricity bill, location relative to Indore, owner/meter-name match, age band) →
+"Talk to someone" / "Book an appointment" → either a live-agent handoff (office-hours-gated) or
+real in-chat slot booking.
+
+**Real architectural finding before building anything**: this engine's `book_meeting`/
+`check_office_hours` nodes were hardcoded to Nemnidhi's own Vega calendar
+(`bookVegaMeeting`/`fetchVegaMeetingSlots`/`checkVegaOfficeHours`, `vegaIntegration.js`) - correct
+for Nemnidhi's own real-estate CTWA test flow, but would have silently booked Sundrishti's real
+customers' appointments into Nemnidhi's internal calendar instead of Sundrishti's own. Not
+something to route around per-flow; needed a real second backend.
+
+### Built: native per-organization meeting booking (`a5a7e62`, `9ef9c3f`)
+
+- **`MeetingAvailability`** (new model) - per-organization weekly windows, slot duration/buffer,
+  per-type capacity, booking-window days, min-notice hours, blackout dates. Mirrors Vega's own
+  `MeetingAvailability` shape on purpose (`src/models/MeetingAvailability.ts`), just organization-
+  scoped instead of one global config.
+- **`utils/meetingSlots.js`** - Vega's own slot-computation logic (`src/lib/meetings/{date,slots}.ts`)
+  ported rather than re-derived - same pure, DB-free `computeOpenSlots`, IST wall-clock helpers,
+  `formatSlotLabel`.
+- **`CalendarEvent`** (existing model) extended with `status`/`type`/`location`/`contactPhone`/
+  `cancelledAt`/`cancelledReason` - reused as the actual booking record (`source: "meeting_booking"`)
+  instead of building a parallel `Meeting` model; execCalendar's plain reminder-style events never
+  touch these new fields, so nothing existing changed shape.
+- **`meetingService.js`** - the native counterpart to `vegaIntegration.js`'s four meeting functions,
+  same `{ok, ...}`/`{ok:false, reason}` shape so `automationExecutors.js` can dispatch to either
+  without its own branches caring which one ran.
+- **Which backend a node uses is decided by whether a `MeetingAvailability` document exists for
+  that organization** (`resolveMeetingProvider`) - not a separate settings flag. No document = Vega,
+  exactly as every organization (Nemnidhi's included) has always behaved, zero migration. An
+  organization opts in simply by configuring its own hours via the new `PUT /api/meeting-availability`
+  - the act of setting up availability *is* the opt-in.
+- New route: `server/routes/meetingAvailability.js` (`GET`/`PUT /api/meeting-availability`, gated
+  `settings:read`/`settings:write`).
+
+### Two real bugs found live, both from Sundrishti's own real test runs, not caught by the unit suite
+
+Verified locally before shipping (full non-e2e suite, 167/168 - the 1 failure is the pre-existing
+unrelated `routeValidation.unit.test.js` issue already on record; plus a standalone script proving
+slot generation/min-notice/capacity against a real Mon-Sat 10:30-19:30 config) - **neither bug
+showed up until a real WhatsApp conversation actually reached `book_meeting`**, because nothing in
+the unit suite exercises the real Mongo query shape or a multi-day slot count. Both diagnosed
+directly from the flow's own real `AutomationRun` history via the live app's own
+`GET /api/automation/:id/runs` - pulled through the browser console (no working DB credentials for
+this host from this session, see below), not guessed at.
+
+1. **`b9597c3`** - `fetchOpenSlots`'s `CalendarEvent.find({..., startAt: {$gte, $lte}})` threw
+   `Cast to date failed for value "{ '$gte': ..., '$lte': ... }" ... at path "startAt"` on the very
+   first real booking attempt. Root cause: this app runs `mongoose.set("sanitizeFilter", true)`
+   (`db.js`) - a plain `$gte`/`$lte` object built by the app itself still gets sanitized as
+   untrusted input unless wrapped in `mongoose.trusted()`, the exact same gotcha already flagged
+   once in `otpService.js`'s own comments. Missed it writing the new query; fixed by wrapping it.
+2. **`db9380c`** - fixed bug #1, then the *next* real attempt failed with `"WhatsApp list messages
+   support at most 10 options."` `fetchOpenSlots` returned every open slot across the whole
+   booking window with no cap - Sundrishti's real Mon-Sat/60-minute config alone generates 100+
+   slots over a 14-day window, and `execBookMeeting` passes the full array straight into a
+   WhatsApp interactive list, which hard-caps at 10 rows. Fixed by slicing to the soonest 10 -
+   `computeOpenSlots` already returns them in chronological order, so this is the nearest 10 real
+   slots, not an arbitrary cut.
+
+### Also added: a real failsafe on `book_meeting`'s failure branches
+
+`no_slots`/`failed`/`send_failed` had zero fallback originally - a future hiccup would leave a
+real customer mid-conversation with no reply at all. Added two nodes (`booking_issue_tag` /
+`booking_issue_msg`) and three branch edges so any of those three outcomes now tags the lead
+(`booking_issue_manual_followup`) and sends an honest "we hit a hiccup, our team will call you
+directly" message, rather than dead-ending silently.
+
+**Real process note, worth repeating**: applying this failsafe via a direct `PATCH /api/automation/:id`
+call from the browser console got silently overwritten once, because the Automation builder canvas
+was open in another tab with a stale (pre-patch) copy of the flow in memory - saving from that tab
+wrote the whole flow back to 16 nodes/19 edges, wiping the failsafe. Fixed by having the user close
+the canvas tab before reapplying, then verifying node/edge counts (18/23) and the specific new
+node/edge IDs directly via the API before trusting it stuck. **Don't have the visual builder open
+in a second tab while patching a flow via the API** - it doesn't merge, it overwrites wholesale on
+its next save.
+
+### How this was actually done without direct DB access to this host
+
+No working non-interactive credentials existed for `dashboard-whatsapp`'s production Mongo from
+this session (`samvid@72.60.97.58` can't become the `dashboard` user without an interactive sudo
+password - unlike Vega's `hrmsdeploy`, which owns its own `.env.local`). Real workaround used
+throughout this session: the client admin (already logged into the real Sundrishti workspace in
+their own browser) pasted short, single-purpose scripts into that tab's DevTools console, reusing
+the already-authenticated session (`localStorage.getItem("whatscrm_token")` + the real
+`/api/automation`, `/api/meeting-availability`, `/api/automation/:id/runs` endpoints) rather than
+raw DB writes. Same trust boundary as a human clicking through the UI, just faster - every write
+went through real request validation, not a bypassed one.
+
+### Verification status, honestly
+
+The client's own real end-to-end WhatsApp test (a genuinely new conversation, all 4 questions
+answered for real, "Book appointment" tapped) reported success after both fixes deployed - but the
+final confirming run-history JSON was never actually pasted back and independently read this
+session, only "it worked" was reported. **Next session should re-pull
+`GET /api/automation/6aaa6514e0a8ce92d9c3fcbc/runs` and confirm the latest run's last step is
+`book_meeting` with `status: "ok"`/`branch: "booked"` and a real `CalendarEvent` exists, before
+treating this as fully closed** - given this exact session already found two bugs that "looked
+like it should just work," don't skip this on an optimistic report alone.
+
+### Also still open
+
+- Office hours/slots configured for Sundrishti: Mon-Sat 10:30-19:30 IST, 60-min slots, capacity 1
+  online/1 in-person, 14-day booking window, 4h min notice, `defaultLocation: "Site visit at
+  customer's address"` - all via `PUT /api/meeting-availability`, not yet exposed in any Settings
+  UI panel (only the raw API exists). A real client-facing UI for this is a reasonable fast-follow
+  once a second client needs it - right now it's configured entirely via the console-script path
+  above.
+- The Automation builder canvas has no visible affordance warning that a concurrent API edit will
+  be silently lost on next Save - worth a real fix (optimistic-concurrency version check, or at
+  least a "flow changed elsewhere, reload?" prompt) before this bites a real editing session again.
+
 ## 2026-09-15: the whole Instagram + Human Agent bundle came back REJECTED - not a code problem, a screencast-evidence problem
 
 **Confirmed via real screenshots of the App Dashboard's App Review → Requests → feedback page**
