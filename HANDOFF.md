@@ -1,5 +1,61 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-17 (later): media-header/buttons support added for WhatsApp templates and campaigns - Sundrishti needs it for a campaign tomorrow
+
+**Read this first if resuming.** Commit `17058af`, pushed and (per the established pattern) not yet
+deploy-cron-confirmed - check `.last-deploy-sha`/`.last-restart-sha` before assuming this is live.
+
+The app genuinely could not do this before today: template creation only ever submitted a bare
+BODY component to Meta (no header, no buttons at all), and even an already-approved media-header
+template had no way to attach real media at actual send time. Built generically - a header
+format/media picker and a buttons editor (Quick reply/Website link/Call phone number, max 10) on
+any WhatsApp-type template, not hardcoded to one client - since more clients will want this.
+
+Real pieces, in case something needs revisiting:
+- `uploadMetaTemplateHeaderMedia()` (`services/whatsappProvider.js`) - Meta's Resumable Upload API
+  (`POST /{app-id}/uploads`, then upload bytes for a "handle"), needed for a media header's
+  `example.header_handle` at template-review time. Genuinely different from the existing
+  `uploadMetaAttachment` (real message media_ids) - confirmed via Meta's docs this handle is only
+  valid for template creation, never reusable as a media_id for sending later.
+- `buildSubmissionComponents()` (`routes/templates.js`) builds the real HEADER+BODY+BUTTONS array
+  at `/:id/submit` time, uploading the header example first if needed. Fails fast with a clear
+  message if a media header has no `mediaUrl` yet, instead of a confusing Meta rejection.
+- `buildTemplateComponents()` (`services/whatsappProvider.js`, the real *send*-time path) now
+  throws `HEADER_MEDIA_REQUIRED` if a template's header isn't TEXT and no `headerMediaUrl` was
+  passed - a media header always needs a fresh link per send, the template's own review-time
+  example isn't reusable.
+- `Campaign.headerMediaUrl` - campaign creation rejects upfront, once, with a clear message, if the
+  chosen template needs media and none was attached (rather than every recipient individually
+  failing with the same error later).
+
+**Real friction hit mid-build, worth knowing about**: `GET /whatsapp/templates` (what
+`CampaignsView.tsx`'s template dropdown actually calls, not `GET /templates`) has its own separate,
+leaner `serializeTemplate()` inside `routes/whatsapp.js` - it didn't carry the new `header` field
+until this was caught by testing the actual campaign flow, not just the template flow. Two different
+serializers for "a template" in two different route files, easy to update one and miss the other.
+Also: `serializeCampaign()` didn't return `headerMediaUrl` at all until caught by testing - it's
+stored on the Mongoose doc fine (so sending would have worked), just invisible to the API/UI.
+
+Verified end-to-end against local Mongo + a real browser session (not just code review): built a
+template with an image header and a Call button through the actual UI, confirmed the stored shape,
+confirmed `/submit` rejects with no media and succeeds with it (correct Meta-shaped payload,
+`PHONE_NUMBER` mapped to `phone_number`), confirmed campaign creation rejects/accepts the same way,
+deleted the test template and campaign afterward.
+
+### Still open, blocking the actual campaign
+
+- **Sundrishti has no Meta-approved template yet** (confirmed with the user) - this is the real
+  bottleneck, not the code, and approval timing (minutes to 24h+) is outside anyone's control. The
+  moment real content (image, exact copy, button destinations) arrives, use the now-built UI to
+  create + submit immediately - don't wait.
+- This was built without real Meta credentials to test against (local/demo-credential fallback
+  only) - the *shape* of every request is verified correct against Meta's documented API, but the
+  actual resumable-upload round trip against Meta's real servers has never been exercised. Watch
+  the first real submission closely.
+- The self-hosted-Redis migration from the entry below is still paused, VPS web console access was
+  down when last checked (unrelated Hostinger-side issue, live app was unaffected) - separate task,
+  didn't block this one.
+
 ## 2026-09-17: "notifications aren't working" traced to Redis being silently unset in prod, a real in-app notification system built, a third production sanitizeFilter bug found and fixed, then a Redis cost investigation - PAUSED mid self-hosted-Redis migration
 
 **Read this first if resuming - work is paused mid-task, see "Where this was paused" at the bottom.**
