@@ -32,8 +32,17 @@ export function rateLimiter({ limit = config.rateLimitMax, windowMs = config.rat
 
     if (redis?.status === "ready") {
       const count = await redis.incr(key);
-      if (count === 1) await redis.pexpire(key, windowMs);
-      const ttl = await redis.pttl(key);
+      // On the first request of a fresh window, the TTL we just set IS windowMs - asking Redis for
+      // it back with a separate PTTL is a redundant command on every single request that runs
+      // through this on every request in the app (index.js's app-wide default). Only genuinely need
+      // to ask when this request didn't just set the expiry itself.
+      let ttl;
+      if (count === 1) {
+        await redis.pexpire(key, windowMs);
+        ttl = windowMs;
+      } else {
+        ttl = await redis.pttl(key);
+      }
       result = { allowed: count <= limit, remaining: Math.max(0, limit - count), resetAt: Date.now() + ttl };
     } else {
       result = localCheck(key, limit, windowMs);
