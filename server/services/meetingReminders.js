@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Contact, Conversation, Message, Organization, WhatsAppAccount, Workspace } from "../models/index.js";
 import { fetchUpcomingVegaMeetings, markVegaMeetingReminded } from "./vegaIntegration.js";
 import { sendWhatsAppInteractive } from "./whatsappProvider.js";
+import { notifyWorkspaceInApp } from "./notifications.js";
 import { logger } from "./logger.js";
 
 // Same normalization shape as whatsapp.js's phoneLookupValues (private to that file) - kept
@@ -109,6 +110,13 @@ async function sendReminder(meeting, window) {
     });
   } catch (error) {
     logger.error({ meetingId: meeting._id, error: error.message }, "meetingReminders: send failed");
+    await notifyWorkspaceInApp({
+      organizationId: conversation.organizationId,
+      workspaceId: conversation.workspaceId,
+      type: "meeting_reminder.send_failed",
+      title: "Meeting reminder failed to send",
+      body: `Couldn't send the ${window === "24h" ? "24-hour" : "1-hour"} reminder to ${contact.name || contact.phone} for their meeting ${when}: ${error.message}`,
+    });
     return;
   }
 

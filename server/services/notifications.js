@@ -1,4 +1,4 @@
-import { Workspace } from "../models/index.js";
+import { Notification, Workspace } from "../models/index.js";
 import { sendEmail } from "./notificationChannels.js";
 import { logger } from "./logger.js";
 
@@ -24,5 +24,18 @@ export async function notifyWorkspace(workspaceId, eventKey, { subject, body }) 
     });
   } catch (error) {
     logger.warn({ err: error, workspaceId, eventKey }, "Workspace notification delivery failed");
+  }
+}
+
+// The in-app counterpart to notifyWorkspace() above - separate function rather than folding into
+// it, since callers here already have organizationId/workspaceId in hand from the record they were
+// working with (no need for notifyWorkspace's own Workspace lookup), and this has no email-specific
+// opt-in/integration gating to check. Same "never let a notification failure surface as the real
+// operation's own failure" rule as notifyWorkspace.
+export async function notifyWorkspaceInApp({ organizationId, workspaceId, type, title, body, link }) {
+  try {
+    await Notification.create({ organizationId, workspaceId, type, title, body, link: link || null });
+  } catch (error) {
+    logger.warn({ err: error, workspaceId, type }, "In-app notification creation failed");
   }
 }
