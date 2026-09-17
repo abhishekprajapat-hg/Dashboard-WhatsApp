@@ -195,6 +195,18 @@ export function getAdminOverview<T>() {
   return request<T>("/admin/overview");
 }
 
+export function getNotifications<T>(limit = 20) {
+  return request<T>(`/notifications?limit=${limit}`);
+}
+
+export function markNotificationRead<T>(id: string) {
+  return request<T>(`/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
+}
+
+export function markAllNotificationsRead<T>() {
+  return request<T>("/notifications/read-all", { method: "POST" });
+}
+
 export function updateAdminSettings<T>(settings: Record<string, unknown>) {
   return request<T>("/admin/settings", {
     method: "PUT",

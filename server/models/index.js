@@ -20,6 +20,7 @@ export * from "./Message.js";
 export * from "./MetaAdsAccount.js";
 export * from "./MetaAdCampaign.js";
 export * from "./MeetingAvailability.js";
+export * from "./Notification.js";
 export * from "./Organization.js";
 export * from "./Role.js";
 export * from "./Tag.js";

@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
-  Bell,
   Bot,
   ContactRound,
   FileText,
@@ -19,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { NotificationsBell } from "./NotificationsBell";
 
 export type ViewId =
   | "dashboard"
@@ -146,21 +146,7 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
             </Tooltip>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button aria-label="Notifications" className={`${navButtonBase} hidden md:flex ${navButtonState.idle}`} type="button">
-                <Bell size={18} />
-                {unreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-sidebar bg-destructive px-1 text-[9px] font-bold leading-4 text-white">
-                    {unreadLabel}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="border-border bg-popover text-popover-foreground">
-              Notifications
-            </TooltipContent>
-          </Tooltip>
+          <NotificationsBell />
 
           <Tooltip>
             <TooltipTrigger asChild>
