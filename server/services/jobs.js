@@ -1,10 +1,8 @@
 import Redis from "ioredis";
-import { Queue, Worker, QueueEvents } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { config } from "../config.js";
 import { getFlagSync } from "./featureFlags.js";
-import { callOutboundWebhook } from "./integrations.js";
 import { logger } from "./logger.js";
-import { publishEvent } from "./messageBus.js";
 import { processCampaignRecipient } from "./campaignSender.js";
 import { sweepMeetingReminders } from "./meetingReminders.js";
 import {
@@ -16,7 +14,6 @@ import { resumeAutomationRun } from "./automationEngine.js";
 
 const queues = new Map();
 const workers = new Map();
-const events = new Map();
 
 // BullMQ's blocking commands require their own connection with maxRetriesPerRequest: null -
 // it must not be shared with services/cache.js's client, which needs bounded retries to fail fast.
@@ -47,7 +44,6 @@ export function getQueue(name) {
         removeOnFail: 5000,
       },
     }));
-    events.set(name, new QueueEvents(name, options));
   }
   return queues.get(name);
 }
@@ -63,8 +59,11 @@ export function startWorkers() {
   const options = connectionOptions();
   if (!options || workers.size) return { enabled: Boolean(options), workers: workers.size };
 
-  workers.set("webhooks", new Worker("webhooks", async (job) => callOutboundWebhook(job.data), options));
-  workers.set("events", new Worker("events", async (job) => publishEvent(job.name, job.data), options));
+  // No "webhooks" or "events" queue here on purpose - callOutboundWebhook and publishEvent are
+  // both only ever invoked synchronously elsewhere in this codebase (settings.js, automationSender.js),
+  // never through enqueueJob("webhooks"/"events", ...). A Worker for either would sit idling
+  // against Redis forever, unable to ever process a job - pure background cost on a pay-as-you-go
+  // instance. Re-add them if something actually starts enqueuing to those names.
   const maintenanceProcessors = { "reminders.sweep": sweepMeetingReminders };
   workers.set(
     "maintenance",
@@ -102,7 +101,7 @@ export function startWorkers() {
 }
 
 export async function queueHealth() {
-  const names = ["webhooks", "events", "maintenance", "campaigns", "automations"];
+  const names = ["maintenance", "campaigns", "automations"];
   const health = {};
   for (const name of names) {
     const queue = getQueue(name);
