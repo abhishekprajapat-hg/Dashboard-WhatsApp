@@ -1,5 +1,4 @@
 import { config } from "../config.js";
-import { getRedisClient } from "../services/cache.js";
 
 const localBuckets = new Map();
 
@@ -24,29 +23,18 @@ function localCheck(key, limit, windowMs) {
 // like signup's 5/60s was being exhausted by unrelated traffic hitting the app-wide default limiter
 // first, since both incremented the identical key). The app-wide default in index.js intentionally
 // keeps the "global" scope; anything wanting its own real budget must pass a distinct one.
+//
+// Local-in-memory only, no Redis - a shared Redis-backed counter only earns its keep once this app
+// runs as more than one process needing a synchronized view of the same counters. dashboard-api runs
+// as a single PM2 "fork" instance, not a cluster, so there is no second process for Redis to be
+// syncing with; every request already lands on this same process's own localBuckets Map. This used
+// to be Redis-backed (2-3 commands per request, on literally every request in the app) and was the
+// dominant cost driver on the pay-as-you-go Redis instance. If this ever moves to multiple instances
+// (cluster mode, a second server behind a load balancer), this needs a shared store again first.
 export function rateLimiter({ limit = config.rateLimitMax, windowMs = config.rateLimitWindowMs, scope = "global" } = {}) {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     const key = keyFor(req, scope);
-    const redis = getRedisClient();
-    let result;
-
-    if (redis?.status === "ready") {
-      const count = await redis.incr(key);
-      // On the first request of a fresh window, the TTL we just set IS windowMs - asking Redis for
-      // it back with a separate PTTL is a redundant command on every single request that runs
-      // through this on every request in the app (index.js's app-wide default). Only genuinely need
-      // to ask when this request didn't just set the expiry itself.
-      let ttl;
-      if (count === 1) {
-        await redis.pexpire(key, windowMs);
-        ttl = windowMs;
-      } else {
-        ttl = await redis.pttl(key);
-      }
-      result = { allowed: count <= limit, remaining: Math.max(0, limit - count), resetAt: Date.now() + ttl };
-    } else {
-      result = localCheck(key, limit, windowMs);
-    }
+    const result = localCheck(key, limit, windowMs);
 
     res.setHeader("X-RateLimit-Limit", String(limit));
     res.setHeader("X-RateLimit-Remaining", String(result.remaining));
