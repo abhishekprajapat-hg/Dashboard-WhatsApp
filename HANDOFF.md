@@ -1,5 +1,141 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-17: "notifications aren't working" traced to Redis being silently unset in prod, a real in-app notification system built, a third production sanitizeFilter bug found and fixed, then a Redis cost investigation - PAUSED mid self-hosted-Redis migration
+
+**Read this first if resuming - work is paused mid-task, see "Where this was paused" at the bottom.**
+Commits in order: `9604c45` (drop dead webhooks/events queues) → `b3fc751` (real notification bell,
+plumbing only) → `03035d4` (wire meeting-reminder send-failure notifications) → `e6a3f7b` (wire
+no-matching-conversation notifications) → `06419da` (rate-limiter PTTL micro-opt) → `3f48271` (wire
+workspace-owner email alerts into the bell too) → `55397b5` (**fix a live-breaking CastError** in
+the reminder sweep) → `65ab063` (rate limiter goes local-only, no Redis) → `4d3873e` (reminder sweep
+off Redis entirely, campaigns' idle polling slowed). All pushed and deploy-cron-confirmed via
+`.last-deploy-sha`/`.last-restart-sha` matching after each push.
+
+### The actual ask: "notifications aren't working, for anyone"
+
+Investigated broadly before touching code, per the user's own instruction - checked deploy/cron
+health first (clean), then asked which notifications specifically. Turned out to be three genuinely
+separate things, all real:
+
+1. **The in-app bell icon** - never actually built. No click handler, no notification list, just a
+   static badge reusing the Inbox unread count. Built for real: `Notification` model (workspace-
+   scoped, mirrors `notifyWorkspace()`'s own visibility model), `GET/PATCH /api/notifications`, a
+   real `NotificationsBell.tsx` dropdown replacing the dead button in `ActivityBar.tsx`. Shipped as
+   plumbing-only first (user's own call), then wired real triggers on request:
+   - Meeting-reminder send failures (`meeting_reminder.send_failed`)
+   - Meeting-reminder no-matching-WhatsApp-conversation failures (`meeting_reminder.no_conversation`)
+     - falls back to notifying every platform-owner workspace, since there's no single client
+     workspace to attach it to when the lookup itself is what failed
+   - The existing email-only `notifyWorkspace()` events (`adsNeedsAttention`, `whatsappNeedsAttention`,
+     `whatsappQualityDropped`) now also write an in-app notification, gated on the same opt-in as
+     email but not dependent on SendGrid being configured
+2. **WhatsApp reminders to end customers (the real root cause)** - `REDIS_URL` was completely unset
+   in prod's `.env`. Confirmed via `/ready` on the real backend port (`curl localhost:4000/ready` -
+   the public domain's `/ready` gets swallowed by the SPA's catch-all, use the VPS-local port
+   directly). This silently disabled **every** BullMQ queue (`maintenance`/`campaigns`/`automations`/
+   the two since-removed dead ones), not just reminders. Confirmed via `campaigns`/`automations`
+   job-count history that this had worked before, so it's a regression, not a gap - almost certainly
+   from whoever responded to the Aug 25 shared-Upstash-quota-exhaustion incident by clearing
+   `REDIS_URL` as a stopgap and never restoring it. Fixed by adding a **new, dedicated** Upstash
+   instance ("Redis / Whatsapp", `regular-longhorn-109637.upstash.io`) - not the old shared/quota-
+   exhausted one - to prod's `.env` and restarting.
+   - **Real friction hit getting this into `.env`**: `pm2 restart` alone does not reliably re-read a
+     changed `.env` (needs `--update-env`), AND two rounds of multi-line copy-paste got mangled in the
+     user's terminal (a stray earlier `ssh` line got re-triggered mid-paste, then a `sed` command got
+     corrupted, silently leaving `REDIS_URL` completely absent from the key - not blank, just gone).
+     Caught via `node -e "require('dotenv').config(); console.log(process.env.REDIS_URL)"` printing
+     `undefined` after a `grep` that LOOKED like it showed the right value (terminal render overlap).
+     **Lesson: after any multi-line paste to a struggling terminal, re-verify with a single clean
+     command - don't trust a `grep` output that appeared in a garbled render.**
+3. **Workspace-owner email alerts** - infra was fine, just never independently confirmed live. Wired
+   into the bell (above); real email send still untested against a real SendGrid key.
+
+### A third real production `sanitizeFilter`/`mongoose.trusted()` bug found and fixed (`55397b5`)
+
+Same lineage as `b9597c3` from the previous session. `platformOwnerWorkspaceIds()` (renamed
+`platformOwnerWorkspaces()` while adding the no-conversation notification) built an unwrapped
+`{ $in: [...] }` filter for `Workspace.find()`. Pre-existing bug (same shape existed before today's
+changes), but completely dormant the entire time Redis was disabled, since the sweep never ran at
+all. Surfaced the moment a real meeting (the user's own live end-to-end test, booked for Fri 18 Sep
+10am) actually hit the reminder window: the job failed all 5 retry attempts (exponential backoff,
+~90s) before giving up - **the WhatsApp send was never even attempted**. Fixed with
+`mongoose.trusted()`, same pattern as before. **The user's real end-to-end WhatsApp reminder test was
+never actually confirmed delivered this session** - worth checking `GET /ready`'s `maintenance`-
+sweep-equivalent (now a plain timer, see below) and the user's own phone before trusting this is
+fully closed.
+
+### Redis cost investigation - corrected course mid-stream based on real measurement
+
+User has **2 real paying clients now** and is watching the Upstash pay-as-you-go bill closely
+(budget: **$20/month**). Initial instinct was wrong and got corrected honestly rather than left
+standing: guessed the global per-request rate limiter was the dominant cost. Measured real request
+volume from logs (138 requests in the ~107min window matching a $0.07/33K-commands reading) - nowhere
+near enough to explain it. **Live `MONITOR`'d the actual Upstash instance directly** (ioredis
+`.monitor()` from a throwaway script, 10-20s samples) and found the true source: BullMQ's own idle
+Worker polling - each queue's worker blocks-and-reissues every `drainDelay` seconds (default 5)
+forever, whether or not there's a job, and this was the ~100% of observed idle traffic, not the rate
+limiter.
+
+Fixes shipped, safe ones first:
+- `9604c45` - removed the two BullMQ queues (`webhooks`/`events`) that never had a single producer
+- `06419da` - removed one redundant `PTTL` call in the rate limiter
+- `65ab063` - rate limiter now fully local-in-memory, no Redis at all - safe because `dashboard-api`
+  runs as a single PM2 `fork` process, not a cluster, so there was never a second process needing a
+  shared counter. **Revisit if this ever moves to multiple instances.**
+- `4d3873e` - meeting-reminder sweep moved off BullMQ entirely onto a plain `setInterval`
+  (`startMeetingReminderSweep()` in `jobs.js`) - it never needed Redis, just a 15-minute timer with
+  nothing worth persisting across a restart. `campaigns` queue's `drainDelay` raised 5s→15s - safe
+  because it's a paced batch broadcast, not a live reply, and individual sends already have their own
+  `delay`.
+- **`automations` deliberately left untouched** - checked first, and a flow's `send_message` action
+  to a real, live conversation goes through this exact worker
+  (`automationSender.js`'s `enqueueAutomationSendMessage`). Slowing its check-ins would directly
+  delay every automated WhatsApp reply a real customer sees. **Do not raise its `drainDelay` without
+  explicit user sign-off on the specific tradeoff** - this was asked about twice and the user hasn't
+  committed to it yet.
+
+Real economics, measured not guessed: post-optimization idle rate ≈3.0 commands/sec, 24/7 ⇒
+~7.8M commands/month ⇒ **~$15.5/month at $2/million commands** - **before any real customer
+traffic** - against a $20/month budget. This is what pushed the decision toward self-hosting.
+
+### Where this was paused
+
+User decided to self-host Redis on the existing VPS (Hostinger KVM1, `72.60.97.58`, confirmed via
+both `free -h` over SSH and the Hostinger panel screenshot: 1 vCPU at 8% load, ~4GB RAM at 55%,
+50GB disk at 56%, comfortable headroom) instead of continuing to pay Upstash per-command.
+
+**Blocker**: `samvid` (the only SSH account this session has working access to) cannot run `sudo`
+non-interactively (`sudo: a password is required`) - same limitation as always. Installing
+`redis-server` needs root, which the user has via Hostinger's panel/`ssh root@72.60.97.58`, not this
+session.
+
+**Handed the user this exact sequence, one command at a time (learned from the earlier multi-line
+paste corruption above) - as of this entry, NONE of it has been run yet:**
+```
+ssh root@72.60.97.58
+apt update -y && apt install -y redis-server
+REDIS_PW=$(openssl rand -hex 24) && echo "requirepass $REDIS_PW" >> /etc/redis/redis.conf && echo "YOUR PASSWORD IS: $REDIS_PW"
+grep -q "^bind 127.0.0.1" /etc/redis/redis.conf || sed -i 's/^bind .*/bind 127.0.0.1 -::1/' /etc/redis/redis.conf
+systemctl enable redis-server && systemctl restart redis-server
+redis-cli -a "$REDIS_PW" ping
+```
+**Next step once resumed**: confirm the above ran and `PONG` came back, then give step 2 - update
+`REDIS_URL` in `/home/dashboard/dashboard-whatsapp/server/.env` to
+`redis://default:<the generated password>@127.0.0.1:6379` (plain `redis://`, not `rediss://` -
+no TLS needed for a localhost connection, unlike the Upstash one), `pm2 restart dashboard-api
+--update-env` (remember `--update-env`, or it silently keeps the old value again), verify via
+`/ready` that `redis`/`campaigns`/`automations` come back healthy, then the old Upstash instance can
+be decommissioned.
+
+### Also still open
+
+- The user's real Fri-18-Sep-10am meeting reminder test - root-caused and fixed (`55397b5`), but
+  never independently confirmed delivered on their actual phone this session.
+- Workspace-owner email alerts - wired into the bell and verified for the in-app side; the actual
+  SendGrid email send still hasn't been confirmed against a real configured key in production.
+- The "S3 Media Storage"/"Infrastructure Panel"/"Zero Downtime Mode" feature flags are self-
+  documented in the admin panel as "not read anywhere in the codebase today" - noted, not touched.
+
 ## 2026-09-16/17: first real client automation flow built (Sundrishti Solar), a native per-organization meeting-booking system added alongside Vega, two real production bugs found and fixed live
 
 **Read this first if resuming.** Commits in order: `a5a7e62` (native meeting booking) →
