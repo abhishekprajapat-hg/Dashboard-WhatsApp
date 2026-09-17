@@ -32,11 +32,13 @@ function phoneLookupValues(phone) {
 // Cached briefly since this runs on every reminder in every sweep tick, not once per process -
 // still cheap enough (a handful of workspace IDs) to just re-fetch on every sweep rather than
 // invalidate a longer-lived cache when a platform-owner workspace is added/removed.
-async function platformOwnerWorkspaceIds() {
+// Returns {_id, organizationId} docs, not bare ids - findConversationForPhone only needs the ids
+// for its $in filter, but the no-matching-conversation notification path (sendReminder) needs
+// organizationId too, since it doesn't have a Contact/Conversation to read one from.
+async function platformOwnerWorkspaces() {
   const platformOwnerOrgs = await Organization.find({ isPlatformOwner: true }).select("_id");
   if (!platformOwnerOrgs.length) return [];
-  const workspaces = await Workspace.find({ organizationId: { $in: platformOwnerOrgs.map((org) => org._id) } }).select("_id");
-  return workspaces.map((workspace) => workspace._id);
+  return Workspace.find({ organizationId: { $in: platformOwnerOrgs.map((org) => org._id) } }).select("_id organizationId");
 }
 
 // A Vega meeting only carries a raw contactPhone, not a workspace/conversation reference - this is
@@ -51,12 +53,12 @@ async function findConversationForPhone(phone) {
   const values = phoneLookupValues(phone);
   if (!values.length) return null;
 
-  const workspaceIds = await platformOwnerWorkspaceIds();
-  if (!workspaceIds.length) return null;
+  const workspaces = await platformOwnerWorkspaces();
+  if (!workspaces.length) return null;
 
   const contact = await Contact.findOne({
     phone: mongoose.trusted({ $in: values }),
-    workspaceId: mongoose.trusted({ $in: workspaceIds }),
+    workspaceId: mongoose.trusted({ $in: workspaces.map((workspace) => workspace._id) }),
   }).sort({ lastMessageAt: -1, updatedAt: -1 });
   if (!contact) return null;
 
@@ -88,6 +90,21 @@ async function sendReminder(meeting, window) {
   const found = await findConversationForPhone(meeting.contactPhone);
   if (!found) {
     logger.warn({ meetingId: meeting._id, phone: meeting.contactPhone }, "meetingReminders: no matching WhatsApp conversation, skipping");
+    // No Contact/Conversation means no single workspace to attach this to (that's the whole reason
+    // it failed) - falls back to every platform-owner workspace, since this reminder system only
+    // ever runs for Nemnidhi's own meetings (see platformOwnerWorkspaces above), never a client's.
+    const workspaces = await platformOwnerWorkspaces();
+    await Promise.all(
+      workspaces.map((workspace) =>
+        notifyWorkspaceInApp({
+          organizationId: workspace.organizationId,
+          workspaceId: workspace._id,
+          type: "meeting_reminder.no_conversation",
+          title: "Meeting reminder skipped - no WhatsApp conversation found",
+          body: `No WhatsApp conversation matches ${meeting.contactPhone} - the ${window === "24h" ? "24-hour" : "1-hour"} reminder couldn't be sent.`,
+        })
+      )
+    );
     return;
   }
   const { contact, conversation, account } = found;
