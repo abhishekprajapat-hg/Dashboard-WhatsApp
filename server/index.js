@@ -43,7 +43,7 @@ import { connectRedis } from "./services/cache.js";
 import { loadFeatureFlagsFromDb } from "./services/featureFlags.js";
 import { healthSnapshot } from "./services/health.js";
 import { buildOpenApiDocument } from "./openapi/generate.js";
-import { startWorkers } from "./services/jobs.js";
+import { startMeetingReminderSweep, startWorkers } from "./services/jobs.js";
 import { httpLogger, logger } from "./services/logger.js";
 import { uploadRoot } from "./services/mediaStorage.js";
 import { connectRabbitMQ } from "./services/messageBus.js";
@@ -164,6 +164,7 @@ connectDatabase()
     await connectRedis();
     await connectRabbitMQ();
     startWorkers();
+    startMeetingReminderSweep();
     httpServer.on("error", (error) => {
       if (error.code === "EADDRINUSE") {
         logger.error(`Port ${config.port} is already in use. Stop the existing server or run with PORT=<free-port>.`);
