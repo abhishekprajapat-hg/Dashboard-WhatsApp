@@ -38,7 +38,9 @@ function phoneLookupValues(phone) {
 async function platformOwnerWorkspaces() {
   const platformOwnerOrgs = await Organization.find({ isPlatformOwner: true }).select("_id");
   if (!platformOwnerOrgs.length) return [];
-  return Workspace.find({ organizationId: { $in: platformOwnerOrgs.map((org) => org._id) } }).select("_id organizationId");
+  return Workspace.find({ organizationId: mongoose.trusted({ $in: platformOwnerOrgs.map((org) => org._id) }) }).select(
+    "_id organizationId"
+  );
 }
 
 // A Vega meeting only carries a raw contactPhone, not a workspace/conversation reference - this is
