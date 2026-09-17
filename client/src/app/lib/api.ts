@@ -891,6 +891,19 @@ export function getTemplates<T>(params: { search?: string; type?: string; status
   return request<T>(`/templates${suffix}`);
 }
 
+export interface TemplateHeaderInput {
+  format: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  text?: string;
+  mediaUrl?: string;
+}
+
+export interface TemplateButtonInput {
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER";
+  text: string;
+  url?: string;
+  phoneNumber?: string;
+}
+
 export function createTemplate<T>(template: {
   name: string;
   type?: string;
@@ -900,6 +913,8 @@ export function createTemplate<T>(template: {
   variables?: string[];
   status?: string;
   whatsappAccountId?: string;
+  header?: TemplateHeaderInput;
+  buttons?: TemplateButtonInput[];
 }) {
   return request<T>("/templates", {
     method: "POST",
@@ -916,6 +931,8 @@ export function updateTemplate<T>(id: string, template: Partial<{
   variables: string[];
   status: string;
   whatsappAccountId: string;
+  header: TemplateHeaderInput;
+  buttons: TemplateButtonInput[];
 }>) {
   return request<T>(`/templates/${id}`, {
     method: "PATCH",
@@ -1006,6 +1023,7 @@ export function createCampaign<T>(campaign: {
   };
   templateId?: string;
   templateBId?: string;
+  headerMediaUrl?: string;
   useMarketingMessagesLite?: boolean;
   status?: string;
   scheduledAt?: string;

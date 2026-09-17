@@ -10,6 +10,10 @@ const campaignSchema = new mongoose.Schema(
     templateIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Template" }],
     templateName: { type: String, trim: true },
     language: { type: String, default: "en" },
+    // Only needed when the chosen template has a non-TEXT (IMAGE/VIDEO/DOCUMENT) header - Meta
+    // requires a fresh media link on every send of a media-header template, the template's own
+    // approval-time example isn't reusable. See buildTemplateComponents in whatsappProvider.js.
+    headerMediaUrl: { type: String, default: "" },
     audienceFilter: { type: mongoose.Schema.Types.Mixed, default: {} },
     audienceFilters: { type: mongoose.Schema.Types.Mixed, default: {} },
     type: { type: String, enum: ["template", "bulk", "scheduled", "recurring", "ab_test"], default: "template", index: true },

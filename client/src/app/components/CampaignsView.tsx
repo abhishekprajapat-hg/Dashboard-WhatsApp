@@ -35,6 +35,7 @@ import {
   previewCampaignAudience,
   sendCampaign,
   updateCampaign,
+  uploadMediaWithProgress,
 } from "../lib/api";
 
 interface Campaign {
@@ -79,6 +80,7 @@ interface WhatsAppTemplate {
   language: string;
   category: string;
   status: "approved" | "pending" | "rejected";
+  header?: { format: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT"; text: string; mediaUrl: string };
 }
 
 interface CampaignReport extends Omit<Campaign, "recipients"> {
@@ -188,6 +190,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
   const [csvText, setCsvText] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [audiencePreview, setAudiencePreview] = useState<{ count: number; label: string; sample: { id: string; name: string; phone: string }[] } | null>(null);
+  const [uploadingHeaderMedia, setUploadingHeaderMedia] = useState(false);
   const [form, setForm] = useState({
     name: "",
     type: "template",
@@ -195,6 +198,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
     audienceType: "all",
     templateId: "",
     templateBId: "",
+    headerMediaUrl: "",
     useMarketingMessagesLite: false,
     status: "draft",
     scheduledAt: "",
@@ -257,10 +261,15 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
   const filtered = campaigns.filter((campaign) => activeTab === "All" || campaign.type === activeTab);
   const selectedTemplate = templates.find((template) => template.id === form.templateId);
   const selectedTemplateB = templates.find((template) => template.id === form.templateBId);
+  const needsHeaderMedia = Boolean(selectedTemplate?.header && selectedTemplate.header.format !== "NONE" && selectedTemplate.header.format !== "TEXT");
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
     if (!form.name.trim() || !form.templateId) return;
+    if (needsHeaderMedia && !form.headerMediaUrl) {
+      setNotice(`The "${selectedTemplate?.name}" template needs a header ${selectedTemplate?.header?.format.toLowerCase()} attached before this campaign can be created.`);
+      return;
+    }
     setSaving(true);
     setNotice("");
     try {
@@ -280,6 +289,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
         audienceFilters,
         templateId: form.templateId,
         templateBId: form.abTest ? form.templateBId : undefined,
+        headerMediaUrl: needsHeaderMedia ? form.headerMediaUrl : undefined,
         useMarketingMessagesLite: form.useMarketingMessagesLite,
         status: form.status,
         scheduledAt: form.scheduledAt || undefined,
@@ -298,6 +308,19 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
       setNotice(error instanceof Error ? error.message : "Campaign could not be created.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleHeaderMediaFile(file: File | undefined) {
+    if (!file) return;
+    setUploadingHeaderMedia(true);
+    try {
+      const response = await uploadMediaWithProgress<{ data: { url: string } }>(file);
+      setForm((current) => ({ ...current, headerMediaUrl: response.data.url }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Header media upload failed.");
+    } finally {
+      setUploadingHeaderMedia(false);
     }
   }
 
@@ -529,10 +552,26 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                     <p className="text-[11px] text-muted-foreground">Choose approved WhatsApp content.</p>
                   </div>
                 </div>
-                <select value={form.templateId} onChange={(event) => setForm((current) => ({ ...current, templateId: event.target.value }))} className={fieldClass} required>
+                <select value={form.templateId} onChange={(event) => setForm((current) => ({ ...current, templateId: event.target.value, headerMediaUrl: "" }))} className={fieldClass} required>
                   {templates.length === 0 && <option value="">No approved templates</option>}
                   {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
                 </select>
+                {needsHeaderMedia && (
+                  <label className="block space-y-1.5 rounded-md border border-primary/30 bg-primary/5 p-2">
+                    <span className="text-[11px] font-medium text-foreground">
+                      This template has a {selectedTemplate?.header?.format.toLowerCase()} header - attach the {selectedTemplate?.header?.format.toLowerCase()} to send with this campaign
+                    </span>
+                    <input
+                      type="file"
+                      accept={selectedTemplate?.header?.format === "IMAGE" ? "image/*" : selectedTemplate?.header?.format === "VIDEO" ? "video/*" : undefined}
+                      onChange={(event) => handleHeaderMediaFile(event.target.files?.[0])}
+                      disabled={uploadingHeaderMedia}
+                      className={fieldClass}
+                    />
+                    {uploadingHeaderMedia && <span className="text-[10px] text-muted-foreground">Uploading...</span>}
+                    {form.headerMediaUrl && !uploadingHeaderMedia && <span className="text-[10px] text-primary">Attached</span>}
+                  </label>
+                )}
                 <select value={form.templateBId} onChange={(event) => setForm((current) => ({ ...current, templateBId: event.target.value }))} className={fieldClass}>
                   <option value="">Variant B template</option>
                   {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}

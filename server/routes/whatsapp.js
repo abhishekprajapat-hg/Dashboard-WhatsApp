@@ -134,6 +134,7 @@ function serializeTemplate(template) {
     category: template.category,
     status: template.status,
     lastSyncedAt: template.lastSyncedAt,
+    header: template.header || { format: "NONE", text: "", mediaUrl: "" },
   };
 }
 

@@ -4,10 +4,34 @@ import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
-import { createWhatsAppTemplate, fetchWhatsAppTemplates } from "../services/whatsappProvider.js";
+import { createWhatsAppTemplate, fetchWhatsAppTemplates, uploadMetaTemplateHeaderMedia } from "../services/whatsappProvider.js";
 import { optionalObjectIdString } from "../utils/zodHelpers.js";
 
 export const templatesRouter = Router();
+
+// Meta-imposed shapes: a header needs mediaUrl only for IMAGE/VIDEO/DOCUMENT, text only for TEXT
+// (both optional at the schema level since which one applies depends on `format` - cleanPayload
+// doesn't re-validate that pairing either, same "shape-level only" stance as the rest of this file).
+// A URL button needs `url`, a PHONE_NUMBER button needs `phoneNumber`, QUICK_REPLY needs neither.
+const headerSchema = z
+  .object({
+    format: z.enum(["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"]).optional(),
+    text: z.string().optional(),
+    mediaUrl: z.string().optional(),
+  })
+  .optional();
+
+const buttonsSchema = z
+  .array(
+    z.object({
+      type: z.enum(["QUICK_REPLY", "URL", "PHONE_NUMBER"]),
+      text: z.string(),
+      url: z.string().optional(),
+      phoneNumber: z.string().optional(),
+    })
+  )
+  .max(10, "Meta allows at most 10 buttons per template.")
+  .optional();
 
 // cleanPayload() below already coerces/defaults enum-ish fields (type, status, category) back to
 // safe values when they're missing or unrecognized, so this only needs to catch genuinely
@@ -22,6 +46,8 @@ export const updateTemplateSchema = z.object({
   status: z.string().optional(),
   providerTemplateId: z.string().optional(),
   whatsappAccountId: optionalObjectIdString,
+  header: headerSchema,
+  buttons: buttonsSchema,
 });
 
 // "all" is a real, handled literal for each of these (means "no filter") - not narrowed to an
@@ -48,6 +74,8 @@ export const createTemplateBodySchema = z.object({
   status: z.string().optional(),
   providerTemplateId: z.string().optional(),
   whatsappAccountId: z.string().optional(),
+  header: headerSchema,
+  buttons: buttonsSchema,
 });
 
 // Read-only, never rejects today (renders {{placeholder}} tokens back verbatim when a variable is
@@ -107,6 +135,8 @@ function serializeTemplate(template) {
     body: extractBody(template),
     variables: template.variables || extractVariables(extractBody(template)),
     components: template.components || [],
+    header: template.header || { format: "NONE", text: "", mediaUrl: "" },
+    buttons: template.buttons || [],
     status: template.status,
     providerTemplateId: template.providerTemplateId || "",
     whatsappAccountId: template.whatsappAccountId?.toString?.() || "",
@@ -128,6 +158,31 @@ async function uniqueSlug(workspaceId, name, excludeId) {
   return candidate;
 }
 
+const headerFormats = ["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"];
+const buttonTypes = ["QUICK_REPLY", "URL", "PHONE_NUMBER"];
+
+function cleanHeader(header) {
+  const format = headerFormats.includes(String(header?.format || "").toUpperCase()) ? String(header.format).toUpperCase() : "NONE";
+  return {
+    format,
+    text: format === "TEXT" ? String(header?.text || "").trim() : "",
+    mediaUrl: format !== "TEXT" && format !== "NONE" ? String(header?.mediaUrl || "").trim() : "",
+  };
+}
+
+function cleanButtons(buttons) {
+  if (!Array.isArray(buttons)) return [];
+  return buttons
+    .filter((button) => buttonTypes.includes(String(button?.type || "").toUpperCase()) && String(button?.text || "").trim())
+    .slice(0, 10)
+    .map((button) => ({
+      type: String(button.type).toUpperCase(),
+      text: String(button.text).trim(),
+      url: button.type === "URL" ? String(button.url || "").trim() : "",
+      phoneNumber: button.type === "PHONE_NUMBER" ? String(button.phoneNumber || "").trim() : "",
+    }));
+}
+
 function cleanPayload(body = {}) {
   const type = templateTypes.includes(body.type) ? body.type : "quick_reply";
   const status = statuses.includes(body.status) ? body.status : type === "whatsapp" ? "pending" : "draft";
@@ -146,6 +201,8 @@ function cleanPayload(body = {}) {
     status,
     providerTemplateId: String(body.providerTemplateId || "").trim(),
     whatsappAccountId: mongoose.Types.ObjectId.isValid(body.whatsappAccountId) ? body.whatsappAccountId : undefined,
+    header: cleanHeader(body.header),
+    buttons: cleanButtons(body.buttons),
   };
 }
 
@@ -182,17 +239,55 @@ function toMetaTemplateName(name) {
   );
 }
 
-function buildMetaTemplateComponents(body = "", variables = []) {
+function buildButtonsComponent(buttons = []) {
+  if (!buttons.length) return null;
+  return {
+    type: "BUTTONS",
+    buttons: buttons.map((button) => {
+      if (button.type === "URL") return { type: "URL", text: button.text, url: button.url };
+      if (button.type === "PHONE_NUMBER") return { type: "PHONE_NUMBER", text: button.text, phone_number: button.phoneNumber };
+      return { type: "QUICK_REPLY", text: button.text };
+    }),
+  };
+}
+
+// Builds the full Meta submission components array for a locally-authored (non-AUTHENTICATION)
+// template - HEADER (if configured), BODY, BUTTONS (if any). Async because a media header needs its
+// example image/video uploaded to Meta first (uploadMetaTemplateHeaderMedia) to get the handle Meta
+// requires in example.header_handle for template *review* - a plain URL is accepted at real send
+// time (see buildTemplateComponents in whatsappProvider.js) but not here.
+async function buildSubmissionComponents({ account, body, variables, header, buttons }) {
+  const components = [];
+
+  if (header?.format && header.format !== "NONE") {
+    if (header.format === "TEXT") {
+      if (header.text?.trim()) components.push({ type: "HEADER", format: "TEXT", text: header.text.trim() });
+    } else {
+      if (!header.mediaUrl) {
+        const error = new Error(`Add a ${header.format.toLowerCase()} for the template header before submitting.`);
+        error.code = "VALIDATION_ERROR";
+        error.status = 400;
+        throw error;
+      }
+      const { headerHandle } = await uploadMetaTemplateHeaderMedia({ account, headerMediaUrl: header.mediaUrl });
+      components.push({ type: "HEADER", format: header.format, example: { header_handle: [headerHandle] } });
+    }
+  }
+
   let numberedBody = body;
   variables.forEach((variable, index) => {
     numberedBody = numberedBody.replace(new RegExp(`\\{\\{\\s*${variable}\\s*\\}\\}`, "g"), `{{${index + 1}}}`);
   });
-
   const bodyComponent = { type: "BODY", text: numberedBody };
   if (variables.length) {
     bodyComponent.example = { body_text: [variables.map((variable) => `Sample ${variable}`)] };
   }
-  return { numberedBody, components: [bodyComponent] };
+  components.push(bodyComponent);
+
+  const buttonsComponent = buildButtonsComponent(buttons);
+  if (buttonsComponent) components.push(buttonsComponent);
+
+  return { numberedBody, components };
 }
 
 // Meta's AUTHENTICATION category is a fixed, non-freeform shape - Meta auto-generates the body text
@@ -360,9 +455,22 @@ templatesRouter.post("/:id/submit", requirePermission("templates:write"), async 
 
   const metaName = toMetaTemplateName(template.name);
   const metaCategory = toMetaCategory(template.category);
-  const { numberedBody, components } = metaCategory === "AUTHENTICATION"
-    ? { numberedBody: template.body, components: buildAuthTemplateComponents() }
-    : buildMetaTemplateComponents(template.body, template.variables || []);
+
+  let numberedBody;
+  let components;
+  try {
+    ({ numberedBody, components } = metaCategory === "AUTHENTICATION"
+      ? { numberedBody: template.body, components: buildAuthTemplateComponents() }
+      : await buildSubmissionComponents({
+          account,
+          body: template.body,
+          variables: template.variables || [],
+          header: template.header,
+          buttons: template.buttons || [],
+        }));
+  } catch (error) {
+    return res.status(error.status || 400).json({ error: error.code || "VALIDATION_ERROR", message: error.message });
+  }
 
   let result;
   try {

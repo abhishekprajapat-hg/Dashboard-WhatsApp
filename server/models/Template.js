@@ -24,6 +24,27 @@ const templateSchema = new mongoose.Schema(
     body: { type: String, default: "" },
     variables: { type: [String], default: [] },
     components: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // App-native (not Meta-shaped) header/buttons config, authored before this template is ever
+    // submitted - routes/templates.js's /:id/submit builds the real Meta components array from
+    // these at submit time (uploading header.mediaUrl to Meta first if header.format isn't TEXT).
+    // Kept separate from `components` above, which only ever holds Meta's own shape (either what
+    // was actually submitted, or what came back from a real sync) - never a half-authored draft.
+    header: {
+      format: { type: String, enum: ["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"], default: "NONE" },
+      text: { type: String, default: "" },
+      mediaUrl: { type: String, default: "" },
+    },
+    buttons: {
+      type: [
+        {
+          type: { type: String, enum: ["QUICK_REPLY", "URL", "PHONE_NUMBER"], required: true },
+          text: { type: String, required: true },
+          url: { type: String, default: "" },
+          phoneNumber: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
     status: { type: String, enum: ["draft", "active", "archived", "approved", "pending", "rejected"], default: "pending", index: true },
     usageCount: { type: Number, default: 0 },
     lastUsedAt: Date,

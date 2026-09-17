@@ -63,6 +63,7 @@ export const createCampaignSchema = z.object({
   audienceType: z.string().optional().default("all"),
   templateId: optionalObjectIdString,
   templateBId: optionalObjectIdString,
+  headerMediaUrl: z.string().trim().optional().default(""),
   useMarketingMessagesLite: z.boolean().optional().default(false),
   status: z.string().optional().default("draft"),
   scheduledAt: optionalDateString("Scheduled date must be a valid date."),
@@ -175,6 +176,7 @@ function serializeCampaign(campaign) {
     templateName: campaign.templateId?.name || campaign.templateName || "",
     language: campaign.templateId?.language || campaign.language || "en",
     templateId: campaign.templateId?._id?.toString?.() || campaign.templateId?.toString?.() || "",
+    headerMediaUrl: campaign.headerMediaUrl || "",
     useMarketingMessagesLite: Boolean(campaign.useMarketingMessagesLite),
     failed: Number(metrics.failed || 0),
     failures: Number(metrics.failed || 0),
@@ -498,6 +500,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     audienceType,
     templateId,
     templateBId,
+    headerMediaUrl,
     useMarketingMessagesLite,
     status,
     scheduledAt,
@@ -532,6 +535,18 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     return res.status(400).json({ error: "WHATSAPP_REQUIRED", message: "Connect WhatsApp and sync templates before creating campaigns." });
   }
 
+  // A media-header template needs a fresh link on every send (Meta's approval-time example isn't
+  // reusable) - failing here at creation time, once, beats every recipient's send failing
+  // individually with the same HEADER_MEDIA_REQUIRED error from buildTemplateComponents.
+  const templateHeader = (template.components || []).find((component) => String(component.type || "").toUpperCase() === "HEADER");
+  const needsHeaderMedia = templateHeader && String(templateHeader.format || "TEXT").toUpperCase() !== "TEXT";
+  if (needsHeaderMedia && !headerMediaUrl) {
+    return res.status(400).json({
+      error: "HEADER_MEDIA_REQUIRED",
+      message: `The "${template.name}" template has a ${templateHeader.format?.toLowerCase()} header - attach the media to send with this campaign.`,
+    });
+  }
+
   if (useMarketingMessagesLite && String(template.category || "").toUpperCase() !== "MARKETING") {
     return res.status(400).json({
       error: "MARKETING_MESSAGES_LITE_INVALID_CATEGORY",
@@ -548,6 +563,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
     whatsappAccountId: account._id,
     templateId: template._id,
     templateName: template.name,
+    headerMediaUrl: needsHeaderMedia ? headerMediaUrl : "",
     useMarketingMessagesLite,
     language: template.language || "en",
     templateIds: [template._id, ...(templateBId && mongoose.Types.ObjectId.isValid(templateBId) ? [templateBId] : [])],

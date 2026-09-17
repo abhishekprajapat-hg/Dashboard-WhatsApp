@@ -125,7 +125,14 @@ export async function processCampaignRecipient(data) {
     providerResult = { providerMessageId: `failed_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };
   } else {
     try {
-      providerResult = await sendWhatsAppTemplate({ account, to: contact.phone, template, parameters: [], useMarketingMessagesLite: campaign.useMarketingMessagesLite });
+      providerResult = await sendWhatsAppTemplate({
+        account,
+        to: contact.phone,
+        template,
+        parameters: [],
+        useMarketingMessagesLite: campaign.useMarketingMessagesLite,
+        headerMediaUrl: campaign.headerMediaUrl || undefined,
+      });
     } catch (error) {
       errorMessage = error.message || "Send failed.";
       providerResult = { providerMessageId: `failed_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };

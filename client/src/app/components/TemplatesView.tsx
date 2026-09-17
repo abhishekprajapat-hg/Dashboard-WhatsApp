@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { Archive, Bot, Copy, Edit3, Eye, FileText, MessageSquareText, RefreshCcw, Search, Send, Sparkles, Tag, X } from "lucide-react";
+import { Archive, Bot, Copy, Edit3, Eye, FileText, Image as ImageIcon, MessageSquareText, Plus, RefreshCcw, Search, Send, Sparkles, Tag, Trash2, X } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -14,7 +14,24 @@ import {
   submitTemplateForApproval,
   syncTemplateLibrary,
   updateTemplate,
+  uploadMediaWithProgress,
 } from "../lib/api";
+
+type HeaderFormat = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+type ButtonType = "QUICK_REPLY" | "URL" | "PHONE_NUMBER";
+
+interface TemplateHeader {
+  format: HeaderFormat;
+  text: string;
+  mediaUrl: string;
+}
+
+interface TemplateButton {
+  type: ButtonType;
+  text: string;
+  url: string;
+  phoneNumber: string;
+}
 
 interface TemplateItem {
   id: string;
@@ -25,6 +42,8 @@ interface TemplateItem {
   language: string;
   body: string;
   variables: string[];
+  header?: TemplateHeader;
+  buttons?: TemplateButton[];
   status: "draft" | "active" | "archived" | "approved" | "pending" | "rejected";
   providerTemplateId?: string;
   whatsappAccountId?: string;
@@ -68,6 +87,8 @@ const sampleValues: Record<string, string> = {
   time: "4:30 PM",
 };
 
+const emptyHeader: TemplateHeader = { format: "NONE", text: "", mediaUrl: "" };
+
 const emptyForm = {
   id: "",
   name: "",
@@ -78,7 +99,23 @@ const emptyForm = {
   body: "",
   variables: "",
   whatsappAccountId: "",
+  header: emptyHeader,
+  buttons: [] as TemplateButton[],
 };
+
+const headerFormatOptions: { value: HeaderFormat; label: string }[] = [
+  { value: "NONE", label: "No header" },
+  { value: "TEXT", label: "Text" },
+  { value: "IMAGE", label: "Image" },
+  { value: "VIDEO", label: "Video" },
+  { value: "DOCUMENT", label: "Document" },
+];
+
+const buttonTypeOptions: { value: ButtonType; label: string }[] = [
+  { value: "QUICK_REPLY", label: "Quick reply" },
+  { value: "URL", label: "Website link" },
+  { value: "PHONE_NUMBER", label: "Call phone number" },
+];
 
 function statusClass(status: string) {
   if (status === "active" || status === "approved") return "border-primary/30 bg-primary/10 text-primary";
@@ -127,6 +164,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [previewText, setPreviewText] = useState("");
   const [whatsappAccounts, setWhatsappAccounts] = useState<{ id: string; displayName: string; phoneNumber: string }[]>([]);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
 
   useEffect(() => {
     getWhatsAppAccounts<{ data: { id: string; displayName: string; phoneNumber: string }[] }>()
@@ -191,7 +229,39 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
       body: template.body,
       variables: (template.variables || []).join(", "),
       whatsappAccountId: template.whatsappAccountId || "",
+      header: template.header || emptyHeader,
+      buttons: template.buttons || [],
     });
+  }
+
+  function addButton() {
+    setEditing((current) => current && current.buttons.length < 10
+      ? { ...current, buttons: [...current.buttons, { type: "QUICK_REPLY", text: "", url: "", phoneNumber: "" }] }
+      : current);
+  }
+
+  function updateButton(index: number, patch: Partial<TemplateButton>) {
+    setEditing((current) => current && ({
+      ...current,
+      buttons: current.buttons.map((button, i) => (i === index ? { ...button, ...patch } : button)),
+    }));
+  }
+
+  function removeButton(index: number) {
+    setEditing((current) => current && ({ ...current, buttons: current.buttons.filter((_, i) => i !== index) }));
+  }
+
+  async function handleHeaderFile(file: File | undefined) {
+    if (!file) return;
+    setUploadingHeader(true);
+    try {
+      const response = await uploadMediaWithProgress<{ data: { url: string } }>(file);
+      setEditing((current) => current && ({ ...current, header: { ...current.header, mediaUrl: response.data.url } }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Header media upload failed.");
+    } finally {
+      setUploadingHeader(false);
+    }
   }
 
   async function submitTemplate(event: React.FormEvent) {
@@ -208,6 +278,8 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
       body: editing.body,
       variables: editing.variables.split(",").map((item) => item.trim()).filter(Boolean),
       whatsappAccountId: editing.type === "whatsapp" ? (editing.whatsappAccountId || undefined) : undefined,
+      header: editing.type === "whatsapp" ? editing.header : undefined,
+      buttons: editing.type === "whatsapp" ? editing.buttons : undefined,
     };
     try {
       if (editing.id) await updateTemplate<{ data: TemplateItem }>(editing.id, payload);
@@ -543,6 +615,81 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                   <span className="text-[11px] font-medium text-muted-foreground">Variables</span>
                   <input value={editing.variables} onChange={(event) => setEditing((current) => current && ({ ...current, variables: event.target.value }))} placeholder="name, phone, requirement" className={fieldClass} />
                 </label>
+
+                {editing.type === "whatsapp" && (
+                  <>
+                    <div className="md:col-span-2 grid gap-3 rounded-lg border border-border bg-background/60 p-3 sm:grid-cols-2">
+                      <label className="block space-y-1.5">
+                        <span className="text-[11px] font-medium text-muted-foreground">Header</span>
+                        <select
+                          value={editing.header.format}
+                          onChange={(event) => setEditing((current) => current && ({ ...current, header: { format: event.target.value as HeaderFormat, text: "", mediaUrl: "" } }))}
+                          className={fieldClass}
+                        >
+                          {headerFormatOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </label>
+
+                      {editing.header.format === "TEXT" && (
+                        <label className="block space-y-1.5">
+                          <span className="text-[11px] font-medium text-muted-foreground">Header text</span>
+                          <input
+                            value={editing.header.text}
+                            onChange={(event) => setEditing((current) => current && ({ ...current, header: { ...current.header, text: event.target.value } }))}
+                            placeholder="A short header line"
+                            className={fieldClass}
+                          />
+                        </label>
+                      )}
+
+                      {(editing.header.format === "IMAGE" || editing.header.format === "VIDEO" || editing.header.format === "DOCUMENT") && (
+                        <label className="block space-y-1.5">
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            Example {editing.header.format.toLowerCase()} (shown to Meta's reviewers - a fresh one is sent per real message later)
+                          </span>
+                          <input
+                            type="file"
+                            accept={editing.header.format === "IMAGE" ? "image/*" : editing.header.format === "VIDEO" ? "video/*" : undefined}
+                            onChange={(event) => handleHeaderFile(event.target.files?.[0])}
+                            disabled={uploadingHeader}
+                            className={fieldClass}
+                          />
+                          {uploadingHeader && <span className="text-[10px] text-muted-foreground">Uploading...</span>}
+                          {editing.header.mediaUrl && !uploadingHeader && (
+                            <span className="flex items-center gap-1 text-[10px] text-primary"><ImageIcon size={11} /> Uploaded</span>
+                          )}
+                        </label>
+                      )}
+                    </div>
+
+                    <div className="md:col-span-2 space-y-2 rounded-lg border border-border bg-background/60 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-muted-foreground">Buttons ({editing.buttons.length}/10)</span>
+                        <Button type="button" size="sm" variant="outline" className="h-7 border-border text-[11px]" onClick={addButton} disabled={editing.buttons.length >= 10}>
+                          <Plus size={12} className="mr-1" /> Add button
+                        </Button>
+                      </div>
+                      {editing.buttons.map((button, index) => (
+                        <div key={index} className="grid grid-cols-1 items-center gap-2 rounded-md border border-border bg-card/60 p-2 sm:grid-cols-[140px_1fr_1fr_auto]">
+                          <select value={button.type} onChange={(event) => updateButton(index, { type: event.target.value as ButtonType })} className={fieldClass}>
+                            {buttonTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                          <input value={button.text} onChange={(event) => updateButton(index, { text: event.target.value })} placeholder="Button label" className={fieldClass} />
+                          {button.type === "URL" && (
+                            <input value={button.url} onChange={(event) => updateButton(index, { url: event.target.value })} placeholder="https://..." className={fieldClass} />
+                          )}
+                          {button.type === "PHONE_NUMBER" && (
+                            <input value={button.phoneNumber} onChange={(event) => updateButton(index, { phoneNumber: event.target.value })} placeholder="+91..." className={fieldClass} />
+                          )}
+                          {button.type === "QUICK_REPLY" && <span />}
+                          <button type="button" onClick={() => removeButton(index)} className="justify-self-start text-muted-foreground hover:text-destructive sm:justify-self-center">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
               <aside className="border-t border-border bg-background/45 p-4 lg:border-l lg:border-t-0">
                 <div className="mb-3 flex items-center justify-between gap-2">

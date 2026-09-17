@@ -329,6 +329,60 @@ async function uploadMetaAttachment({ account, accessToken, attachment }) {
   return { ...attachment, providerMediaId: payload.id, metaMediaId: payload.id };
 }
 
+// A template's HEADER example media (shown to Meta's reviewers when a template with an IMAGE/VIDEO/
+// DOCUMENT header is submitted) is a genuinely different upload path from uploadMetaAttachment above
+// - that one hits {phone-number-id}/media and returns a media_id valid for sending real messages.
+// Template creation instead requires Meta's Resumable Upload API (a two-step handshake against the
+// *app*, not the phone number) and returns an opaque "handle" string, only valid for
+// example.header_handle in a message_templates creation request - confirmed against Meta's docs,
+// this handle cannot be reused as a media_id for actually sending the approved template later (that
+// still needs a real link/media_id per send, see buildTemplateComponents' headerMediaUrl handling).
+export async function uploadMetaTemplateHeaderMedia({ account, headerMediaUrl }) {
+  const credentials = decodeCredentials(account);
+
+  if (isLocalCredential(credentials) || account.provider !== "meta") {
+    return { headerHandle: `local_header_handle_${Date.now()}` };
+  }
+  if (!config.meta.appId) {
+    const error = new Error("META_APP_ID is not configured - required to submit a template with a media header.");
+    error.code = "META_APP_ID_MISSING";
+    throw error;
+  }
+
+  const bytes = await attachmentBytes({ url: headerMediaUrl }).catch(() => null);
+  if (!bytes?.buffer?.length) {
+    const error = new Error("Could not read the header example image/video to upload to Meta.");
+    error.code = "HEADER_MEDIA_UNREADABLE";
+    throw error;
+  }
+
+  const accessToken = credentials.accessToken;
+  const startUrl = `https://graph.facebook.com/${config.metaGraphApiVersion}/${config.meta.appId}/uploads?file_length=${bytes.buffer.length}&file_type=${encodeURIComponent(bytes.mimeType)}&access_token=${encodeURIComponent(accessToken)}`;
+  const startResponse = await fetch(startUrl, { method: "POST" });
+  const startPayload = await startResponse.json().catch(() => ({}));
+  if (!startResponse.ok || !startPayload.id) {
+    const error = new Error(startPayload?.error?.message || "Failed to start the Meta upload session for the template header.");
+    error.meta = startPayload;
+    error.status = startResponse.status;
+    throw error;
+  }
+
+  const uploadResponse = await fetch(`https://graph.facebook.com/${config.metaGraphApiVersion}/${startPayload.id}`, {
+    method: "POST",
+    headers: { Authorization: `OAuth ${accessToken}`, file_offset: "0" },
+    body: bytes.buffer,
+  });
+  const uploadPayload = await uploadResponse.json().catch(() => ({}));
+  if (!uploadResponse.ok || !uploadPayload.h) {
+    const error = new Error(uploadPayload?.error?.message || "Failed to upload the template header media to Meta.");
+    error.meta = uploadPayload;
+    error.status = uploadResponse.status;
+    throw error;
+  }
+
+  return { headerHandle: uploadPayload.h };
+}
+
 export async function sendWhatsAppText({ account, to, body, attachments = [] }) {
   if (!account) {
     return {
@@ -574,12 +628,36 @@ function textParameters(values = [], count = 0) {
   }));
 }
 
-function buildTemplateComponents(template, parameters = []) {
+function mediaParamKeyForHeaderFormat(format) {
+  const upper = String(format || "").toUpperCase();
+  if (upper === "VIDEO") return "video";
+  if (upper === "DOCUMENT") return "document";
+  return "image";
+}
+
+function buildTemplateComponents(template, parameters = [], { headerMediaUrl } = {}) {
   const components = [];
   let parameterIndex = 0;
 
   for (const component of template.components || []) {
     const type = String(component.type || "").toUpperCase();
+
+    // A media (IMAGE/VIDEO/DOCUMENT) header has no {{n}} text placeholder to count via the
+    // countPlaceholders path below, but Meta still requires a header component on every single
+    // send naming the actual media to attach - the template's own creation-time review example is
+    // not reusable at send time, a fresh link is required per send. Throws rather than silently
+    // omitting the component: skipping it produces a confusing Meta 400 ("expected components[0]")
+    // instead of a clear local error pointing at the real cause (no headerMediaUrl supplied).
+    if (type === "HEADER" && String(component.format || "TEXT").toUpperCase() !== "TEXT") {
+      if (!headerMediaUrl) {
+        const error = new Error("This template has a media header - a headerMediaUrl is required to send it.");
+        error.code = "HEADER_MEDIA_REQUIRED";
+        throw error;
+      }
+      const key = mediaParamKeyForHeaderFormat(component.format);
+      components.push({ type: "header", parameters: [{ type: key, [key]: { link: headerMediaUrl } }] });
+      continue;
+    }
 
     // An AUTHENTICATION template's OTP button is how Meta actually delivers the code (copy/one-tap),
     // not a body placeholder - it needs its own "button" component in the send request, carrying the
@@ -622,7 +700,7 @@ function buildTemplateComponents(template, parameters = []) {
   return components;
 }
 
-export async function sendWhatsAppTemplate({ account, to, template, parameters = [], useMarketingMessagesLite = false }) {
+export async function sendWhatsAppTemplate({ account, to, template, parameters = [], useMarketingMessagesLite = false, headerMediaUrl }) {
   if (!account || !template) {
     return {
       providerMessageId: `local_template_${Date.now()}`,
@@ -694,7 +772,7 @@ export async function sendWhatsAppTemplate({ account, to, template, parameters =
     name: template.name,
     language: { code: template.language || "en" },
   };
-  const components = buildTemplateComponents(template, parameters);
+  const components = buildTemplateComponents(template, parameters, { headerMediaUrl });
   if (components.length) templatePayload.components = components;
 
   // Marketing Messages Lite is a routing choice, not a different message shape - Meta's own docs
