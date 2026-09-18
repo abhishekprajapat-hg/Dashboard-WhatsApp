@@ -1,6 +1,30 @@
 # Handoff — WhatsApp CRM engine work
 
-## 2026-09-18: migrated off Upstash to a self-hosted Redis on the VPS - the pay-as-you-go bill is now $0
+## 2026-09-18: session close-out - notifications, Redis migration, and media-header templates all closed; next session pivots to features/permissions/business model
+
+**Read this first if resuming.** Everything below from this session (2026-09-17/18) is fully closed,
+not paused - no loose threads. Confirmed:
+- Meeting-reminder WhatsApp delivery - user confirmed the real reminder actually arrived on their
+  phone for the real test meeting (Fri 18 Sep, ~12:05 - later than the naive "1h before" estimate,
+  Vega's own window logic, not investigated further since delivery is what mattered).
+- Self-hosted Redis migration - done, verified, memory-capped (see entry below).
+- Sundrishti's campaign (media-header/buttons templates) - code built and verified, but Sundrishti
+  themselves postponed it - no longer time-pressured, just waiting on them whenever they're ready.
+- Old Upstash instance - user was going to delete it manually from their own console (no API access
+  from this session to do it directly) - not confirmed done, but nothing in the app depends on it
+  either way.
+
+**Next session's actual focus, per the user directly**: "features, permissions, and business
+model" - stated broadly, not yet scoped to anything concrete. Existing groundwork already in this
+codebase worth knowing about before diving in: `utils/rbac.js` (role definitions: super_admin/
+admin/manager/agent/viewer, `permissionCatalog`), `services/entitlements.js` (plan-tier/pack
+concept, referenced from `routes/admin.js`'s `updatePackTier`), and `models/Organization.js`'s
+plan/billing fields. Start there to understand what already exists before assuming anything needs
+building from scratch - first session back should confirm what "features permissions and business
+model" actually means concretely (new pricing tiers? gating specific features like the media-header
+template work behind a plan? auditing the existing RBAC system?) rather than guessing.
+
+## 2026-09-18 (earlier): migrated off Upstash to a self-hosted Redis on the VPS - the pay-as-you-go bill is now $0
 
 Finished the migration paused in the entry below. `redis-server` is now installed and running
 directly on the app's own VPS (`72.60.97.58`), bound to `127.0.0.1` only with a `requirepass` set,
