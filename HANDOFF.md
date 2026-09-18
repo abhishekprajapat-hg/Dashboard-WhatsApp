@@ -1,5 +1,139 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-18 (later): "one platform" build-out - Phases 0-4 shipped (feature gating, invoicing, shipping, documentation, support), plus an urgent cross-tenant data leak into Vega found and fixed
+
+**Read this first if resuming.** This session picked up "features, permissions, and business model"
+from the entry below, went through a real architecture pivot (see "How we got here" at the bottom of
+this entry), and landed on a concrete master plan: turn this app into the single platform a client
+uses for Marketing/Campaigns, CRM, Billing, Shipping, Documentation, and Support - Vega becomes
+Nemnidhi's internal admin console over every client, not a place clients ever log into. The full
+phased plan (including the not-yet-built Phases 5-8) lives at
+`C:\Users\HP\.claude\plans\wild-honking-rabin.md` on the machine this session ran on - read that
+first for the complete picture before continuing, this entry only summarizes what's actually shipped.
+
+**Deploy status: pushed, not yet confirmed live.** All commits below were pushed to `origin/main`;
+the VPS cron should auto-pull within ~5 minutes as usual, but this session had no working SSH
+credentials to the VPS (`ssh -p 2424 dashboard@72.60.97.58` - `Permission denied (publickey,
+password)`, confirmed twice), so **nothing in this entry has been verified live in production** the
+way past sessions have (`git log -1`/`pm2 logs` on the box). First thing next session: confirm
+`git log -1 --oneline` on the VPS shows `31eebf1` (or later) before trusting any of this is actually
+running for real clients.
+
+### Urgent fix: Sundrishti's (and every client's) leads were leaking into Vega, Nemnidhi's own internal sales CRM
+
+Confirmed live via a real screenshot the user found themselves: Sundrishti Solar Solutions' own
+WhatsApp prospects were showing up as real Leads inside Vega. Root cause: `pushLeadToVega()`
+(`server/services/crm.js`) and `notifyVega()` (`server/services/vegaIntegration.js`) fired for
+**every** organization's detected leads/events with no check on which organization it was - not a
+Sundrishti-specific bug, structural, affecting every client since the `dashboard-leads` integration
+went live. Fixed centrally inside `vegaIntegration.js` (not at each call site, so a future caller
+can't reintroduce the leak): both functions now look up `Organization.isPlatformOwner` - the same
+"is this Nemnidhi itself" flag already used everywhere else in this codebase (entitlement bypass,
+billing-gate bypass, the meeting-reminder sweep) - and silently no-op for any non-platform-owner
+org, failing closed on any lookup error. Commit `2752266`. **Remediation of already-leaked data
+(Sundrishti's leads already sitting in Vega, possibly other clients' too) was NOT done by this
+session** - the user said they'd handle it themselves; worth confirming that actually happened.
+
+### Phase 0 - foundation hygiene (`d3d7304`)
+
+- `requireEntitlement("campaigns"/"messaging"/"analytics")` added to `campaigns.js`, `templates.js`,
+  `conversations.js`'s two send routes, and `analytics.js` - these capabilities were already defined
+  in `entitlements.js` but never actually enforced, a real gap where a Basic-tier org could hit
+  Medium/Pro-tier routes with nothing blocking them. Pre-flight checked both live clients were
+  already Pro before deploying.
+- New `UsageCounter` model + `services/usageMetering.js`'s `incrementUsage()`, wired into every real
+  send/run call site (campaign sends, automation sends/runs, manual conversation sends). Pure
+  observability - nothing reads these yet to block anything, that's a not-yet-built later phase.
+- **Still open, not done this session**: the HRMS/Vega dual-remote cleanup (`github.com/Nemnidhi-
+  Official/HRMS` and `github.com/Nemnidhi/Vega` are the same product, briefly diverged, merged back
+  2026-09-07, Vega confirmed 5 commits ahead and canonical) - needs GitHub account access this
+  session didn't have, just flagged to the user.
+
+### Phase 1 - Billing: native customer invoicing (`dd66b53`, `d32b3a8`)
+
+New `CustomerInvoice`/`CustomerPayment`/`CustomerPaymentAllocation` models - a workspace invoicing
+its OWN customers (a `Contact`), deliberately distinct from `models/Invoice.js` (Nemnidhi's own
+subscription invoice to the client). v1: manual invoice creation, manual payment recording, real PDF
+via `pdfkit` (same library `gstInvoice.js` already uses). New `invoicing` entitlement (medium+) and
+`invoicing:read`/`invoicing:write` permissions. New `InvoicingView.tsx`, same design system as every
+other view in this app (Card/Badge/Button/table + fixed-overlay form modal pattern from
+`TasksView.tsx`). Verified end-to-end in a real browser: ₹5,000 + ₹900 GST = ₹5,900 invoice, ₹3,000
+partial payment correctly left ₹2,900 due with a `partially_paid` status transition, real PDF
+downloaded (200 OK).
+
+### Phase 2 - Shipping: order/dispatch status tracking (`1b73366`)
+
+New `Shipment` model - `pending → packed → shipped → delivered` (or `cancelled`), a guarded state
+machine (can't move backwards, can't touch a terminal shipment), full `statusHistory` audit trail,
+optionally linked to a `CustomerInvoice`. v1 is internal status only - `carrier`/`trackingReference`
+are free-text fields filled in by hand, no real courier API integration yet (that's a v2, once this
+proves out with real usage - see the master plan for the explicit v1/v2 split on this). New
+`shipping` entitlement + permissions. New `ShippingView.tsx` with a one-click "advance to next
+status" action per row. Verified end-to-end: created a shipment, advanced it through the full
+sequence, confirmed each stat card/badge updated correctly and a delivered shipment loses further
+actions.
+
+### Phase 3 - Documentation: delivery challans and AI-drafted proposals (`886bbe4`)
+
+Two pieces, both explicitly v1-scoped per the master plan (internal knowledge base/SOPs are a
+separate, lower-urgency v2 not touched here):
+- **Delivery challan PDF** (`services/deliveryChallanPdf.js`, `GET /shipping/shipments/:id/challan-
+  pdf`) - same pdfkit pattern as the invoice PDF, gated by the existing `shipping` entitlement, no
+  new capability needed.
+- **AI-drafted proposals** - new `draftProposalDocument()` in `services/aiAssistant.js`, reusing the
+  existing `callProvider`/`resolveApiKey` plumbing directly (workspace-key-first, same JSON-response-
+  format behavior every other assistant task has) rather than routing through `runAssistantTask`'s
+  conversation-context machinery, since a proposal is drafted for a `Contact` directly, not derived
+  from a chat transcript. Falls back to a real local template when no AI provider is configured -
+  verified this exact path live (no API keys in this dev environment), produced coherent text
+  correctly referencing the stated goal/notes. New `BusinessDocument` model + `routes/documents.js`,
+  reusing the existing `assistant:read`/`assistant:write` permissions and `aiAssistant` entitlement
+  (no new permission pair). New `DocumentsView.tsx`.
+
+**Real bug caught and fixed during browser verification**: finalizing a proposal without editing it
+was incorrectly relabeling `aiProvider` from `local_rules` to `manual`, because the client always
+sends `content` in the PATCH body even when unchanged. Fixed by comparing against the stored value
+in `routes/documents.js`'s PATCH handler, not just checking the field was present - verified the fix
+live (finalize-without-editing now correctly keeps `local_rules`).
+
+### Phase 4 - Customer Support: tickets as a layer over the existing Inbox (`31eebf1`)
+
+Per the master plan's explicit framing, a ticket **is** a `Conversation`, not a parallel collection -
+added one field, `supportCategory` (non-empty marks a conversation as a tracked ticket), and reused
+`status`/`assignedToUserId` exactly as the Inbox already manages them. New `routes/support.js`
+(`Conversation.find` with one extra filter, no new model), gated by the existing `inbox:read`/
+`inbox:write` permissions and a new `support` entitlement (medium+). New `SupportView.tsx` - stat
+cards, status-filtered table with inline status/assignment dropdowns, and a "New ticket" flow that
+searches existing conversations (reusing `GET /conversations`) and converts one into a ticket.
+Verified end-to-end against a real conversation with a real inbound message: created a ticket,
+changed its status and reassigned it inline, both updates landed on the same underlying Conversation
+record immediately.
+
+### What's explicitly not built yet (see the plan file for full detail)
+
+- **Phase 5** - AI assistant expansion across all pillars (campaign/template copy generation, ad
+  copy, ticket-reply suggestions) - `draftProposalDocument` from Phase 3 is the first slice of this,
+  not the whole thing.
+- **Phase 6** - usage-limit enforcement (`PLAN_LIMITS`, soft-warn then hard-block) using the real
+  data Phase 0's `UsageCounter` has been collecting.
+- **Phase 7** - Vega admin console - this touches the separate Vega repo (`C:\Projects\Vega`), not
+  just this one; needs Dashboard-WhatsApp's admin API extended for an external (Vega-side) caller.
+- **Phase 8** - onboarding auto-configuration (questionnaire-driven provisioning + Industry Pack
+  activation), staff-assisted fallback in Vega's new admin console.
+- Real pricing/usage-limit numbers, which industries to build vertical packs for, BillStack
+  commercial terms - all explicitly flagged as business decisions, not engineering, throughout.
+
+### How we got here (context for why this looks the way it does)
+
+Started from "features, permissions, and business model" (see entry below). First draft treated
+Dashboard-WhatsApp/Vega/BillStack/the-office-on-rent as four loosely-coupled separate products - the
+user corrected this hard ("this is totally wrong"), clarified the actual vision is **one single
+platform** the client uses, with Vega purely as Nemnidhi's internal admin console. A second
+correction added third-party integrations (Google Ads/Business Profile/Maps, courier APIs, GSTN
+e-invoicing) as an explicit phased dimension. The Vega leak was found as a genuine side-quest
+("side detour") midway through, not part of the original plan - surfaced by the user reviewing a
+real screenshot of Vega's lead list and immediately recognizing client data that shouldn't be there.
+
 ## 2026-09-18: session close-out - notifications, Redis migration, and media-header templates all closed; next session pivots to features/permissions/business model
 
 **Read this first if resuming.** Everything below from this session (2026-09-17/18) is fully closed,
