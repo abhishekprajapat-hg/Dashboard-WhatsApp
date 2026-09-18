@@ -1,11 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../config.js";
+import { Organization } from "../models/index.js";
 import { notifyVega } from "../services/vegaIntegration.js";
 
 // Same approach as notificationChannels.unit.test.js: stub globalThis.fetch, no real network
 // access. config.vega is mutated directly and restored per-test since it's read at call time,
-// not cached at module load.
+// not cached at module load. Organization.findById is stubbed the same way (direct reassignment,
+// restored in t.after) since these are pure unit tests with no real DB connection - it mirrors
+// the exact Mongoose chain vegaIntegration.js calls: findById(id).select(...).lean().
+function stubOrganizationFindById(result) {
+  const original = Organization.findById;
+  Organization.findById = () => ({
+    select: () => ({
+      lean: async () => result,
+    }),
+  });
+  return () => {
+    Organization.findById = original;
+  };
+}
 
 test("notifyVega no-ops without hitting the network when unconfigured", async (t) => {
   const original = { ...config.vega };
@@ -27,6 +41,28 @@ test("notifyVega no-ops without hitting the network when unconfigured", async (t
   assert.equal(fetchCalled, false);
 });
 
+test("notifyVega no-ops without hitting the network for a non-platform-owner organization", async (t) => {
+  const original = { ...config.vega };
+  config.vega.apiUrl = "https://vega.example.test";
+  config.vega.integrationSecret = "shh-secret";
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return { ok: true, status: 200 };
+  };
+  const restoreOrg = stubOrganizationFindById({ isPlatformOwner: false });
+  t.after(() => {
+    Object.assign(config.vega, original);
+    globalThis.fetch = originalFetch;
+    restoreOrg();
+  });
+
+  const result = await notifyVega("org_client", "plan_changed", { plan: "pro" });
+  assert.deepEqual(result, { sent: false, reason: "not_platform_owner" });
+  assert.equal(fetchCalled, false, "a paying client's organization must never reach Vega");
+});
+
 test("notifyVega posts to Vega's integration endpoint with the shared secret header", async (t) => {
   const original = { ...config.vega };
   config.vega.apiUrl = "https://vega.example.test";
@@ -37,9 +73,11 @@ test("notifyVega posts to Vega's integration endpoint with the shared secret hea
     calls.push({ url, options });
     return { ok: true, status: 200 };
   };
+  const restoreOrg = stubOrganizationFindById({ isPlatformOwner: true });
   t.after(() => {
     Object.assign(config.vega, original);
     globalThis.fetch = originalFetch;
+    restoreOrg();
   });
 
   const result = await notifyVega("org_123", "plan_changed", { plan: "pro", previousPlan: "basic" });
@@ -61,9 +99,11 @@ test("notifyVega swallows a non-2xx response instead of throwing", async (t) => 
   config.vega.integrationSecret = "shh-secret";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: false, status: 401 });
+  const restoreOrg = stubOrganizationFindById({ isPlatformOwner: true });
   t.after(() => {
     Object.assign(config.vega, original);
     globalThis.fetch = originalFetch;
+    restoreOrg();
   });
 
   const result = await notifyVega("org_123", "plan_changed", { plan: "pro" });
@@ -78,9 +118,11 @@ test("notifyVega swallows a network error instead of throwing", async (t) => {
   globalThis.fetch = async () => {
     throw new Error("ECONNREFUSED");
   };
+  const restoreOrg = stubOrganizationFindById({ isPlatformOwner: true });
   t.after(() => {
     Object.assign(config.vega, original);
     globalThis.fetch = originalFetch;
+    restoreOrg();
   });
 
   const result = await notifyVega("org_123", "plan_changed", { plan: "pro" });

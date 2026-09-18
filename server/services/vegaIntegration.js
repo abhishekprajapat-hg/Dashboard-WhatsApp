@@ -1,10 +1,25 @@
 import { config } from "../config.js";
 import { logger } from "./logger.js";
+import { Organization } from "../models/index.js";
 
 function withTimeout() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.vega.requestTimeoutMs);
   return { signal: controller.signal, clear: () => clearTimeout(timeout) };
+}
+
+// Vega is Nemnidhi's own internal sales CRM, not a per-tenant system - a paying client's leads/
+// events must never reach it. Checked here, centrally, rather than at every call site, so a new
+// caller can't reintroduce the leak by forgetting the check (fails closed: any lookup error or a
+// missing/unrecognized organizationId is treated as "not platform owner", never as "allow").
+async function isPlatformOwnerOrg(organizationId) {
+  try {
+    const organization = await Organization.findById(organizationId).select("isPlatformOwner").lean();
+    return Boolean(organization?.isPlatformOwner);
+  } catch (error) {
+    logger.warn({ err: error, organizationId }, "isPlatformOwnerOrg: lookup failed, defaulting to not-platform-owner");
+    return false;
+  }
 }
 
 // Best-effort, fire-and-forget: a Vega outage or an unconfigured integration must never break
@@ -15,6 +30,9 @@ function withTimeout() {
 export async function notifyVega(organizationId, event, data = {}) {
   if (!config.vega.apiUrl || !config.vega.integrationSecret) {
     return { sent: false, reason: "not_configured" };
+  }
+  if (!(await isPlatformOwnerOrg(organizationId))) {
+    return { sent: false, reason: "not_platform_owner" };
   }
 
   const { signal, clear } = withTimeout();
@@ -46,6 +64,9 @@ export async function notifyVega(organizationId, event, data = {}) {
 export async function pushLeadToVega({ organizationId, conversationId, contactName, phone, campaign, ctwaClid, firstMessage }) {
   if (!config.vega.apiUrl || !config.vega.integrationSecret) {
     return { sent: false, reason: "not_configured" };
+  }
+  if (!(await isPlatformOwnerOrg(organizationId))) {
+    return { sent: false, reason: "not_platform_owner" };
   }
 
   const { signal, clear } = withTimeout();
