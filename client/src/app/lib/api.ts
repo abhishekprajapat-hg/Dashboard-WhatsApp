@@ -1524,6 +1524,47 @@ export function allocatePayment<T>(paymentId: string, allocation: { invoiceId: s
   });
 }
 
+export function getShipments<T>(params: { contactId?: string; status?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.contactId) query.set("contactId", params.contactId);
+  if (params.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/shipping/shipments${suffix}`);
+}
+
+export function getShipment<T>(id: string) {
+  return request<T>(`/shipping/shipments/${id}`);
+}
+
+export function createShipment<T>(shipment: {
+  contactId: string;
+  invoiceId?: string;
+  items: { description: string; quantity: number }[];
+  shippingAddress?: string;
+  carrier?: string;
+  trackingReference?: string;
+  notes?: string;
+}) {
+  return request<T>("/shipping/shipments", {
+    method: "POST",
+    body: JSON.stringify(shipment),
+  });
+}
+
+export function updateShipment<T>(id: string, patch: Partial<{ carrier: string; trackingReference: string; shippingAddress: string; notes: string }>) {
+  return request<T>(`/shipping/shipments/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function updateShipmentStatus<T>(id: string, status: "pending" | "packed" | "shipped" | "delivered" | "cancelled", note?: string) {
+  return request<T>(`/shipping/shipments/${id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status, note: note || "" }),
+  });
+}
+
 export function getCalendarEvents<T>(params: { from?: string; to?: string; assignedToUserId?: string } = {}) {
   const query = new URLSearchParams();
   if (params.from) query.set("from", params.from);

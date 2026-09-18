@@ -26,6 +26,7 @@ export * from "./MeetingAvailability.js";
 export * from "./Notification.js";
 export * from "./Organization.js";
 export * from "./Role.js";
+export * from "./Shipment.js";
 export * from "./Tag.js";
 export * from "./Task.js";
 export * from "./Template.js";

@@ -36,6 +36,12 @@ export const CAPABILITY_DEFINITIONS = [
     minTier: "medium",
   },
   {
+    key: "shipping",
+    label: "Shipment tracking",
+    description: "Track order/dispatch status (packed/shipped/delivered) for a workspace's own customers (server/routes/shipping.js). Internal status only in v1 - no courier API integration yet.",
+    minTier: "medium",
+  },
+  {
     key: "analytics",
     label: "Analytics dashboard",
     description: "Usage/performance analytics beyond the basic inbox.",
