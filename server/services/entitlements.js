@@ -30,6 +30,12 @@ export const CAPABILITY_DEFINITIONS = [
     minTier: "medium",
   },
   {
+    key: "invoicing",
+    label: "Customer invoicing",
+    description: "Create and send invoices to a workspace's own customers, record payments against them (server/routes/invoicing.js). Distinct from this organization's own Dashboard-WhatsApp subscription billing.",
+    minTier: "medium",
+  },
+  {
     key: "analytics",
     label: "Analytics dashboard",
     description: "Usage/performance analytics beyond the basic inbox.",
