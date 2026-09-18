@@ -5,6 +5,7 @@ import {
   ContactRound,
   FileStack,
   FileText,
+  Headset,
   Inbox,
   LayoutDashboard,
   ListChecks,
@@ -35,6 +36,7 @@ export type ViewId =
   | "invoicing"
   | "shipping"
   | "documents"
+  | "support"
   | "team"
   | "tasks"
   | "admin"
@@ -61,6 +63,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "invoicing", icon: Receipt, label: "Invoicing" },
   { id: "shipping", icon: Truck, label: "Shipping" },
   { id: "documents", icon: FileStack, label: "Documents" },
+  { id: "support", icon: Headset, label: "Support" },
   { id: "team", icon: Users2, label: "Team" },
   { id: "tasks", icon: ListChecks, label: "Tasks" },
   { id: "assistant", icon: Bot, label: "AI Assistant" },

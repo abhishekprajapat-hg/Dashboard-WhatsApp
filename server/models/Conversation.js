@@ -12,6 +12,12 @@ const conversationSchema = new mongoose.Schema(
     assignedToUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     status: { type: String, enum: ["open", "pending", "resolved", "archived"], default: "open" },
     priority: { type: String, enum: ["low", "normal", "high", "urgent"], default: "normal" },
+    // Non-empty marks this conversation as a tracked support ticket (platform master plan, Phase 4
+    // Customer Support) - a lightweight layer over the existing Inbox, not a parallel ticket
+    // collection. Reuses this same status/assignedToUserId for ticket status/assignment rather than
+    // duplicating them. Loose string, not a hard enum, matching Organization.plan's reasoning - the
+    // category list is UI-presented (see routes/support.js) but never blocks an unrecognized value.
+    supportCategory: { type: String, trim: true, default: "" },
     tagIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tag", index: true }],
     lastMessageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
     lastMessageAt: { type: Date, index: true },
@@ -24,6 +30,7 @@ const conversationSchema = new mongoose.Schema(
 );
 
 conversationSchema.index({ workspaceId: 1, status: 1, lastMessageAt: -1 });
+conversationSchema.index({ workspaceId: 1, supportCategory: 1, status: 1 });
 conversationSchema.index({ workspaceId: 1, assignedToUserId: 1, status: 1 });
 conversationSchema.index({ workspaceId: 1, pinnedByUserIds: 1, lastMessageAt: -1 });
 

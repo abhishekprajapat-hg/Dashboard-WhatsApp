@@ -91,7 +91,7 @@ export function serializeMessage(message) {
   };
 }
 
-function messagePreview(message) {
+export function messagePreview(message) {
   if (!message) return "No messages yet";
   if (message.body) return message.body;
   const attachment = message.attachments?.[0];

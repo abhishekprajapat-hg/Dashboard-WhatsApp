@@ -42,6 +42,12 @@ export const CAPABILITY_DEFINITIONS = [
     minTier: "medium",
   },
   {
+    key: "support",
+    label: "Customer support tickets",
+    description: "Track WhatsApp conversations as categorized support tickets (server/routes/support.js) - a lightweight layer over the existing Inbox/Conversation data, not a separate ticketing system.",
+    minTier: "medium",
+  },
+  {
     key: "analytics",
     label: "Analytics dashboard",
     description: "Usage/performance analytics beyond the basic inbox.",

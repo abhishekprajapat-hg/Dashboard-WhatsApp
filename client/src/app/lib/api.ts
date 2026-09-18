@@ -1608,6 +1608,29 @@ export function updateDocument<T>(id: string, patch: Partial<{ title: string; co
   });
 }
 
+export function getTickets<T>(params: { category?: string; status?: string; assignedToUserId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.category) query.set("category", params.category);
+  if (params.status) query.set("status", params.status);
+  if (params.assignedToUserId) query.set("assignedToUserId", params.assignedToUserId);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/support/tickets${suffix}`);
+}
+
+export function createTicket<T>(payload: { conversationId: string; category: string; assignedToUserId?: string }) {
+  return request<T>("/support/tickets", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateTicket<T>(id: string, patch: Partial<{ category: string; status: "open" | "pending" | "resolved"; assignedToUserId: string }>) {
+  return request<T>(`/support/tickets/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
 export async function downloadBusinessDocumentPdf(documentId: string, filename: string) {
   const token = getStoredToken();
   const response = await fetch(`${API_URL}/documents/${documentId}/pdf`, {
