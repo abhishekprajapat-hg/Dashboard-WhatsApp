@@ -11,6 +11,16 @@ dashboard-api --update-env` with zero errors after. The old Upstash instance ("R
 `regular-longhorn-109637.upstash.io`) is no longer referenced anywhere and can be deleted from the
 Upstash console whenever - nothing in this app still points at it.
 
+**Also set a memory cap** (`/etc/redis/redis.conf`): `maxmemory 256mb` with `maxmemory-policy
+noeviction` - not `allkeys-lru`/any evicting policy, since this instance is only ever used for
+BullMQ job queues, never a general cache. BullMQ needs its queue data (lists/sorted-sets/hashes)
+to stay fully intact - an evicting policy could silently delete part of a job's data under memory
+pressure and corrupt the queue, whereas `noeviction` just rejects new writes loudly if the cap is
+ever actually hit. Real usage is ~643KB (matches the old Upstash reading for the same workload,
+self-trimmed by `removeOnComplete`/`removeOnFail` in `jobs.js`), so 256MB is pure headroom, not a
+limit expected to be approached in normal operation. Confirmed via `redis-cli -a <password> config
+get maxmemory` (`268435456` = 256MB exactly) and `config get maxmemory-policy` (`noeviction`).
+
 **Real friction hit along the way, worth knowing about if this VPS needs package installs again:**
 - The web console (`mum.hostingervps.com`) and SSH both go down independently sometimes - confirmed
   once this session (both timed out for an extended stretch while the live app stayed up fine, a
