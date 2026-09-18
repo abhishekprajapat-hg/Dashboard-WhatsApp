@@ -1565,6 +1565,66 @@ export function updateShipmentStatus<T>(id: string, status: "pending" | "packed"
   });
 }
 
+export async function downloadDeliveryChallanPdf(shipmentId: string, filename: string) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_URL}/shipping/shipments/${shipmentId}/challan-pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not download this challan.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function getDocuments<T>(params: { contactId?: string; type?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.contactId) query.set("contactId", params.contactId);
+  if (params.type) query.set("type", params.type);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/documents${suffix}`);
+}
+
+export function getDocument<T>(id: string) {
+  return request<T>(`/documents/${id}`);
+}
+
+export function draftDocument<T>(payload: { contactId: string; goal: string; notes?: string; provider?: "local" | "openai" | "gemini" | "claude" }) {
+  return request<T>("/documents/draft", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateDocument<T>(id: string, patch: Partial<{ title: string; content: string; status: "draft" | "finalized" }>) {
+  return request<T>(`/documents/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function downloadBusinessDocumentPdf(documentId: string, filename: string) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_URL}/documents/${documentId}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not download this document.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function getCalendarEvents<T>(params: { from?: string; to?: string; assignedToUserId?: string } = {}) {
   const query = new URLSearchParams();
   if (params.from) query.set("from", params.from);

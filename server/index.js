@@ -20,6 +20,7 @@ import { campaignsRouter } from "./routes/campaigns.js";
 import { contactsRouter } from "./routes/contacts.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dashboardRouter } from "./routes/dashboard.js";
+import { documentsRouter } from "./routes/documents.js";
 import { invoicingRouter } from "./routes/invoicing.js";
 import { leadsRouter } from "./routes/leads.js";
 import { shippingRouter } from "./routes/shipping.js";
@@ -135,6 +136,7 @@ app.use("/api/meeting-availability", requireAuth, requireWorkspaceContext, meeti
 app.use("/api/billing", requireAuth, requireWorkspaceContext, billingRouter);
 app.use("/api/invoicing", requireAuth, requireWorkspaceContext, invoicingRouter);
 app.use("/api/shipping", requireAuth, requireWorkspaceContext, shippingRouter);
+app.use("/api/documents", requireAuth, requireWorkspaceContext, documentsRouter);
 app.use("/webhooks/razorpay", billingWebhookRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);

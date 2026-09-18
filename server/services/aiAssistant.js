@@ -319,6 +319,48 @@ export async function runAssistantTask({ workspaceId, conversationId, provider =
   return { ...result, knowledge, conversationId };
 }
 
+// The Documentation pillar's AI piece (platform master plan, Phase 3) - a standalone draft, not
+// routed through runAssistantTask's conversation-context machinery above, since a proposal is
+// drafted for a Contact directly (goal/notes the user types in), not derived from a chat transcript.
+// Reuses the same callProvider/resolveApiKey plumbing so it inherits the same workspace-key-first,
+// JSON-response-format behavior every other assistant task already has.
+export async function draftProposalDocument({ workspaceId, contact, goal, notes = "", provider = "local" }) {
+  const system =
+    "You are a business assistant drafting a professional proposal document to send to a customer. " +
+    'Return compact JSON: { "title": "short proposal title", "body": "the full proposal text, plain prose in 3-6 short paragraphs, professional and specific to the stated goal - no markdown headers." }';
+  const aiPrompt = JSON.stringify({
+    customer: { name: contact?.name, phone: contact?.phone },
+    goal,
+    notes,
+  });
+
+  const fallbackTitle = `Proposal for ${contact?.name || "customer"}`;
+  const fallbackBody = [
+    `Dear ${contact?.name || "Customer"},`,
+    `Thank you for your interest. Based on what you've shared${goal ? ` regarding "${goal}"` : ""}, we'd like to propose the following.`,
+    notes ? `Additional details: ${notes}` : "",
+    "We're confident this approach will meet your needs, and we're happy to discuss further or adjust scope as required.",
+    "Looking forward to working together.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  let result = { title: fallbackTitle, body: fallbackBody, provider: "local_rules" };
+  try {
+    const providerText = await callProvider({ provider, system, prompt: aiPrompt, workspaceId });
+    if (providerText) {
+      const parsed = JSON.parse(providerText.replace(/^```json|```$/g, "").trim());
+      if (parsed.title && parsed.body) {
+        result = { title: parsed.title, body: parsed.body, provider };
+      }
+    }
+  } catch {
+    // Falls through to the local template above - a provider outage must never block drafting.
+  }
+
+  return result;
+}
+
 export async function createKnowledgeDocument({ req, name, content, mimeType = "text/plain", source = "upload" }) {
   const chunks = splitChunks(content);
   return AiDocument.create({

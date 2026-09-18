@@ -3,6 +3,7 @@ import {
   BarChart3,
   Bot,
   ContactRound,
+  FileStack,
   FileText,
   Inbox,
   LayoutDashboard,
@@ -33,6 +34,7 @@ export type ViewId =
   | "analytics"
   | "invoicing"
   | "shipping"
+  | "documents"
   | "team"
   | "tasks"
   | "admin"
@@ -58,6 +60,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "analytics", icon: BarChart3, label: "Analytics" },
   { id: "invoicing", icon: Receipt, label: "Invoicing" },
   { id: "shipping", icon: Truck, label: "Shipping" },
+  { id: "documents", icon: FileStack, label: "Documents" },
   { id: "team", icon: Users2, label: "Team" },
   { id: "tasks", icon: ListChecks, label: "Tasks" },
   { id: "assistant", icon: Bot, label: "AI Assistant" },

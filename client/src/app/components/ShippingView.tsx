@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { ArrowRight, Package, Plus, Truck, X, XCircle } from "lucide-react";
+import { ArrowRight, Download, Package, Plus, Truck, X, XCircle } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
@@ -8,7 +8,7 @@ import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
 import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
-import { createShipment, getContacts, getInvoices, getShipments, updateShipmentStatus } from "../lib/api";
+import { createShipment, downloadDeliveryChallanPdf, getContacts, getInvoices, getShipments, updateShipmentStatus } from "../lib/api";
 
 interface ContactOption {
   id: string;
@@ -138,6 +138,16 @@ export function ShippingView({ canWrite = false }: ShippingViewProps) {
     }
   }
 
+  const [downloadingId, setDownloadingId] = useState("");
+  async function handleDownloadChallan(shipment: ShipmentRecord) {
+    setDownloadingId(shipment.id);
+    try {
+      await downloadDeliveryChallanPdf(shipment.id, `${shipment.shipmentNumber}-challan.pdf`);
+    } finally {
+      setDownloadingId("");
+    }
+  }
+
   if (lockedMessage) {
     return (
       <div className="flex min-h-full w-full items-center justify-center p-6">
@@ -255,8 +265,16 @@ export function ShippingView({ canWrite = false }: ShippingViewProps) {
                         </td>
                         <td className="px-3 py-3 text-muted-foreground">{formatDate(shipment.deliveredAt)}</td>
                         <td className="px-3 py-3">
-                          {canWrite && target && (
-                            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40"
+                              title="Download delivery challan"
+                              onClick={() => handleDownloadChallan(shipment)}
+                              disabled={downloadingId === shipment.id}
+                            >
+                              <Download size={13} />
+                            </button>
+                            {canWrite && target && (
                               <button
                                 className="flex h-7 items-center gap-1 rounded-md px-2 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40"
                                 title={`Mark as ${STATUS_BADGE[target].label}`}
@@ -266,6 +284,8 @@ export function ShippingView({ canWrite = false }: ShippingViewProps) {
                                 <ArrowRight size={13} />
                                 {STATUS_BADGE[target].label}
                               </button>
+                            )}
+                            {canWrite && target && (
                               <button
                                 className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
                                 title="Cancel shipment"
@@ -274,8 +294,8 @@ export function ShippingView({ canWrite = false }: ShippingViewProps) {
                               >
                                 <XCircle size={13} />
                               </button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

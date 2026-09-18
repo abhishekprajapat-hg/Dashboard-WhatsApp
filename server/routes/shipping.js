@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { Contact, CustomerInvoice, Shipment } from "../models/index.js";
+import { Contact, CustomerInvoice, Organization, Shipment } from "../models/index.js";
 import { nextSequence } from "../models/Counter.js";
+import { generateDeliveryChallanPdfBuffer } from "../services/deliveryChallanPdf.js";
 import { objectIdString, optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const shippingRouter = Router();
@@ -146,6 +147,26 @@ shippingRouter.patch("/shipments/:id", requirePermission("shipping:write"), requ
   await shipment.save();
 
   res.json({ data: serializeShipment(shipment) });
+});
+
+shippingRouter.get("/shipments/:id/challan-pdf", requirePermission("shipping:read"), requireEntitlement("shipping"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Shipment not found." });
+  }
+  const shipment = await Shipment.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId }).populate("contactId", "name phone email waName");
+  if (!shipment) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Shipment not found." });
+  }
+
+  const organization = await Organization.findById(req.user.organizationId).select("name");
+  const pdfBuffer = await generateDeliveryChallanPdfBuffer(shipment, {
+    issuerName: organization?.name || "Delivery Challan",
+    contact: shipment.contactId,
+  });
+
+  res.set("Content-Type", "application/pdf");
+  res.set("Content-Disposition", `attachment; filename="${shipment.shipmentNumber}-challan.pdf"`);
+  res.send(pdfBuffer);
 });
 
 // Status is its own endpoint, not folded into the general PATCH above - a status change is a real

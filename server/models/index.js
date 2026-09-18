@@ -1,5 +1,6 @@
 export * from "./ApiKey.js";
 export * from "./AuditLog.js";
+export * from "./BusinessDocument.js";
 export * from "./AiDocument.js";
 export * from "./AiMemory.js";
 export * from "./AutomationFlow.js";
