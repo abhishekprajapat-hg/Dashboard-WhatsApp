@@ -8,6 +8,7 @@ import {
   archiveTemplate,
   createTemplate,
   duplicateTemplate,
+  generateTemplateCopy,
   getTemplates,
   getWhatsAppAccounts,
   previewTemplate,
@@ -147,6 +148,62 @@ function renderSamplePreview(body: string, variables: string[] = []) {
     preview = preview.replace(new RegExp(`{{\\s*${variable}\\s*}}`, "g"), value);
   });
   return preview;
+}
+
+// Platform master plan, Phase 5 (AI assistant expansion) - covers both "template copy" and
+// "campaign copy" as one feature, since campaigns here are always template-driven (no independent
+// free-text body to generate into). Self-contained so it doesn't add its own fields to the parent's
+// already-large `editing` state - it only ever writes into it via onGenerated.
+function TemplateCopyGenerator({ category, onGenerated }: { category: string; onGenerated: (body: string, variables: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [goal, setGoal] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleGenerate() {
+    if (!goal.trim()) return;
+    setLoading(true);
+    try {
+      const response = await generateTemplateCopy<{ data: { body: string; variables: string[] } }>({ category, goal: goal.trim() });
+      onGenerated(response.data.body, response.data.variables || []);
+      setOpen(false);
+      setGoal("");
+    } catch {
+      // A provider outage falls back server-side already - this only guards a hard network failure.
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10"
+      >
+        <Sparkles size={11} />
+        Generate with AI
+      </button>
+      {open && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <input
+            value={goal}
+            onChange={(event) => setGoal(event.target.value)}
+            placeholder="e.g. Diwali solar discount offer"
+            className="h-7 w-56 rounded-md border border-border bg-background/80 px-2 text-[11px] text-foreground outline-none focus:border-primary/50"
+          />
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={loading || !goal.trim()}
+            className="h-7 rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {loading ? "Generating…" : "Generate"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
@@ -608,7 +665,15 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                   </label>
                 </div>
                 <label className="block space-y-1.5 md:col-span-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">Body</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-muted-foreground">Body</span>
+                    <TemplateCopyGenerator
+                      category={editing.category}
+                      onGenerated={(body, variables) =>
+                        setEditing((current) => current && ({ ...current, body, variables: variables.join(", ") }))
+                      }
+                    />
+                  </div>
                   <textarea value={editing.body} onChange={(event) => setEditing((current) => current && ({ ...current, body: event.target.value }))} placeholder="Message body. Use {{name}} variables." className={textareaClass} />
                 </label>
                 <label className="block space-y-1.5 md:col-span-2">

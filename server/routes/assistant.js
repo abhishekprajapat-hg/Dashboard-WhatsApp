@@ -5,7 +5,7 @@ import { hasEntitlementForActor, requireEntitlement, requirePermission } from ".
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { AutomationFlow, Conversation, Lead, Message, Organization } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
-import { createKnowledgeDocument, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
+import { createKnowledgeDocument, draftTemplateCopy, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
 import { normalizeLeadStage } from "../services/crm.js";
 import { getWorkspaceIntegrations } from "../services/integrations.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
@@ -250,3 +250,30 @@ assistantRouter.post("/tool-call", requirePermission("assistant:write"), require
 
   res.json({ data: { tool: name || "unknown", status: "registered", arguments: args } });
 });
+
+export const generateTemplateCopySchema = z.object({
+  category: z.string().trim().optional().default("marketing"),
+  goal: trimmedString("Describe what this template is for."),
+  notes: z.string().optional().default(""),
+  provider: z.string().trim().optional().default("local"),
+});
+
+// Covers both "campaign copy" and "template copy" from the platform master plan's Phase 5 - see
+// draftTemplateCopy's own comment in aiAssistant.js for why these are one feature, not two, in this
+// codebase (campaigns are always template-driven, no separate free-text body to generate into).
+assistantRouter.post(
+  "/generate/template-copy",
+  requirePermission("assistant:write"),
+  requireEntitlement("aiAssistant"),
+  validateBody(generateTemplateCopySchema),
+  async (req, res) => {
+    const result = await draftTemplateCopy({
+      workspaceId: req.user.workspaceId,
+      category: req.body.category,
+      goal: req.body.goal,
+      notes: req.body.notes,
+      provider: req.body.provider,
+    });
+    res.json({ data: result });
+  }
+);

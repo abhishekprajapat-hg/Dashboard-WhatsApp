@@ -1631,6 +1631,19 @@ export function updateTicket<T>(id: string, patch: Partial<{ category: string; s
   });
 }
 
+export function suggestTicketReply<T>(id: string) {
+  return request<T>(`/support/tickets/${id}/suggest-reply`, {
+    method: "POST",
+  });
+}
+
+export function generateTemplateCopy<T>(payload: { category?: string; goal: string; notes?: string; provider?: string }) {
+  return request<T>("/assistant/generate/template-copy", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function downloadBusinessDocumentPdf(documentId: string, filename: string) {
   const token = getStoredToken();
   const response = await fetch(`${API_URL}/documents/${documentId}/pdf`, {

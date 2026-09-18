@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { Headset, LifeBuoy, Plus, Search, X } from "lucide-react";
+import { Check, Copy, Headset, LifeBuoy, Plus, Search, Sparkles, X } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
@@ -8,7 +8,7 @@ import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
 import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
-import { createTicket, getConversations, getTeamMembers, getTickets, updateTicket } from "../lib/api";
+import { createTicket, getConversations, getTeamMembers, getTickets, suggestTicketReply, updateTicket } from "../lib/api";
 
 interface MemberOption {
   userId: string;
@@ -66,6 +66,7 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
   const [showForm, setShowForm] = useState(false);
   const [lockedMessage, setLockedMessage] = useState("");
   const [updatingId, setUpdatingId] = useState("");
+  const [suggestingTicket, setSuggestingTicket] = useState<TicketRecord | null>(null);
 
   function loadTickets() {
     setLoading(true);
@@ -206,7 +207,7 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
               <table className="w-full min-w-[860px] text-xs">
                 <thead className="sticky top-0 z-10 border-b border-border bg-surface-subtle/95 backdrop-blur">
                   <tr>
-                    {["Customer", "Category", "Last message", "Status", "Assigned to", "Activity"].map((column) => (
+                    {["Customer", "Category", "Last message", "Status", "Assigned to", "Activity", "Actions"].map((column) => (
                       <th key={column} className="px-3 py-3 text-left font-medium text-muted-foreground">
                         {column}
                       </th>
@@ -255,6 +256,16 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
                           )}
                         </td>
                         <td className="px-3 py-3 text-muted-foreground">{ticket.lastActivity}</td>
+                        <td className="px-3 py-3">
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"
+                            onClick={() => setSuggestingTicket(ticket)}
+                          >
+                            <Sparkles size={12} />
+                            Suggest reply
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -276,6 +287,70 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
           onLocked={setLockedMessage}
         />
       )}
+
+      {suggestingTicket && (
+        <SuggestReplyModal ticket={suggestingTicket} onClose={() => setSuggestingTicket(null)} onLocked={setLockedMessage} />
+      )}
+    </div>
+  );
+}
+
+// Support pillar's AI piece (platform master plan, Phase 5) - a ticket has no send box of its own
+// (that's the Inbox's job), so this surfaces the suggestion as text to copy across rather than
+// sending anything from here.
+function SuggestReplyModal({ ticket, onClose, onLocked }: { ticket: TicketRecord; onClose: () => void; onLocked: (message: string) => void }) {
+  const [loading, setLoading] = useState(true);
+  const [reply, setReply] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    suggestTicketReply<{ data: { reply: string; provider: string } }>(ticket.id)
+      .then((response) => setReply(response.data.reply))
+      .catch((error) => {
+        if (isPlanLimitError(error)) onLocked(error.message);
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket.id]);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(reply);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be denied by the browser (permissions, insecure context) - the text
+      // is still visible and selectable in the modal, so this degrades to "copy it by hand"
+      // rather than surfacing an error for something that isn't actually broken.
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className="flex items-center gap-1.5 text-lg font-semibold text-foreground">
+            <Sparkles size={16} className="text-primary" />
+            Suggested reply
+          </h2>
+          <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+
+        {loading ? (
+          <LoadingSkeleton rows={3} />
+        ) : (
+          <p className="whitespace-pre-wrap rounded-lg border border-border/70 bg-surface-subtle/60 p-3 text-sm text-foreground">{reply}</p>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          <Button type="button" variant="outline" onClick={handleCopy} disabled={loading || !reply}>
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? "Copied" : "Copy to clipboard"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Conversation } from "../models/index.js";
+import { runAssistantTask } from "../services/aiAssistant.js";
 import { messagePreview, relativeTime } from "../utils/serializers.js";
 import { objectIdString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
@@ -126,4 +127,31 @@ supportRouter.patch("/tickets/:id", requirePermission("inbox:write"), requireEnt
   await conversation.populate("lastMessageId");
 
   res.json({ data: serializeTicket(conversation) });
+});
+
+// The Support pillar's AI piece (platform master plan, Phase 5) - a ticket IS a Conversation (see
+// this file's own header comment), so a reply suggestion for one is exactly the same "draft_reply"
+// task the Inbox's own reply-suggest button already calls (InboxView.tsx) - this route exists so
+// Support has its own documented endpoint for it, without duplicating runAssistantTask's logic.
+// Gated by aiAssistant (not "support") since the AI capability itself, not ticket tracking, is what
+// this actually depends on - same precedent as the Documentation pillar's AI drafting.
+supportRouter.post("/tickets/:id/suggest-reply", requirePermission("inbox:write"), requireEntitlement("aiAssistant"), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Ticket not found." });
+  }
+  const ticket = await Conversation.findOne({
+    _id: req.params.id,
+    workspaceId: req.user.workspaceId,
+    supportCategory: mongoose.trusted({ $ne: "" }),
+  });
+  if (!ticket) {
+    return res.status(404).json({ error: "NOT_FOUND", message: "Ticket not found." });
+  }
+
+  const result = await runAssistantTask({
+    workspaceId: req.user.workspaceId,
+    conversationId: ticket._id.toString(),
+    task: "draft_reply",
+  });
+  res.json({ data: { reply: result.autoReply || "", provider: result.provider } });
 });

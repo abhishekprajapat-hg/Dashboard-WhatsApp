@@ -361,6 +361,43 @@ export async function draftProposalDocument({ workspaceId, contact, goal, notes 
   return result;
 }
 
+// Phase 5 (AI assistant expansion) - covers both "template copy" and "campaign copy" from the
+// master plan as ONE feature: campaigns in this app are always template-driven (Campaign.templateId,
+// no independent free-text body of their own - confirmed by reading CampaignsView.tsx before
+// building this), so there is no separate UI surface for "campaign copy" to write into. Whatever
+// copy a campaign sends out gets authored here, at the template. Same standalone-draft shape as
+// draftProposalDocument above - not conversation-derived, just a goal/category the user types in.
+export async function draftTemplateCopy({ workspaceId, category = "marketing", goal, notes = "", provider = "local" }) {
+  const system =
+    "You are a WhatsApp Business template copywriter. Meta template bodies must avoid excessive " +
+    "promotional language patterns that risk rejection, and use {{1}}, {{2}}, etc. placeholders " +
+    'for any value that varies per recipient. Return compact JSON: { "body": "the template body ' +
+    "text using {{1}}/{{2}} style placeholders where appropriate, 1-3 short sentences\", " +
+    '"variables": ["Customer Name", "Order ID"] } - variables is a plain-English list describing ' +
+    "what each placeholder means, in the same order they appear in body. Omit variables entirely " +
+    "(empty array) if the copy needs none.";
+  const aiPrompt = JSON.stringify({ category, goal, notes });
+
+  const fallbackBody = `Hi {{1}}, ${goal ? `regarding ${goal} - ` : ""}we wanted to reach out with an update.${
+    notes ? ` ${notes}.` : ""
+  } Reply to this message and we'll help right away.`;
+
+  let result = { body: fallbackBody, variables: ["Customer Name"], provider: "local_rules" };
+  try {
+    const providerText = await callProvider({ provider, system, prompt: aiPrompt, workspaceId });
+    if (providerText) {
+      const parsed = JSON.parse(providerText.replace(/^```json|```$/g, "").trim());
+      if (parsed.body) {
+        result = { body: parsed.body, variables: Array.isArray(parsed.variables) ? parsed.variables : [], provider };
+      }
+    }
+  } catch {
+    // Falls through to the local template above - a provider outage must never block drafting.
+  }
+
+  return result;
+}
+
 export async function createKnowledgeDocument({ req, name, content, mimeType = "text/plain", source = "upload" }) {
   const chunks = splitChunks(content);
   return AiDocument.create({
