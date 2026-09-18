@@ -4,6 +4,7 @@ import { callOutboundWebhook } from "./integrations.js";
 import { syncLeadToGoogleSheet } from "./googleSheets.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
+import { incrementUsage } from "./usageMetering.js";
 import { encodeCredentials, sendWhatsAppText } from "./whatsappProvider.js";
 
 const AUTOMATION_QUEUE = "automations";
@@ -85,6 +86,10 @@ export async function processAutomationSendMessage(data) {
   await Contact.updateOne({ _id: contact._id }, { lastMessageAt: message.sentAt });
 
   const isFailed = providerResult.status === "failed";
+  // testMode is a flow-builder test run, not a real customer send - must never count toward usage.
+  if (!isFailed && !testMode) {
+    incrementUsage(organizationId, "messagesSent");
+  }
   await AutomationFlow.updateOne(
     { _id: flowId },
     {

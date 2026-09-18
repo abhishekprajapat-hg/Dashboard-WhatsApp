@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requirePermission } from "../middleware/auth.js";
+import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { Template, WhatsAppAccount } from "../models/index.js";
 import { createWhatsAppTemplate, fetchWhatsAppTemplates, uploadMetaTemplateHeaderMedia } from "../services/whatsappProvider.js";
@@ -310,7 +310,7 @@ function renderPreview(body = "", variables = {}) {
   });
 }
 
-templatesRouter.get("/", requirePermission("templates:read"), validateQuery(listTemplatesQuerySchema), async (req, res) => {
+templatesRouter.get("/", requirePermission("templates:read"), requireEntitlement("campaigns"), validateQuery(listTemplatesQuerySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0 });
   }
@@ -333,7 +333,7 @@ templatesRouter.get("/", requirePermission("templates:read"), validateQuery(list
   res.json({ data: templates.map(serializeTemplate), total: templates.length });
 });
 
-templatesRouter.post("/", requirePermission("templates:write"), validateBody(createTemplateBodySchema), async (req, res) => {
+templatesRouter.post("/", requirePermission("templates:write"), requireEntitlement("campaigns"), validateBody(createTemplateBodySchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -355,13 +355,13 @@ templatesRouter.post("/", requirePermission("templates:write"), validateBody(cre
   res.status(201).json({ data: serializeTemplate(template) });
 });
 
-templatesRouter.post("/preview", requirePermission("templates:read"), validateBody(previewTemplateBodySchema), async (req, res) => {
+templatesRouter.post("/preview", requirePermission("templates:read"), requireEntitlement("campaigns"), validateBody(previewTemplateBodySchema), async (req, res) => {
   const body = String(req.body?.body || "");
   const variables = req.body?.variables && typeof req.body.variables === "object" ? req.body.variables : {};
   res.json({ data: { body, variables: extractVariables(body), preview: renderPreview(body, variables) } });
 });
 
-templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), validateBody(syncWhatsappTemplatesSchema), async (req, res) => {
+templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), requireEntitlement("campaigns"), validateBody(syncWhatsappTemplatesSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -418,7 +418,7 @@ templatesRouter.post("/sync-whatsapp", requirePermission("templates:write"), val
   res.json({ synced, accounts: accounts.length });
 });
 
-templatesRouter.get("/:id", requirePermission("templates:read"), async (req, res) => {
+templatesRouter.get("/:id", requirePermission("templates:read"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const template = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!template) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
@@ -430,7 +430,7 @@ templatesRouter.get("/:id", requirePermission("templates:read"), async (req, res
 // never actually reached Meta. Only meaningful for templates that haven't already been submitted -
 // synced-from-Meta templates already carry a real providerTemplateId and go through sync-whatsapp
 // for status updates, not this route.
-templatesRouter.post("/:id/submit", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.post("/:id/submit", requirePermission("templates:write"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const template = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!template) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
@@ -529,7 +529,7 @@ templatesRouter.post("/:id/submit", requirePermission("templates:write"), async 
   res.json({ data: serializeTemplate(template) });
 });
 
-templatesRouter.patch("/:id", requirePermission("templates:write"), validateBody(updateTemplateSchema), async (req, res) => {
+templatesRouter.patch("/:id", requirePermission("templates:write"), requireEntitlement("campaigns"), validateBody(updateTemplateSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const existing = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
@@ -545,7 +545,7 @@ templatesRouter.patch("/:id", requirePermission("templates:write"), validateBody
   res.json({ data: serializeTemplate(existing) });
 });
 
-templatesRouter.delete("/:id", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.delete("/:id", requirePermission("templates:write"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const template = await Template.findOneAndUpdate(
     { _id: req.params.id, workspaceId: req.user.workspaceId },
@@ -556,7 +556,7 @@ templatesRouter.delete("/:id", requirePermission("templates:write"), async (req,
   res.json({ data: serializeTemplate(template) });
 });
 
-templatesRouter.post("/:id/duplicate", requirePermission("templates:write"), async (req, res) => {
+templatesRouter.post("/:id/duplicate", requirePermission("templates:write"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const source = await Template.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
   if (!source) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
@@ -578,7 +578,7 @@ templatesRouter.post("/:id/duplicate", requirePermission("templates:write"), asy
   res.status(201).json({ data: serializeTemplate(copy) });
 });
 
-templatesRouter.post("/:id/use", requirePermission("templates:read"), async (req, res) => {
+templatesRouter.post("/:id/use", requirePermission("templates:read"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ error: "NOT_FOUND", message: "Template not found." });
   const template = await Template.findOneAndUpdate(
     { _id: req.params.id, workspaceId: req.user.workspaceId },

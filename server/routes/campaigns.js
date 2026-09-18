@@ -1,7 +1,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { requirePermission } from "../middleware/auth.js";
+import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody } from "../middleware/validate.js";
 import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
@@ -376,7 +376,7 @@ async function previewAudience(workspaceId, filters = {}, limit = 10) {
   };
 }
 
-campaignsRouter.get("/", requirePermission("campaigns:read"), async (req, res) => {
+campaignsRouter.get("/", requirePermission("campaigns:read"), requireEntitlement("campaigns"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.json({ data: [], total: 0, summary: { totalSent: 0, deliveryRate: 0, readRate: 0, replyRate: 0 } });
   }
@@ -416,7 +416,7 @@ campaignsRouter.get("/", requirePermission("campaigns:read"), async (req, res) =
   });
 });
 
-campaignsRouter.post("/preview", requirePermission("campaigns:read"), validateBody(previewCampaignSchema), async (req, res) => {
+campaignsRouter.post("/preview", requirePermission("campaigns:read"), requireEntitlement("campaigns"), validateBody(previewCampaignSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -434,7 +434,7 @@ campaignsRouter.post("/preview", requirePermission("campaigns:read"), validateBo
   res.json({ data: { ...preview, label: getAudienceLabel(filters), filters: serializeAudienceFilters(filters) } });
 });
 
-campaignsRouter.get("/:id", requirePermission("campaigns:read"), async (req, res) => {
+campaignsRouter.get("/:id", requirePermission("campaigns:read"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -487,7 +487,7 @@ campaignsRouter.get("/:id", requirePermission("campaigns:read"), async (req, res
   });
 });
 
-campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(createCampaignSchema), async (req, res) => {
+campaignsRouter.post("/", requirePermission("campaigns:write"), requireEntitlement("campaigns"), validateBody(createCampaignSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -607,7 +607,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), validateBody(cre
   res.status(201).json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireActiveBilling(), validateBody(sendCampaignSchema), async (req, res) => {
+campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireEntitlement("campaigns"), requireActiveBilling(), validateBody(sendCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -687,7 +687,7 @@ campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireA
   });
 });
 
-campaignsRouter.patch("/:id", requirePermission("campaigns:write"), validateBody(updateCampaignSchema), async (req, res) => {
+campaignsRouter.patch("/:id", requirePermission("campaigns:write"), requireEntitlement("campaigns"), validateBody(updateCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -734,7 +734,7 @@ campaignsRouter.patch("/:id", requirePermission("campaigns:write"), validateBody
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), validateBody(campaignActionSchema), async (req, res) => {
+campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), requireEntitlement("campaigns"), validateBody(campaignActionSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }
@@ -811,7 +811,7 @@ campaignsRouter.post("/:id/action", requirePermission("campaigns:write"), valida
   res.json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/import", requirePermission("campaigns:write"), validateBody(importCampaignContactsSchema), async (req, res) => {
+campaignsRouter.post("/import", requirePermission("campaigns:write"), requireEntitlement("campaigns"), validateBody(importCampaignContactsSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
   }
@@ -853,7 +853,7 @@ campaignsRouter.post("/import", requirePermission("campaigns:write"), validateBo
   res.status(201).json({ created, updated, failed: failures.length, failures });
 });
 
-campaignsRouter.delete("/:id", requirePermission("campaigns:write"), async (req, res) => {
+campaignsRouter.delete("/:id", requirePermission("campaigns:write"), requireEntitlement("campaigns"), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }

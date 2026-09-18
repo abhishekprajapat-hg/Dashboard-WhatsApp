@@ -3,6 +3,7 @@ import { publishConversationChanged } from "../realtime/events.js";
 import { advanceRun, resumeAutomationRunOnReply } from "./automationEngine.js";
 import { keywordMatches, parseKeywords } from "../utils/keywords.js";
 import { logger } from "./logger.js";
+import { incrementUsage } from "./usageMetering.js";
 
 function appendRunLog(flowResult, level, message, data = {}) {
   flowResult.logs.push({ at: new Date(), level, message, ...data });
@@ -155,6 +156,11 @@ export async function runInboundAutomations({
         variables: {},
       },
     });
+    // Real flow execution, not a builder test run - excluded from usage the same way the
+    // messagesSent counter excludes testMode sends in automationSender.js.
+    if (!testMode) {
+      incrementUsage(account.organizationId, "automationRuns");
+    }
 
     await advanceRun(run, flow, { testMode });
     translateRunHistory(run, flowResult);

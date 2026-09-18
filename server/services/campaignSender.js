@@ -3,6 +3,7 @@ import { Campaign, Contact, Conversation, Message, Template, WhatsAppAccount } f
 import { publishConversationChanged, publishWorkspaceEvent } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
 import { logger } from "./logger.js";
+import { incrementUsage } from "./usageMetering.js";
 import { notifyVega } from "./vegaIntegration.js";
 import { sendWhatsAppTemplate } from "./whatsappProvider.js";
 
@@ -28,6 +29,8 @@ function variantTemplateId(campaign, variant) {
 // Enqueues one BullMQ job per recipient, spaced out to respect campaign.rateLimit.perMinute.
 // Falls back to processing inline (synchronously) when Redis/BullMQ isn't available, e.g. local dev.
 export async function enqueueCampaignRecipients(campaign, contacts, { userId }) {
+  incrementUsage(toId(campaign.organizationId), "campaignsRun");
+
   const perMinute = Math.max(1, Math.min(1000, Number(campaign.rateLimit?.perMinute || 60)));
   const spacingMs = Math.max(50, Math.round(60000 / perMinute));
 
@@ -187,6 +190,7 @@ export async function processCampaignRecipient(data) {
 
   if (!(providerResult.status === "failed") && template?._id) {
     await Template.updateOne({ _id: template._id, workspaceId }, { $inc: { usageCount: 1 }, lastUsedAt: new Date() });
+    incrementUsage(organizationId, "messagesSent");
   }
 
   await finalizeRecipientResult({

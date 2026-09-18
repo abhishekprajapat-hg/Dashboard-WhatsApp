@@ -26,6 +26,7 @@ export * from "./Role.js";
 export * from "./Tag.js";
 export * from "./Task.js";
 export * from "./Template.js";
+export * from "./UsageCounter.js";
 export * from "./User.js";
 export * from "./VerificationCode.js";
 export * from "./WebhookEvent.js";

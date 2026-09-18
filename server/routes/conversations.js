@@ -4,7 +4,7 @@ import { z } from "zod";
 import { conversations } from "../data/demoData.js";
 import { AuditLog, AutomationRun, Contact, Conversation, Lead, Membership, Message, Template } from "../models/index.js";
 import { FacebookAccount, InstagramAccount, WhatsAppAccount } from "../models/index.js";
-import { hasPermission, requirePermission } from "../middleware/auth.js";
+import { hasPermission, requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { requireActiveBilling } from "../middleware/billingGate.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
@@ -16,6 +16,7 @@ import { sendInstagramMessage } from "../services/instagramProvider.js";
 import { sendFacebookMessage } from "../services/facebookPagesProvider.js";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/whatsappProvider.js";
 import { sendWhatsAppProductMessage } from "../services/whatsappCommerce.js";
+import { incrementUsage } from "../services/usageMetering.js";
 import { serializeConversation, serializeMessage } from "../utils/serializers.js";
 import { objectIdString, optionalObjectIdString } from "../utils/zodHelpers.js";
 
@@ -721,7 +722,7 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/template", requirePermission("inbox:write"), validateBody(sendTemplateSchema), async (req, res) => {
+conversationsRouter.post("/:id/template", requirePermission("inbox:write"), requireEntitlement("messaging"), validateBody(sendTemplateSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -836,12 +837,13 @@ conversationsRouter.post("/:id/template", requirePermission("inbox:write"), vali
   await conversation.save();
   await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: message.sentAt });
   await Template.updateOne({ _id: template._id, workspaceId: req.user.workspaceId }, { $inc: { usageCount: 1 }, lastUsedAt: new Date() });
+  incrementUsage(req.user.organizationId, "messagesSent");
 
   await publishConversationChanged(conversation._id);
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requireActiveBilling(), validateBody(sendMessageSchema), async (req, res) => {
+conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requireEntitlement("messaging"), requireActiveBilling(), validateBody(sendMessageSchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 
@@ -1023,6 +1025,7 @@ conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requ
     conversation.lastMessageAt = outboundMessage.sentAt;
     await conversation.save();
     await Contact.updateOne({ _id: conversation.contactId }, { lastMessageAt: outboundMessage.sentAt });
+    incrementUsage(req.user.organizationId, "messagesSent");
 
     await publishConversationChanged(conversation._id);
     return res.status(201).json({ data: serializeMessage(outboundMessage) });
