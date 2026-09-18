@@ -1,5 +1,43 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-18: migrated off Upstash to a self-hosted Redis on the VPS - the pay-as-you-go bill is now $0
+
+Finished the migration paused in the entry below. `redis-server` is now installed and running
+directly on the app's own VPS (`72.60.97.58`), bound to `127.0.0.1` only with a `requirepass` set,
+`systemctl enable`d so it survives a reboot. Prod `.env`'s `REDIS_URL` now points at
+`redis://default:<password>@127.0.0.1:6379` instead of the Upstash instance - confirmed via `/ready`
+(`redis: enabled, ready`, `campaigns`/`automations` queues both live) and a clean `pm2 restart
+dashboard-api --update-env` with zero errors after. The old Upstash instance ("Redis / Whatsapp",
+`regular-longhorn-109637.upstash.io`) is no longer referenced anywhere and can be deleted from the
+Upstash console whenever - nothing in this app still points at it.
+
+**Real friction hit along the way, worth knowing about if this VPS needs package installs again:**
+- The web console (`mum.hostingervps.com`) and SSH both go down independently sometimes - confirmed
+  once this session (both timed out for an extended stretch while the live app stayed up fine, a
+  Hostinger-side issue, resolved on its own). If this happens again: check the live app's own
+  `/health` first - if that's fine, it's not a real outage, just an access-path problem, no urgency.
+- `apt install` on this box would silently fail with unmet dependencies (even for basic packages
+  like `libatomic1`) because of an **already-broken, pre-existing** `monarx-protect`/
+  `monarx-protect-autodetect` (a webshell security scanner, not something this project set up -
+  Hostinger's own panel already showed "Malware scanner: Not installed", confirming it wasn't
+  actually active). Its `monarx-agent` dependency fails to install with "Operation not permitted"
+  during dpkg unpack - unclear why, not investigated further since it's unrelated to this app.
+  `apt-mark hold` does NOT fix a half-configured package blocking new installs - had to
+  `apt remove -y --allow-change-held-packages monarx-protect monarx-protect-autodetect` to actually
+  clear it before `apt install redis-server` would resolve. This is a pre-existing box issue,
+  independent of anything this session did - if apt breaks on unrelated installs later, check
+  `dpkg -l | grep -v '^ii'` for other half-configured packages first.
+- The web console visually "hangs" after almost every `apt` operation, right at the `needrestart`
+  "Scanning processes..." step (something about "outdated hypervisor (qemu) binaries") - this is
+  just a rendering/display glitch, not an actual hang. The real operation had already completed
+  every single time this was checked independently via SSH (no apt/dpkg process running, the
+  package already showing installed). Don't trust "stuck" console output at that step - verify via
+  a separate SSH session instead of waiting on it.
+- `pm2 restart <app>` run while logged in as `root` reports `[PM2][ERROR] Process or Namespace
+  dashboard-api not found` - not the app crashing, just that PM2 process lists are per-Linux-user
+  and `dashboard-api` lives under the `dashboard` user's own PM2 daemon. Always `sudo -u dashboard
+  -s` first.
+
 ## 2026-09-17 (later): media-header/buttons support added for WhatsApp templates and campaigns - Sundrishti needs it for a campaign tomorrow
 
 **Read this first if resuming.** Commit `17058af`, pushed and (per the established pattern) not yet
