@@ -1,6 +1,6 @@
 # Handoff — WhatsApp CRM engine work
 
-## 2026-09-18 (later): "one platform" build-out - Phases 0-4 shipped (feature gating, invoicing, shipping, documentation, support), plus an urgent cross-tenant data leak into Vega found and fixed
+## 2026-09-18 (later): "one platform" build-out - Phases 0-5 shipped (feature gating, invoicing, shipping, documentation, support, AI expansion), plus an urgent cross-tenant data leak into Vega found and fixed
 
 **Read this first if resuming.** This session picked up "features, permissions, and business model"
 from the entry below, went through a real architecture pivot (see "How we got here" at the bottom of
@@ -11,13 +11,16 @@ phased plan (including the not-yet-built Phases 5-8) lives at
 `C:\Users\HP\.claude\plans\wild-honking-rabin.md` on the machine this session ran on - read that
 first for the complete picture before continuing, this entry only summarizes what's actually shipped.
 
-**Deploy status: pushed, not yet confirmed live.** All commits below were pushed to `origin/main`;
-the VPS cron should auto-pull within ~5 minutes as usual, but this session had no working SSH
-credentials to the VPS (`ssh -p 2424 dashboard@72.60.97.58` - `Permission denied (publickey,
-password)`, confirmed twice), so **nothing in this entry has been verified live in production** the
-way past sessions have (`git log -1`/`pm2 logs` on the box). First thing next session: confirm
-`git log -1 --oneline` on the VPS shows `31eebf1` (or later) before trusting any of this is actually
-running for real clients.
+**Deploy status: Phases 0-4 confirmed live; Phase 5 pushed but not yet re-confirmed.** SSH access to
+the VPS was broken this session (`AllowUsers` in `/etc/ssh/sshd_config` didn't include the `dashboard`
+user at all, compounded by `PasswordAuthentication` actually being `no` via a `sshd_config.d/` drop-in
+despite the main file saying `yes` - fixed by adding `dashboard` to `AllowUsers` and switching to
+key-based auth). Once fixed, confirmed live via `git log -1`/`pm2 logs dashboard-api`: commit
+`06b3170` (through Phase 4 + the earlier HANDOFF update) was running, and the self-hosted Redis this
+app depends on was healthy (7h uptime, no errors since startup - the `ECONNREFUSED` lines in the pm2
+log tail were stale, from before Redis was fully brought up). **Phase 5 (`fb6ea8a`) was pushed after
+that check and has not been re-confirmed live** - first thing next session: `git log -1 --oneline`
+on the VPS should show `fb6ea8a` or later.
 
 ### Urgent fix: Sundrishti's (and every client's) leads were leaking into Vega, Nemnidhi's own internal sales CRM
 
@@ -109,11 +112,38 @@ Verified end-to-end against a real conversation with a real inbound message: cre
 changed its status and reassigned it inline, both updates landed on the same underlying Conversation
 record immediately.
 
+### Phase 5 - AI assistant expansion: template/campaign copy and ticket-reply suggestions (`fb6ea8a`)
+
+Scoped honestly against what already existed, not built to the letter of the original plan text:
+reply suggestions (`draft_reply`) and proposal drafting (Phase 3) were already done, so this phase
+only added what was actually missing. **"Campaign copy" and "template copy" turned out to be one
+feature, not two** - confirmed by reading `CampaignsView.tsx` first: campaigns here are always
+template-driven (`Campaign.templateId`, no independent free-text body), so there's no separate UI
+surface for campaign-specific copy to write into. New `draftTemplateCopy()` in `aiAssistant.js` +
+`POST /assistant/generate/template-copy`, same `callProvider`/local-fallback shape as
+`draftProposalDocument`. New self-contained `TemplateCopyGenerator` inline in `TemplatesView.tsx`'s
+body field - deliberately only talks to the parent via a callback, doesn't touch that file's
+already-large state shape.
+
+**New: ticket-reply suggestions** for Support - `POST /support/tickets/:id/suggest-reply` is
+genuinely just the pre-existing `draft_reply` task called against the ticket's own conversationId (a
+ticket IS a Conversation, per Phase 4), not new AI logic. New `SuggestReplyModal` in
+`SupportView.tsx` shows the text with a copy-to-clipboard action - no send box on a ticket, sending
+still happens in the Inbox.
+
+Verified end-to-end in a real local browser session: template-copy generation correctly referenced
+the stated goal, populated body + variables, live preview updated immediately. Ticket-reply
+suggestion correctly reused the pre-existing fallback text, confirming real reuse rather than new
+logic. **Real bug found and fixed along the way**: the clipboard-copy handler had no try/catch, so a
+denied clipboard permission threw an uncaught rejection instead of failing quietly - fixed in source
+and confirmed via `tsc`, but **could not get the live browser preview to re-serve the fix** to
+re-verify visually - the preview environment appeared to be serving from a stale snapshot that
+didn't sync with file edits made mid-session (confirmed the real repo file was correct via a direct
+`grep`, and confirmed the exact same try/catch logic worked when run directly in that same browser
+session) - worth a quick manual click-through next session to be sure, not just trusting this note.
+
 ### What's explicitly not built yet (see the plan file for full detail)
 
-- **Phase 5** - AI assistant expansion across all pillars (campaign/template copy generation, ad
-  copy, ticket-reply suggestions) - `draftProposalDocument` from Phase 3 is the first slice of this,
-  not the whole thing.
 - **Phase 6** - usage-limit enforcement (`PLAN_LIMITS`, soft-warn then hard-block) using the real
   data Phase 0's `UsageCounter` has been collecting.
 - **Phase 7** - Vega admin console - this touches the separate Vega repo (`C:\Projects\Vega`), not
