@@ -12,6 +12,7 @@ const viewPermissions: Record<ViewId, string> = {
   templates: "templates:read",
   campaigns: "campaigns:read",
   analytics: "reports:read",
+  invoicing: "invoicing:read",
   team: "team:read",
   tasks: "tasks:read",
   admin: "admin:read",

@@ -1445,6 +1445,85 @@ export function deleteTask(id: string) {
   });
 }
 
+export function getInvoices<T>(params: { contactId?: string; status?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.contactId) query.set("contactId", params.contactId);
+  if (params.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/invoicing/invoices${suffix}`);
+}
+
+export function getInvoice<T>(id: string) {
+  return request<T>(`/invoicing/invoices/${id}`);
+}
+
+export function createInvoice<T>(invoice: {
+  contactId: string;
+  lineItems: { description: string; quantity: number; unitPrice: number }[];
+  taxLabel?: string;
+  taxAmount?: number;
+  dueDate?: string;
+  notes?: string;
+}) {
+  return request<T>("/invoicing/invoices", {
+    method: "POST",
+    body: JSON.stringify(invoice),
+  });
+}
+
+export function updateInvoice<T>(id: string, patch: Partial<{ status: "draft" | "sent" | "cancelled"; dueDate: string; notes: string }>) {
+  return request<T>(`/invoicing/invoices/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function downloadCustomerInvoicePdf(invoiceId: string, filename: string) {
+  const token = getStoredToken();
+  const response = await fetch(`${API_URL}/invoicing/invoices/${invoiceId}/pdf`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not download this invoice.");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function getPayments<T>(params: { contactId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.contactId) query.set("contactId", params.contactId);
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<T>(`/invoicing/payments${suffix}`);
+}
+
+export function recordPayment<T>(payment: {
+  contactId: string;
+  amount: number;
+  method?: "cash" | "bank_transfer" | "upi" | "cheque" | "other";
+  reference?: string;
+  notes?: string;
+  receivedAt?: string;
+  allocations?: { invoiceId: string; amount: number }[];
+}) {
+  return request<T>("/invoicing/payments", {
+    method: "POST",
+    body: JSON.stringify(payment),
+  });
+}
+
+export function allocatePayment<T>(paymentId: string, allocation: { invoiceId: string; amount: number }) {
+  return request<T>(`/invoicing/payments/${paymentId}/allocate`, {
+    method: "POST",
+    body: JSON.stringify(allocation),
+  });
+}
+
 export function getCalendarEvents<T>(params: { from?: string; to?: string; assignedToUserId?: string } = {}) {
   const query = new URLSearchParams();
   if (params.from) query.set("from", params.from);

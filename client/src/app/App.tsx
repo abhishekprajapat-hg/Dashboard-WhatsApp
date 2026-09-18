@@ -12,6 +12,7 @@ import { AutomationView } from "./components/AutomationView";
 import { TemplatesView } from "./components/TemplatesView";
 import { CampaignsView } from "./components/CampaignsView";
 import { AnalyticsView } from "./components/AnalyticsView";
+import { InvoicingView } from "./components/InvoicingView";
 import { TeamView } from "./components/TeamView";
 import { TasksView } from "./components/TasksView";
 import { AssistantView } from "./components/AssistantView";
@@ -23,7 +24,7 @@ import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./l
 import { useTheme } from "./hooks/useTheme";
 import { Moon, Sun } from "lucide-react";
 
-const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "team", "tasks", "assistant", "admin", "settings"];
+const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "invoicing", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
 const VIEW_LABELS: Record<ViewId, string> = {
   dashboard: "Dashboard",
@@ -34,6 +35,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
   templates: "Templates",
   campaigns: "Campaigns",
   analytics: "Analytics",
+  invoicing: "Invoicing",
   team: "Team",
   tasks: "Tasks",
   assistant: "AI Assistant",
@@ -50,6 +52,7 @@ const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
   templates: "Approved message templates",
   campaigns: "Broadcasts and audience sends",
   analytics: "Reports and performance",
+  invoicing: "Invoices and payments for your customers",
   team: "Members, roles, and workload",
   tasks: "Tasks and calendar for your team",
   assistant: "AI tools and conversation insights",
@@ -143,6 +146,7 @@ export default function App() {
   const canWriteCampaigns = hasPermission(session, "campaigns:write");
   const canWriteTeam = hasPermission(session, "team:write");
   const canWriteTasks = hasPermission(session, "tasks:write");
+  const canWriteInvoicing = hasPermission(session, "invoicing:write");
   const canWriteSettings = hasPermission(session, "settings:write");
   const isPlatformOwnerSession = isPlatformOwner(session);
   const workspaceName = session?.workspace?.name || "Workspace";
@@ -310,6 +314,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "templates" && <TemplatesView canWrite={canWriteTemplates} />}
           {canAccessView(session, activeView) && activeView === "campaigns" && <CampaignsView canWrite={canWriteCampaigns} />}
           {canAccessView(session, activeView) && activeView === "analytics" && <AnalyticsView />}
+          {canAccessView(session, activeView) && activeView === "invoicing" && <InvoicingView canWrite={canWriteInvoicing} />}
           {canAccessView(session, activeView) && activeView === "team" && <TeamView canManage={canWriteTeam} />}
           {canAccessView(session, activeView) && activeView === "tasks" && <TasksView canWrite={canWriteTasks} />}
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}

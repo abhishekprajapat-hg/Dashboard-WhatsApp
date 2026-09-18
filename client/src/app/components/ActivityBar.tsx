@@ -10,6 +10,7 @@ import {
   LogOut,
   Megaphone,
   MessageCircle,
+  Receipt,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -29,6 +30,7 @@ export type ViewId =
   | "templates"
   | "campaigns"
   | "analytics"
+  | "invoicing"
   | "team"
   | "tasks"
   | "admin"
@@ -52,6 +54,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "templates", icon: FileText, label: "Templates" },
   { id: "campaigns", icon: Megaphone, label: "Campaigns" },
   { id: "analytics", icon: BarChart3, label: "Analytics" },
+  { id: "invoicing", icon: Receipt, label: "Invoicing" },
   { id: "team", icon: Users2, label: "Team" },
   { id: "tasks", icon: ListChecks, label: "Tasks" },
   { id: "assistant", icon: Bot, label: "AI Assistant" },
