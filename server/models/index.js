@@ -17,6 +17,7 @@ export * from "./FeatureFlag.js";
 export * from "./InstagramAccount.js";
 export * from "./FacebookAccount.js";
 export * from "./InstagramComment.js";
+export * from "./IndustryPack.js";
 export * from "./Invoice.js";
 export * from "./Lead.js";
 export * from "./Membership.js";

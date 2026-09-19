@@ -27,6 +27,7 @@ import { shippingRouter } from "./routes/shipping.js";
 import { supportRouter } from "./routes/support.js";
 import { meetingAvailabilityRouter } from "./routes/meetingAvailability.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { platformAdminRouter } from "./routes/platformAdmin.js";
 import { settingsRouter } from "./routes/settings.js";
 import { tasksRouter } from "./routes/tasks.js";
 import { teamRouter } from "./routes/team.js";
@@ -139,6 +140,10 @@ app.use("/api/invoicing", requireAuth, requireWorkspaceContext, invoicingRouter)
 app.use("/api/shipping", requireAuth, requireWorkspaceContext, shippingRouter);
 app.use("/api/documents", requireAuth, requireWorkspaceContext, documentsRouter);
 app.use("/api/support", requireAuth, requireWorkspaceContext, supportRouter);
+// No requireAuth/requireWorkspaceContext - server-to-server only, authenticated via
+// requireVegaSecret (shared-secret header) instead of a logged-in session. Vega's Platform Admin
+// console (master plan, Phase 7) is the one caller.
+app.use("/api/platform-admin", platformAdminRouter);
 app.use("/webhooks/razorpay", billingWebhookRouter);
 app.use("/api/media", requireAuth, requireWorkspaceContext, mediaRouter);
 app.use("/api/whatsapp", whatsappRouter);
