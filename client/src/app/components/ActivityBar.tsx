@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  TrendingUp,
   Truck,
   Users2,
   Zap,
@@ -33,6 +34,7 @@ export type ViewId =
   | "templates"
   | "campaigns"
   | "analytics"
+  | "marketing"
   | "invoicing"
   | "shipping"
   | "documents"
@@ -60,6 +62,7 @@ const NAV_ITEMS: { id: ViewId; icon: LucideIcon; label: string }[] = [
   { id: "templates", icon: FileText, label: "Templates" },
   { id: "campaigns", icon: Megaphone, label: "Campaigns" },
   { id: "analytics", icon: BarChart3, label: "Analytics" },
+  { id: "marketing", icon: TrendingUp, label: "Marketing" },
   { id: "invoicing", icon: Receipt, label: "Invoicing" },
   { id: "shipping", icon: Truck, label: "Shipping" },
   { id: "documents", icon: FileStack, label: "Documents" },

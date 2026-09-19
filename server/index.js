@@ -23,6 +23,7 @@ import { dashboardRouter } from "./routes/dashboard.js";
 import { documentsRouter } from "./routes/documents.js";
 import { invoicingRouter } from "./routes/invoicing.js";
 import { leadsRouter } from "./routes/leads.js";
+import { marketingPublicRouter, marketingRouter } from "./routes/marketing.js";
 import { shippingRouter } from "./routes/shipping.js";
 import { supportRouter } from "./routes/support.js";
 import { meetingAvailabilityRouter } from "./routes/meetingAvailability.js";
@@ -153,6 +154,12 @@ app.use("/api/instagram", instagramRouter);
 app.use("/webhooks/instagram", instagramPublicRouter);
 app.use("/api/facebook", facebookPagesRouter);
 app.use("/webhooks/facebook", facebookPagesPublicRouter);
+// No requireAuth/requireWorkspaceContext at mount time - marketingRouter does its own internally
+// (same reasoning as facebookPagesRouter above), so marketingPublicRouter's unauthenticated OAuth
+// popup callback can sit right beside it. "/oauth/" not "/webhooks/" - this route receives a
+// browser's OAuth redirect after user consent, not a server-to-server webhook push.
+app.use("/api/marketing", marketingRouter);
+app.use("/oauth/google-marketing", marketingPublicRouter);
 app.use("/api/uploads", express.static(uploadRoot, {
   maxAge: "7d",
   immutable: true,

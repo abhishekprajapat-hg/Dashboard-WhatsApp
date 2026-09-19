@@ -38,6 +38,8 @@ export const roleDefinitions = {
       "invoicing:write",
       "shipping:read",
       "shipping:write",
+      "marketing:read",
+      "marketing:write",
     ],
   },
   agent: {
@@ -57,6 +59,7 @@ export const roleDefinitions = {
       "invoicing:read",
       "shipping:read",
       "shipping:write",
+      "marketing:read",
     ],
   },
   viewer: {
@@ -75,6 +78,7 @@ export const roleDefinitions = {
       "tasks:read",
       "invoicing:read",
       "shipping:read",
+      "marketing:read",
     ],
   },
 };
@@ -115,6 +119,8 @@ export const permissionCatalog = [
   "invoicing:write",
   "shipping:read",
   "shipping:write",
+  "marketing:read",
+  "marketing:write",
 ];
 
 export function normalizeRoleKey(role = "agent") {

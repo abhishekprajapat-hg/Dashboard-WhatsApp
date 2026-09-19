@@ -58,13 +58,28 @@ export const config = {
     redirectUri: process.env.META_FACEBOOK_PAGES_REDIRECT_URI || "",
     verifyToken: process.env.META_FACEBOOK_PAGES_VERIFY_TOKEN || "local-facebook-pages-verify-token",
   },
-  // Genuinely new - nothing in this repo talks to Google today. A real Google Cloud OAuth Client
-  // must be created before this works; not provisionable by this app, same "manual one-time setup"
-  // category as embeddedSignupConfigId above.
+  // Public sign-in only (openid email profile via socialAuth.js) - deliberately NOT reused by the
+  // Marketing pillar below. Keeping sensitive Analytics/Search Console scopes off this client's own
+  // consent screen avoids dragging the public signup page's OAuth client into Google's stricter
+  // sensitive-scope verification review.
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     redirectUri: process.env.GOOGLE_REDIRECT_URI || "",
+  },
+  // Marketing pillar (Phase 1, server/routes/marketing.js): a second, dedicated Google OAuth Client
+  // (same or a new GCP project - one project can hold multiple OAuth clients) requesting
+  // analytics.readonly + webmasters.readonly, so a workspace connects ITS OWN GA4 property/Search
+  // Console site. Same "one product, one config block" reasoning this file already applies to
+  // instagram/facebookLogin/facebookPages sharing one Meta app - not provisionable by this app, a
+  // real one-time Google Cloud Console setup step, same category as embeddedSignupConfigId above.
+  // pageSpeedApiKey is unrelated to this OAuth client - PageSpeed Insights is a public, API-key-only
+  // Google API, not tied to any workspace's own connected account.
+  googleMarketing: {
+    clientId: process.env.GOOGLE_MARKETING_CLIENT_ID || "",
+    clientSecret: process.env.GOOGLE_MARKETING_CLIENT_SECRET || "",
+    redirectUri: process.env.GOOGLE_MARKETING_REDIRECT_URI || "",
+    pageSpeedApiKey: process.env.GOOGLE_PAGESPEED_API_KEY || "",
   },
   // Authentication-category WhatsApp template used to send signup OTP codes - must be created and
   // approved in WhatsApp Manager before this works live (freeform text can't reach a brand-new

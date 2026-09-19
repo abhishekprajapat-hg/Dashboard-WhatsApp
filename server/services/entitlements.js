@@ -65,6 +65,12 @@ export const CAPABILITY_DEFINITIONS = [
     description: "Create and manage Click-to-WhatsApp ad campaigns via the Marketing API (server/routes/ads.js).",
     minTier: "pro",
   },
+  {
+    key: "marketing",
+    label: "Marketing (Google Analytics, SEO audits, AI recommendations)",
+    description: "Connect a workspace's own Google Analytics 4 + Search Console, run SEO audits against their existing website, and get AI-drafted growth recommendations (server/routes/marketing.js).",
+    minTier: "pro",
+  },
 ];
 
 // TODO: placeholder pricing (paise, INR) - nothing in this repo defines real prices yet. Swap

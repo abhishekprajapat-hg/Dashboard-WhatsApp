@@ -398,6 +398,58 @@ export async function draftTemplateCopy({ workspaceId, category = "marketing", g
   return result;
 }
 
+// Marketing pillar (Phase 3) - the pillar's only AI touchpoint, invoked purely on-demand from
+// POST /audits/:id/recommendation (never a cron/scheduled generation - see that route's own
+// comment for why staying assistive-only is a deliberate choice, not a missing feature). Same
+// standalone-draft shape as draftProposalDocument/draftTemplateCopy above, reusing
+// callProvider/resolveApiKey verbatim so a provider outage never blocks an audit's findings from
+// rendering - it just falls back to a summary built directly from the deterministic findings
+// routes/marketing.js already computed, not from an AI call at all.
+export async function draftSeoRecommendation({ workspaceId, audit, provider = "local" }) {
+  const system =
+    "You are a marketing growth advisor. Given SEO audit findings and real Google Search Console " +
+    'performance data, return compact JSON: { "summary": "2-3 sentence plain-English overview", ' +
+    '"actions": [{ "title": "short action title", "detail": "specific, doable next step", ' +
+    '"priority": "high" | "medium" | "low" }] } - 3 to 6 actions, ranked by impact. The client will ' +
+    "apply these themselves on their own website; do not reference any tool or platform doing it " +
+    "for them.";
+  const aiPrompt = JSON.stringify({
+    url: audit.url,
+    findings: audit.findings,
+    pageSpeedScores: { mobile: audit.pageSpeed?.mobile?.scores, desktop: audit.pageSpeed?.desktop?.scores },
+    searchConsole: audit.searchConsole,
+  });
+
+  const criticalFindings = (audit.findings || []).filter((finding) => finding.severity === "critical");
+  const fallbackActions = (audit.findings || []).slice(0, 6).map((finding) => ({
+    title: finding.category,
+    detail: finding.message,
+    priority: finding.severity === "critical" ? "high" : finding.severity === "warning" ? "medium" : "low",
+  }));
+  let result = {
+    summary: criticalFindings.length
+      ? `${criticalFindings.length} critical issue(s) found for ${audit.url} - addressing these first will have the biggest impact.`
+      : `No critical issues found for ${audit.url} - the items below are lower-impact refinements.`,
+    actions: fallbackActions.length ? fallbackActions : [{ title: "Re-run the audit", detail: "No findings were recorded for this audit - run it again.", priority: "low" }],
+    provider: "local_rules",
+  };
+
+  try {
+    const providerText = await callProvider({ provider, system, prompt: aiPrompt, workspaceId });
+    if (providerText) {
+      const parsed = JSON.parse(providerText.replace(/^```json|```$/g, "").trim());
+      if (parsed.summary && Array.isArray(parsed.actions) && parsed.actions.length) {
+        result = { summary: parsed.summary, actions: parsed.actions, provider };
+      }
+    }
+  } catch {
+    // Falls through to the local, findings-derived summary above - a provider outage must never
+    // block a recommendation from rendering.
+  }
+
+  return { ...result, generatedAt: new Date() };
+}
+
 export async function createKnowledgeDocument({ req, name, content, mimeType = "text/plain", source = "upload" }) {
   const chunks = splitChunks(content);
   return AiDocument.create({

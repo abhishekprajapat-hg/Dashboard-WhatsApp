@@ -1262,6 +1262,61 @@ export function sendFacebookTestMessage<T>(id: string, payload: { to: string; bo
   });
 }
 
+export function getGoogleMarketingAuthorizeUrl<T>() {
+  return request<T>("/marketing/google/authorize-url");
+}
+
+export function getGoogleMarketingAccount<T>() {
+  return request<T>("/marketing/google/account");
+}
+
+export function connectGoogleMarketingAccount<T>(code: string) {
+  return request<T>("/marketing/google/connect", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function selectGoogleMarketingProperties<T>(payload: { ga4PropertyId: string; ga4PropertyName: string; searchConsoleSiteUrl: string }) {
+  return request<T>("/marketing/google/select-properties", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function disconnectGoogleMarketingAccount() {
+  return request<void>("/marketing/google/account", { method: "DELETE" });
+}
+
+export function getMarketingAnalyticsSummary<T>() {
+  return request<T>("/marketing/analytics/summary");
+}
+
+export function getSearchConsoleSummary<T>() {
+  return request<T>("/marketing/search-console/summary");
+}
+
+export function getSeoAudits<T>() {
+  return request<T>("/marketing/audits");
+}
+
+export function getSeoAudit<T>(id: string) {
+  return request<T>(`/marketing/audits/${id}`);
+}
+
+export function createSeoAudit<T>(url: string) {
+  return request<T>("/marketing/audits", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function generateSeoRecommendation<T>(id: string) {
+  return request<T>(`/marketing/audits/${id}/recommendation`, {
+    method: "POST",
+  });
+}
+
 export function getBilling<T>() {
   return request<T>("/billing");
 }

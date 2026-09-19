@@ -1,5 +1,76 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-19 (even later): Marketing pillar Phase 1 built and verified locally - NOT YET committed/pushed
+
+**Read this first if resuming.** New pillar, not a CRM change - direct continuation of the user's
+stated end goal (Marketing/CRM/Billing/Shipping/Documentation/Inventory, "one-stop platform"). User
+asked how a client would show samples/products to a WhatsApp lead (answered: manual Inbox send,
+media-header templates, and the existing-but-not-fully-working WhatsApp Catalog feature - no code
+change from that question alone), then asked for Marketing itself: website SEO, Google Analytics,
+ad platforms, integrated with AI. Scoped via `EnterPlanMode` with 3 parallel research passes + 1
+design pass before writing code; full plan at
+`C:\Users\HP\.claude\plans\jaunty-doodling-crescent.md`. **Confirmed scope decision**: audit/
+optimize a client's own EXISTING website only - no hosted website builder/CMS, that's out of scope
+entirely, not deferred. Each workspace does its own Google OAuth to pull its own GA4/Search Console
+data, mirroring how a workspace already connects its own WhatsApp number/Meta account - never a
+shared Nemnidhi Google account.
+
+**What shipped (Phase 1 of the plan - Phases 2/3 were pulled forward and also built this session,
+see the plan file for the original phase boundaries)**: a new `marketing` entitlement (pro tier,
+`server/services/entitlements.js`) and `marketing:read`/`marketing:write` permissions
+(`server/utils/rbac.js`); `GoogleMarketingAccount`/`SeoAudit` models; a dedicated Google OAuth
+client (`config.googleMarketing`, deliberately separate from the existing public-signin `google`
+block to keep sensitive Analytics/Search Console scopes off that consent screen) with its own
+AES-256-GCM credential codec (`services/googleMarketingProvider.js`) and a
+`facebookPages.js`-style redirect+popup+localStorage connect flow (`routes/marketing.js`,
+`MarketingSettingsPanel.tsx`) including a GA4-property/Search-Console-site picker step after
+connect; a free PageSpeed Insights + (workspace's own) Search Console-backed SEO audit tool with
+deterministic findings (`services/pageSpeedInsights.js`, `services/searchConsoleProvider.js`); an
+on-demand-only AI recommendation layer (`draftSeoRecommendation` in `services/aiAssistant.js`,
+reusing the existing `callProvider`/`resolveApiKey` workspace-key-first/local-fallback pattern) -
+**deliberately no autonomous or scheduled AI action anywhere in this pillar**, confirmed via grep
+that zero precedent for that exists in this codebase before adding it, and the confirmed audit-only
+scope means there's no code path to execute a website change through even if we wanted to. New
+`MarketingView.tsx` (Analytics/Search-Console dashboard via recharts, matching `AnalyticsView.tsx`'s
+conventions exactly, + the audit tool + a `SuggestReplyModal`-style AI recommendation modal), full
+nav/permission/entitlement wiring (`ActivityBar.tsx`, `App.tsx`, `permissions.ts`,
+`SettingsView.tsx`).
+
+**A real bug found and fixed during verification**: `GoogleMarketingAccount.js` originally declared
+both a field-level `index: true` on `workspaceId` AND a schema-level unique index on the same
+single field - a genuine duplicate index, caught via a live Mongoose startup warning
+("Duplicate schema index on {workspaceId:1}"), not just a lint nit. Fixed by removing the
+field-level flag, since the schema-level unique index already covers it.
+
+**Verified, not just typechecked**: backend `node --check` on every new/edited file, a real server
+boot with zero errors, the new routes confirmed mounted (401 unauthenticated, 200 on the public
+OAuth callback); frontend `tsc --noEmit` and `npm run build` both clean; full backend test suite -
+only the same pre-existing, already-documented flakes (leads.e2e PATCH ownerUserId,
+automationEngine sub_workflow timing, adminSettingsSchema, whatsappSystemAccount), none new. Real
+browser pass: Marketing nav item and Settings > Marketing tab render correctly; the "connect first"
+empty state renders when no Google account is connected; **confirmed the plan-gating actually
+works** - clicking "Run audit" on the real `basic`-tier test workspace hit the real
+`requireEntitlement("marketing")` 403 and rendered `PlanLockedState` with the exact server message,
+not a client-side guess. Temporarily bumped the test org to `pro` (reverted after) and ran a REAL
+audit against a real URL - the request genuinely reached Google's live PageSpeed Insights API and
+came back with a real (expected, no API key configured yet) quota-exceeded error, which surfaced
+cleanly in the UI with no crash - this proves the actual external-call plumbing works, not just
+that the code compiles. All test data (test `SeoAudit`/`GoogleMarketingAccount` docs, org plan)
+cleaned up/reverted after.
+
+**Not yet done / explicitly out of scope this pass**: not committed or pushed. **Cannot be fully
+verified without the user's own Google Cloud OAuth Client** - the real connect flow (OAuth consent,
+property/site picker, GA4/Search-Console dashboard data, token refresh) needs a real
+`GOOGLE_MARKETING_CLIENT_ID`/`SECRET`/`REDIRECT_URI` + `GOOGLE_PAGESPEED_API_KEY`, none of which
+this session can provision (see the plan file's "real external/business dependencies" section -
+also flags the Google sensitive-scope app-verification review as a real, separate business step,
+same category as the Instagram App Review rejection already hit once). Scheduled/recurring audits
+and any "AI applies the fix automatically" capability are explicitly deferred, the latter flagged
+as out of scope for this product shape entirely (no website-hosting code path exists to execute a
+change through). Google Ads integration (a related but separate future pillar) would reuse this
+exact connected-account shape but needs its own separate Google Ads API developer-token approval -
+not designed here.
+
 ## 2026-09-19 (latest): Phase 2 industry packs (19 sub-industries) built, seeded to local dev, verified - NOT YET committed/pushed
 
 **Read this first if resuming.** Direct continuation of the entry below (CRM industry-specificity

@@ -33,12 +33,14 @@ import {
   Instagram,
   Facebook,
   Target,
+  TrendingUp,
 } from "lucide-react";
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
 import { CrmSettingsPanel } from "./CrmSettingsPanel";
 import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { InstagramSettingsPanel } from "./InstagramSettingsPanel";
 import { FacebookSettingsPanel } from "./FacebookSettingsPanel";
+import { MarketingSettingsPanel } from "./MarketingSettingsPanel";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
 import { BillingStatusBanner } from "./BillingStatusBanner";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
@@ -67,7 +69,7 @@ import {
   updateCurrentWorkspace,
 } from "../lib/api";
 
-type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "facebook" | "ads" | "crm" | "api" | "integrations" | "billing" | "notifications" | "security";
+type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "facebook" | "ads" | "marketing" | "crm" | "api" | "integrations" | "billing" | "notifications" | "security";
 
 interface WhatsAppAccount {
   id: string;
@@ -182,6 +184,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "instagram", label: "Instagram", icon: <Instagram size={14} /> },
   { id: "facebook", label: "Facebook", icon: <Facebook size={14} /> },
   { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
+  { id: "marketing", label: "Marketing", icon: <TrendingUp size={14} /> },
   { id: "crm", label: "CRM", icon: <Target size={14} /> },
   { id: "api", label: "API Keys", icon: <Key size={14} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
@@ -1468,6 +1471,12 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
         {activeTab === "ads" && (
           <div className="max-w-4xl">
             <AdsSettingsPanel />
+          </div>
+        )}
+
+        {activeTab === "marketing" && (
+          <div className="max-w-4xl">
+            <MarketingSettingsPanel />
           </div>
         )}
 
