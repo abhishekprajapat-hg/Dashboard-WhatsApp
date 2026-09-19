@@ -133,7 +133,7 @@ export function ActivityBar({ activeView, onViewChange, onLogout, unreadCount = 
           <div className="h-px w-8 bg-sidebar-border" />
         </div>
 
-        <nav className="no-scrollbar mt-4 flex min-w-0 flex-1 flex-col items-center justify-start gap-1 overflow-visible px-0">
+        <nav className="no-scrollbar mt-4 flex min-w-0 flex-1 flex-col items-center justify-start gap-1 overflow-y-auto px-0">
           {navItems.map((item) => renderNavButton(item))}
         </nav>
 
