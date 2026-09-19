@@ -1,5 +1,153 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-19: Phase 6 shipped and deployed; Phases 7-8 backend shipped and deployed; Vega-side Phase 7 built, tested, and pushed but NOT deployed (blocked by a safety gate, needs a human to run it)
+
+**Read this first if resuming.** Picked up right where the entry below left off ("Phase 6...
+unless told otherwise"). The user explicitly said to complete every remaining phase and ship it,
+overnight, without further check-ins. Phase 6 and Phases 7-8's Dashboard-WhatsApp backend are done,
+tested, committed, pushed, and confirmed live. Phase 7's Vega frontend is built, typechecks and
+builds clean, merged cleanly with unrelated concurrent human work on Vega, and pushed to
+`origin/master` - but **the actual `./deploy.sh` run was refused by this session's own safety
+classifier** (a real production deploy of a live system, correctly gated even under a standing
+"ship everything" instruction) - someone needs to run `cd C:\Projects\Vega && ./deploy.sh` by hand,
+or explicitly grant that permission for a future session to do it.
+
+### Phase 6 - usage-limit enforcement (`077195b`, confirmed live)
+
+`PLAN_LIMITS` in `services/entitlements.js` (messagesSent only - basic 1000/medium 5000/pro 20000,
+explicitly placeholder numbers, same TODO caveat as `PLAN_PRICES`). `checkUsageLimit`/
+`warnUsageSoftLimitOnce`/`getOrganizationUsageSummary` in `services/usageMetering.js`, and a new
+`requireUnderUsageLimit` middleware (`middleware/usageLimit.js`) wired into the three
+messagesSent-producing HTTP routes (`conversations.js`'s `/:id/template` and `/:id/messages`,
+`campaigns.js`'s `/:id/send`) plus the queue-processed per-recipient paths
+(`campaignSender.js`/`automationSender.js`), so a hard-block applies consistently everywhere a
+message actually goes out, not just at the routes a browser hits directly.
+
+Soft-warn (a deduped in-app notification, once per org+metric+period) is always on. Hard-block is
+gated behind a new `usageLimitHardBlock` feature flag, **off by default** - matches the plan's
+explicit "soft-warn first, hard-block only after a full billing cycle of real data" sequencing.
+Flip it on later via the admin feature-flags UI (or `FEATURE_USAGE_LIMIT_HARD_BLOCK=true`) once
+there's real usage data to size it against - nothing else needs to change.
+
+**Real bug found and fixed mid-build, cost real debugging time**: this app runs
+`mongoose.set("sanitizeFilter", true)` (`server/db.js`) - a raw `$gte`/`$in` operator in a query
+this session wrote needed `mongoose.trusted()` or it silently CastErrors, and because the failing
+call was inside a fire-and-forget path with two layers of try/catch swallowing it
+(`warnUsageSoftLimitOnce`'s own catch, then `requireUnderUsageLimit`'s outer `.catch()`), the
+symptom looked like "the notification just never appears," not a visible crash. Took a real local
+repro (curl against a locally-run server, direct DB checks, then a temporary debug `console.error`
+in the middleware) to actually find the CastError buried in a WARN log line. This was already a
+documented pattern in this codebase (`services/meetingService.js`, `services/otpService.js`) and
+in this session's own memory - worth re-grepping for `mongoose.trusted` before writing any new
+query with an operator in it, every time.
+
+Also fixed two pre-existing, unrelated test-infra gaps found while verifying this (neither is new
+work, both predate this session): `tests/helpers/seedTestWorkspace.js` seeded orgs on plan
+"starter" (basic tier) - Phase 0's entitlement gates already blocked every
+campaigns/automationBuilder-gated e2e test from ever passing against it, unrelated to Phase 6.
+Bumped the shared default to "pro"; `tests/usageLimit.e2e.test.js` (which specifically needs a
+"basic" org) downgrades its own org explicitly rather than relying on the new default.
+`tests/adminFeatureFlags.e2e.test.js` was `requirePlatformOwner`-gated but the seed helper's org
+was never a platform owner - same fix, scoped to that one file. Full suite went from a real mess
+of ~40+ failures down to a handful of confirmed-pre-existing, confirmed-unrelated flakes: a
+`leads.e2e.test.js` PATCH assertion (deterministic, unrelated to anything touched this session), a
+stale `adminSettingsSchema` test in `routeValidation.unit.test.js` that references an `apiKeys`
+field the schema doesn't actually have (test/schema mismatch, not new), and genuine timing
+flakiness in `automationEngine.e2e.test.js`/`whatsappSystemAccount.e2e.test.js` (confirmed via
+repeated isolated runs showing a *different* subset failing each time - not deterministic, not
+caused by this session's diff). None of these were touched or introduced this session; flagging
+for whoever picks those up next.
+
+**Also caused a real, if contained, mistake this session while cleaning up manual-test data**: a
+`Membership.deleteMany({ userId: { $exists: true }, roleId: { $exists: true } })` meant to remove
+one throwaway debug user's membership instead matched and deleted *every* Membership in the local
+dev database, including the real `admin@test.com` account's. Caught immediately, looked up the
+user/org/workspace/role ids and restored the exact membership document, confirmed working again.
+Local dev only, not production - but a real lesson, written up in memory
+(`scope-deletes-narrowly-shared-dev-db`).
+
+### Phases 7-8 backend - Vega-facing platform admin API + Industry Pack provisioning (`9421bc0`, confirmed live)
+
+New `/api/platform-admin/*` router (`routes/platformAdmin.js`), shared-secret-authenticated
+(`middleware/requireVegaSecret.js`, checks `x-integration-secret` against the SAME
+`VEGA_INTEGRATION_SECRET` this server already uses to call OUT to Vega - one shared secret between
+the two systems, not a new one) rather than session-gated like `routes/admin.js`'s existing
+staff-facing tenant routes. Deliberately a separate router/handlers, not a refactor of `admin.js` -
+different auth model and caller, keeps the already-verified staff admin UI untouched.
+
+`GET /organizations` (every non-platform-owner org), `GET /organizations/:id` (entitlements + real
+usage via the new `getOrganizationUsageSummary`), `PATCH /organizations/:id` (plan/billingStatus,
+audited via `AuditLog` with `actor: "vega"`), `GET /industry-packs`, `POST
+/organizations/:id/provision`.
+
+Phase 8 backend, scoped **honestly** against what's actually configurable in this codebase today:
+new `IndustryPack` model + `scripts/seedIndustryPacks.js` (3 real starter packs - retail,
+restaurant, professional services, each with genuine draft WhatsApp templates, not placeholder
+text) and the `/provision` endpoint that clones a pack's templates into a target workspace as
+drafts. The master plan's "default CRM pipeline stages" and "default support ticket categories"
+are **NOT** included - `Lead.leadStages` is a fixed platform-wide enum and support ticket
+categories are a hardcoded UI list (`SupportView.tsx`), neither actually configurable
+per-workspace today. Faking that here would claim a capability that doesn't exist - flagging as
+real future work, not silently skipping it. Automation flow cloning is a natural v2 extension of
+the same provisioning mechanism, not built this pass.
+
+Verified end-to-end against a real local server before shipping: auth rejection (no/wrong secret
+→ 401), organization list/detail (including real usage summary and entitlements), plan PATCH with
+a real audit log entry, and a real provision call that created 3 draft `Template` documents with
+the correct shape - all against a real local MongoDB, every piece of test data cleaned up after
+(including reverting the org's plan back to its original value).
+
+**Not yet done**: `scripts/seedIndustryPacks.js` has only been run against the local dev database -
+**production's `IndustryPack` collection is empty**. Run `node scripts/seedIndustryPacks.js`
+against production (as `dashboard`, from `/home/dashboard/dashboard-whatsapp/server`) before
+Vega's provisioning UI will show any packs to pick from.
+
+### Phase 7 frontend - Vega Platform Admin console (Vega commit `bd25f57`, merged as `d5e8f5c`, **pushed but not deployed**)
+
+New admin-only `/platform-admin` section in Vega: a list page (every client Organization, plan/
+billing badges) and a detail page (plan/billing edit form, real usage-vs-limit display, real
+entitlements, workspaces/members/WhatsApp-numbers summary, an Industry Pack activation form).
+`src/lib/platformAdmin/dashboardClient.ts` calls Dashboard-WhatsApp's new API server-to-server,
+reusing Vega's existing `DASHBOARD_INTEGRATION_SECRET` (same shared-secret reasoning as the
+backend side above). Two new internal Vega API routes proxy the client components' mutations
+(PATCH plan/billing, POST provision), gated by the same `requireRoleAccess`/`assertRoleAccess`
+pattern every other admin-only Vega route already uses (new `managePlatformAdmin` permission rule,
+admin-only).
+
+While working on this, discovered Vega's `origin/master` had moved 25+ commits ahead of this
+session's last sync (real, unrelated work from the actual team - role-specific dashboards, push
+notifications, sales targets, a rebuilt sign-in flow, lead assignment/rebalancing, dated through
+Sept 17-18). Merged clean, no conflicts (the only shared file, `nav-items.ts`, auto-merged
+correctly - confirmed the new "Platform Admin" nav entry survived alongside the new "Sales
+Targets" one). Needed a fresh `npm install` after the merge (the concurrent work added a
+`web-push` dependency this session's local `node_modules` didn't have) - `tsc --noEmit` and
+`npm run build` both clean after that.
+
+**Blocked, needs a human**: `./deploy.sh` was refused by this session's own auto-mode safety
+classifier as a real production deploy action, even under the user's standing "ship everything"
+instruction - correctly gated, not a bug. Someone needs to run `cd C:\Projects\Vega && ./deploy.sh`
+by hand. Also blocked the same way: reading/confirming Vega's production `.env` values for
+`DASHBOARD_INTEGRATION_SECRET` (to confirm it still matches Dashboard-WhatsApp's
+`VEGA_INTEGRATION_SECRET` - it must, for the existing `dashboard-events`/`dashboard-leads` calls to
+already work, but this session couldn't directly verify it) and adding the new `DASHBOARD_API_URL`
+env var (not set yet - needs to be added, pointing at Dashboard-WhatsApp's real base URL,
+presumably `https://dashboard.nemnidhi.com`, before the Platform Admin pages will do anything
+other than show a clean "not configured" error - they degrade gracefully, not a crash, so this is
+safe to deploy before that env var exists).
+
+### What's still open after tonight
+
+- **Deploy Vega** (`./deploy.sh`) - the one concrete blocker to Phase 7 actually being live.
+- **Set `DASHBOARD_API_URL`** in Vega's production `.env` and confirm `DASHBOARD_INTEGRATION_SECRET`
+  still matches Dashboard-WhatsApp's `VEGA_INTEGRATION_SECRET`.
+- **Seed IndustryPacks in production** (`node scripts/seedIndustryPacks.js` on the Dashboard-
+  WhatsApp VPS).
+- **Phase 8's CRM-stage/support-category customization** genuinely needs schema work this session
+  didn't do (see above) - real future scope, not an oversight.
+- The pre-existing test flakes/bugs noted above (leads.e2e PATCH, adminSettingsSchema,
+  automationEngine/whatsappSystemAccount timing flakiness) - none touched tonight, all
+  pre-existing, worth a dedicated look whenever someone's picking up test-suite health generally.
+
 ## 2026-09-18 (later): "one platform" build-out - Phases 0-5 shipped (feature gating, invoicing, shipping, documentation, support, AI expansion), plus an urgent cross-tenant data leak into Vega found and fixed
 
 **Read this first if resuming.** This session picked up "features, permissions, and business model"
