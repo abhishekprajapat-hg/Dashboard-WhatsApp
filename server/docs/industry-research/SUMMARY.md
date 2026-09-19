@@ -82,7 +82,32 @@ Construction).
 
 ---
 
-## Phase 2 (sequence after Phase 1 proves the mechanism)
+## Phase 2 — built and seeded 2026-09-19 (`server/scripts/seedIndustryPacks.js`)
+
+All 19 Phase 2 sub-industry packs listed below are now real, seeded `IndustryPack` documents with
+full pipeline stages (typed open/won/lost), custom field definitions, support categories, and
+draft WhatsApp templates - not just the one-line sketches this section originally held. Support
+categories in particular were **not** in this file for almost every Phase 2 entry below; they were
+newly extracted from each raw source `.txt` in a dedicated research pass, not invented. The bullets
+below are left as-is (historical planning record); the real, complete data now lives in the seed
+script itself - read that file directly rather than re-deriving from here.
+
+Two packs carry an explicit lower-confidence flag in the seed script's own comments:
+- **`media_content_production`**: confirmed non-sales (greenlight/production) workflow, handled as
+  a job-tracking stage set (Pitch → Development → Greenlit → Production → Post-Production →
+  Released/won, Deferred|Rejected/lost) rather than a lead-to-close pipeline. Its support
+  categories are inferred proxies (talent payment, rights disputes, QC rejection) - the source doc
+  has no dedicated helpdesk list for this sub-model the way it does for others.
+- **`financial_wealth_investment`**: built from scattered explicit mentions across the Financial
+  Services doc (investor acquisition, risk profiling, portfolio monitoring, recurring advisory),
+  not one continuous narrative like Lending/Insurance - same "thinner source, still real" caveat as
+  Healthcare Telemedicine above.
+
+`logistics_3pl_warehousing` and the three upstream industrial-cluster sub-models (Textile Mill,
+Leather Tannery, Paper Mill) were built from scratch against their source docs - SUMMARY.md never
+had pipeline detail for these four, only a one-line characterization.
+
+## Phase 2 planning record (superseded by the seeded packs above - kept for history)
 
 - **Entertainment — Ticketed venues** (parks, arcades, bowling): booking/quotation-driven, similar shape to membership pack but no renewal cycle.
 - **Entertainment — Events/Esports/Sponsorship**: project/sponsorship-based, longer B2B-style sales cycle.

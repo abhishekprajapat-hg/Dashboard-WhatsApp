@@ -1,5 +1,81 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-19 (latest): Phase 2 industry packs (19 sub-industries) built, seeded to local dev, verified - NOT YET committed/pushed
+
+**Read this first if resuming.** Direct continuation of the entry below (CRM industry-specificity
+architecture), which turned out to already be committed and deployed by the time this session
+started - first action was confirming that (`78dcef6` live on the VPS, `pm2` online with a clean
+health check; the Redis `ECONNREFUSED` lines visible in the log tail were stale, from a Redis
+service restart that morning, not from the current process - the log file's own mtime predated the
+app's restart). The entry below's own "NOT YET committed/deployed" status line is now stale; leaving
+it as a historical record rather than rewriting it.
+
+This session then executed **Phase 2** of the industry-pack rollout per
+`C:\Users\HP\.claude\plans\glowing-jingling-meadow.md` and `server/docs/industry-research/SUMMARY.md`.
+19 new sub-industry `IndustryPack` documents added to `server/scripts/seedIndustryPacks.js` (10
+Phase 1 + 19 Phase 2 = 29 total), each with real pipeline stages (typed open/won/lost per
+`services/pipelineStages.js`'s existing mechanism - no code changes needed there, this phase is
+pure data), custom field definitions, support ticket categories, and draft WhatsApp templates:
+
+Entertainment (Ticketed Venues; Events/Esports/Sponsorship), Media & Communication (Content
+Production/Creator), Logistics (Fleet/Freight Brokerage; 3PL/Warehousing), Professional Services
+(Recruitment/Staffing), Financial Services (Lending; Insurance; Wealth/Investment Advisory),
+Automobile (Component Manufacturer/Supplier; Dealership/Retail), Metals & Heavy Industry
+(Fabrication/Job-work), Electronics & Electricals, and the industrial-manufacturing cluster
+(Textile & Apparel - Mill and Garment; Leather & Footwear - Tannery and Footwear Brand; Paper &
+Packaging - Mill and Converter).
+
+Healthcare Telemedicine/Home-care - listed under Phase 2 in the plan - was already built in Phase 1
+at the user's explicit request, so it was skipped here (not missing, already done).
+
+**Real research pass, not the condensed summary alone**: `SUMMARY.md` only had one-line sketches
+(no support categories at all, and no pipeline detail) for most of these 19. Dispatched 5 parallel
+background research agents to read the actual raw `.txt` source docs in
+`server/docs/industry-research/` (17,500 lines total across 11 files) and extract real,
+doc-grounded stages/fields/categories rather than inventing them. Two packs carry an honest
+lower-confidence flag (in both the seed script's own comments and `SUMMARY.md`'s updated Phase 2
+section):
+- **`media_content_production`**: the source doc explicitly frames this as a greenlight/production
+  workflow, not a sales pipeline ("The concept may be: Approved / revised / placed in development /
+  deferred / rejected") - built as a job-tracking stage set instead. Its support categories are
+  inferred proxies (talent payment, rights disputes, QC rejection), not a documented list like the
+  other packs have.
+- **`financial_wealth_investment`**: `SUMMARY.md` had explicitly flagged this as "not detailed in
+  extraction - needs its own pass." The research pass confirmed genuine, real content does exist in
+  the doc (investor acquisition → risk profiling → product recommendation → investment execution →
+  portfolio monitoring → recurring advisory), just scattered across the document rather than one
+  continuous section like Lending/Insurance - built it, flagged as thinner-sourced.
+
+`logistics_3pl_warehousing` and 3 of the 6 industrial-cluster sub-models (Textile Mill, Leather
+Tannery, Paper Mill - the upstream/raw-material half of each pair) had zero pipeline detail
+anywhere and were built from scratch against their source docs.
+
+**Verified, not just typechecked**: `node --check` on the seed script; a custom validation pass
+confirming all 29 packs (not just the 19 new ones) have unique keys, a valid won/lost invariant per
+pack, unique field/category keys, `select` fields with real options, and template `{{n}}`
+placeholder counts matching their `variables` arrays; a real run of
+`node scripts/seedIndustryPacks.js` against local dev MongoDB (genuine Mongoose schema validation,
+not just my own checks) - all 29 upserted cleanly; a real local server + `GET /industry-packs` +
+`POST /organizations/:id/provision` round-trip against the trickiest pack
+(`media_content_production`) provisioned onto the local dev Main Workspace, confirmed via a direct
+Mongo read that `settings.crm.pipelineStages`/`customFieldDefinitions` and
+`settings.support.categories` persisted exactly as defined - then reverted Main Workspace's
+settings to its exact prior state and deleted the 3 test templates created, per this session's own
+"clean up test data" convention. Full backend suite after: only the same 4 pre-existing,
+already-documented flakes from the entry below (`leads.e2e` PATCH ownerUserId, `automationEngine`
+timing, `adminSettingsSchema`, `whatsappSystemAccount`) - none new, none related.
+
+**Not yet done**: not committed or pushed. Production's `IndustryPack` collection still only has
+whatever was last seeded there (per the entry below, likely just the Phase 1 10 packs, or possibly
+still empty - re-check before assuming). `node scripts/seedIndustryPacks.js` needs to run against
+production (`sudo -u hrmsdeploy`-equivalent user, per this repo's own deploy user, from
+`/home/dashboard/dashboard-whatsapp/server`) after this commit deploys, the same outstanding step
+already flagged for the Phase 1 packs. Phase 3 (Real Estate excluded, Education, Media-Agency,
+Cement, Chemicals, Pharmaceuticals, Food Processing, Construction) remains explicitly deferred -
+research already extracted, seeding work only when it's time. The Chemicals data-quality flag
+(Tier 2/3 MSME section apparently substituted Cement & Building Materials content) still needs
+re-verification against the source `.docx` before ever seeding that pack.
+
 ## 2026-09-19 (later): CRM industry-specificity built and verified locally - NOT YET committed/deployed
 
 **Read this first if resuming.** Direct response to real user feedback: "what you built [the
