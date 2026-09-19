@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   CAPABILITY_DEFINITIONS,
   getEntitlements,
+  getUsageLimit,
   hasEntitlement,
   isValidPackTier,
   PACK_TIERS,
+  PLAN_LIMITS,
 } from "../services/entitlements.js";
 
 // Pure logic, no Mongo needed - this covers the tier->capability mapping directly. The
@@ -79,4 +81,24 @@ test("getEntitlements flags normalization when the stored plan isn't a known tie
   const result = getEntitlements("starter");
   assert.equal(result.plan, "basic");
   assert.equal(result.normalized, true);
+});
+
+// Phase 6 (master plan) - only messagesSent is populated in PLAN_LIMITS today, per its own TODO
+// comment; every other metric must read as unmetered (null), not 0.
+test("getUsageLimit returns the plan's messagesSent cap, rising with tier", () => {
+  assert.equal(getUsageLimit("basic", "messagesSent"), PLAN_LIMITS.basic.messagesSent);
+  assert.equal(getUsageLimit("medium", "messagesSent"), PLAN_LIMITS.medium.messagesSent);
+  assert.equal(getUsageLimit("pro", "messagesSent"), PLAN_LIMITS.pro.messagesSent);
+  assert.ok(PLAN_LIMITS.basic.messagesSent < PLAN_LIMITS.medium.messagesSent);
+  assert.ok(PLAN_LIMITS.medium.messagesSent < PLAN_LIMITS.pro.messagesSent);
+});
+
+test("getUsageLimit returns null (unmetered) for a metric with no defined limit, and for the unmetered custom tier", () => {
+  assert.equal(getUsageLimit("basic", "campaignsRun"), null);
+  assert.equal(getUsageLimit("pro", "automationRuns"), null);
+  assert.equal(getUsageLimit("custom", "messagesSent"), null);
+});
+
+test("getUsageLimit treats an unrecognized plan value the same way hasEntitlement does (falls back to basic)", () => {
+  assert.equal(getUsageLimit("starter", "messagesSent"), PLAN_LIMITS.basic.messagesSent);
 });

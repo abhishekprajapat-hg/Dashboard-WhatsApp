@@ -76,6 +76,23 @@ export const PLAN_PRICES = {
   pro: { amount: 799900, currency: "INR", label: "₹7,999/mo" },
 };
 
+// TODO: placeholder monthly limits (same "not decided yet" caveat as PLAN_PRICES above) - only
+// messagesSent is populated, matching the master plan's explicit Phase 6 scope ("starting with
+// messagesSent, the metric with real WhatsApp-API cost exposure"). UsageCounter's other metrics
+// (campaignsRun, automationRuns) stay unmetered until there's a phase to size them against real
+// data. "custom" is absent, same contact-sales reasoning as its absence from PLAN_PRICES.
+export const PLAN_LIMITS = {
+  basic: { messagesSent: 1000 },
+  medium: { messagesSent: 5000 },
+  pro: { messagesSent: 20000 },
+};
+
+// null means "no limit defined for this plan/metric" - callers (usageMetering.js's
+// checkUsageLimit) treat that as unmetered, not zero.
+export function getUsageLimit(plan, metric) {
+  return PLAN_LIMITS[normalizeTier(plan)]?.[metric] ?? null;
+}
+
 const KNOWN_CAPABILITY_KEYS = new Set(CAPABILITY_DEFINITIONS.map((definition) => definition.key));
 const TIER_RANK = Object.fromEntries(PACK_TIERS.map((tier, index) => [tier, index]));
 

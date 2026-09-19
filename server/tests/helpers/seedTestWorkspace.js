@@ -38,7 +38,14 @@ export async function seedTestWorkspace({ mongoUri, contactCount = 5 }) {
     name: "Integration Test Org",
     slug: `integration-test-org-${Date.now()}`,
     ownerUserId: user._id,
-    plan: "starter",
+    // "pro" (every entitlement unlocked) - not "starter"/basic. Phase 0's requireEntitlement
+    // gates (campaigns.js/automation.js/etc.) shipped after this helper was written and were
+    // pre-flight-checked only against the two real live clients' plans, never against this test
+    // seed - a "starter" org here 403s on every campaigns/automationBuilder/support/etc.-gated
+    // route, which is a test-fixture gap, not a real access-control scenario worth covering by
+    // default. A test that specifically wants to exercise a lower tier's restrictions should set
+    // its own org.plan after seeding, not rely on this helper's default.
+    plan: "pro",
     billingStatus: "trial",
   });
 

@@ -167,6 +167,10 @@ export const config = {
     s3MediaStorage: process.env.FEATURE_S3_MEDIA_STORAGE === "true" || process.env.MEDIA_STORAGE_DRIVER === "s3",
     rabbitmqEvents: process.env.FEATURE_RABBITMQ_EVENTS === "true",
     zeroDowntimeMode: process.env.FEATURE_ZERO_DOWNTIME_MODE !== "false",
+    // Off by default - see FEATURE_FLAG_DEFINITIONS in services/featureFlags.js. Only actually
+    // blocks anything once a full billing cycle of real UsageCounter data justifies flipping it
+    // (master plan, Phase 6); until then, over-limit organizations still only get soft-warned.
+    usageLimitHardBlock: process.env.FEATURE_USAGE_LIMIT_HARD_BLOCK === "true",
   },
   // Both empty by default - vegaIntegration.js's notifyVega() no-ops rather than erroring when
   // unconfigured, since this is a best-effort side channel, not a required integration.

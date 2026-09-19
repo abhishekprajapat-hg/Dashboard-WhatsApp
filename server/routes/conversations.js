@@ -7,6 +7,7 @@ import { FacebookAccount, InstagramAccount, WhatsAppAccount } from "../models/in
 import { hasPermission, requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { requireActiveBilling } from "../middleware/billingGate.js";
+import { requireUnderUsageLimit } from "../middleware/usageLimit.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
@@ -722,7 +723,7 @@ conversationsRouter.patch("/:id/assignment", requirePermission("assignment:write
   res.json({ data: serializeConversation(hydrated, messages, { userId: req.user.sub }) });
 });
 
-conversationsRouter.post("/:id/template", requirePermission("inbox:write"), requireEntitlement("messaging"), validateBody(sendTemplateSchema), async (req, res) => {
+conversationsRouter.post("/:id/template", requirePermission("inbox:write"), requireEntitlement("messaging"), requireUnderUsageLimit("messagesSent"), validateBody(sendTemplateSchema), async (req, res) => {
   if (mongoose.connection.readyState !== 1 || !mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
@@ -843,7 +844,7 @@ conversationsRouter.post("/:id/template", requirePermission("inbox:write"), requ
   res.status(201).json({ data: serializeMessage(message) });
 });
 
-conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requireEntitlement("messaging"), requireActiveBilling(), validateBody(sendMessageSchema), async (req, res) => {
+conversationsRouter.post("/:id/messages", requirePermission("inbox:write"), requireEntitlement("messaging"), requireActiveBilling(), requireUnderUsageLimit("messagesSent"), validateBody(sendMessageSchema), async (req, res) => {
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.params.id)) {
     const conversation = await Conversation.findOne({ _id: req.params.id, workspaceId: req.user.workspaceId });
 

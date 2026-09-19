@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
-import { Membership, Role, User } from "../models/index.js";
+import { Membership, Organization, Role, User } from "../models/index.js";
 import { hashPassword } from "../utils/password.js";
 import { roleDefinitionFor } from "../utils/rbac.js";
+import { FEATURE_FLAG_DEFINITIONS } from "../services/featureFlags.js";
 import { startTestServer } from "./helpers/testServer.js";
 import { seedTestWorkspace } from "./helpers/seedTestWorkspace.js";
 
@@ -44,6 +45,13 @@ test.before(async () => {
   // seedTestWorkspace disconnects Mongoose's global connection internally - reconnect before
   // creating the extra viewer-role user below.
   await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 10000 });
+
+  // GET/PUT/DELETE /admin/feature-flags are requirePlatformOwner-gated (feature flags are a
+  // whole-platform concern, not a per-tenant one) - seedTestWorkspace's org is a normal client
+  // org by default (isPlatformOwner: false), so this suite promotes its own org rather than
+  // changing the shared helper's default, which other tests rely on for real tenant-boundary
+  // coverage.
+  await Organization.updateOne({ _id: seed.organizationId }, { $set: { isPlatformOwner: true } });
 
   const viewerEmail = `integration-viewer-${Date.now()}@test.local`;
   const viewerPassword = "IntegrationTest123!";
@@ -100,9 +108,9 @@ test.after(async () => {
   await mongoose.disconnect();
 });
 
-test("GET /feature-flags returns all 5 flags at their env defaults on a fresh DB", async () => {
+test("GET /feature-flags returns every defined flag at its env default on a fresh DB", async () => {
   const { data } = await api("/api/admin/feature-flags", { expectStatus: 200 });
-  assert.equal(data.data.length, 5);
+  assert.equal(data.data.length, FEATURE_FLAG_DEFINITIONS.length);
   for (const flag of data.data) {
     assert.equal(flag.source, "env-default");
     assert.equal(flag.effective, flag.envDefault);

@@ -3,7 +3,8 @@ import { Campaign, Contact, Conversation, Message, Template, WhatsAppAccount } f
 import { publishConversationChanged, publishWorkspaceEvent } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
 import { logger } from "./logger.js";
-import { incrementUsage } from "./usageMetering.js";
+import { checkUsageLimit, incrementUsage, usageLimitMessage, warnUsageSoftLimitOnce } from "./usageMetering.js";
+import { getFlagSync } from "./featureFlags.js";
 import { notifyVega } from "./vegaIntegration.js";
 import { sendWhatsAppTemplate } from "./whatsappProvider.js";
 
@@ -113,6 +114,16 @@ export async function processCampaignRecipient(data) {
     Contact.findOne({ _id: contactId, workspaceId }),
   ]);
 
+  // Checked once per recipient here (not just at /:id/send launch time) since a campaign's
+  // recipients are spaced out over minutes-to-hours via delayed BullMQ jobs - a workspace can
+  // cross its limit mid-campaign, not just before it starts. requireUnderUsageLimit (the launch
+  // route's own gate) and this share the exact same checkUsageLimit/warnUsageSoftLimitOnce calls,
+  // so a hard-block, once the usageLimitHardBlock flag is on, applies consistently either way.
+  const usageStatus = account && template && contact ? await checkUsageLimit(organizationId, "messagesSent") : null;
+  if (usageStatus?.softWarn) {
+    warnUsageSoftLimitOnce(organizationId, workspaceId, usageStatus).catch(() => undefined);
+  }
+
   let providerResult;
   let errorMessage = "";
   if (!account || !template || !contact) {
@@ -126,6 +137,9 @@ export async function processCampaignRecipient(data) {
     // real reason to show, not a silent gap in the delivery count.
     errorMessage = account.marketingPausedReason || "Marketing sends are paused for this WhatsApp number due to a quality rating drop.";
     providerResult = { providerMessageId: `failed_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };
+  } else if (usageStatus?.exceeded && getFlagSync("usageLimitHardBlock")) {
+    errorMessage = usageLimitMessage("messagesSent", usageStatus.limit);
+    providerResult = { providerMessageId: `blocked_campaign_${campaignId}_${contactId}_${Date.now()}`, status: "failed", mode: "meta" };
   } else {
     try {
       providerResult = await sendWhatsAppTemplate({

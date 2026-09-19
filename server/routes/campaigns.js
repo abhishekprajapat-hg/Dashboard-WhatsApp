@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { requireActiveBilling } from "../middleware/billingGate.js";
+import { requireUnderUsageLimit } from "../middleware/usageLimit.js";
 import { validateBody } from "../middleware/validate.js";
 import { Campaign, Contact, Conversation, Lead, Message, Tag, Template, WhatsAppAccount } from "../models/index.js";
 import { enqueueCampaignRecipients } from "../services/campaignSender.js";
@@ -607,7 +608,7 @@ campaignsRouter.post("/", requirePermission("campaigns:write"), requireEntitleme
   res.status(201).json({ data: serializeCampaign(campaign) });
 });
 
-campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireEntitlement("campaigns"), requireActiveBilling(), validateBody(sendCampaignSchema), async (req, res) => {
+campaignsRouter.post("/:id/send", requirePermission("campaigns:write"), requireEntitlement("campaigns"), requireActiveBilling(), requireUnderUsageLimit("messagesSent"), validateBody(sendCampaignSchema), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found." });
   }

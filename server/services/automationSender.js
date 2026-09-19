@@ -4,7 +4,8 @@ import { callOutboundWebhook } from "./integrations.js";
 import { syncLeadToGoogleSheet } from "./googleSheets.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { enqueueJob } from "./jobs.js";
-import { incrementUsage } from "./usageMetering.js";
+import { checkUsageLimit, incrementUsage, usageLimitMessage, warnUsageSoftLimitOnce } from "./usageMetering.js";
+import { getFlagSync } from "./featureFlags.js";
 import { encodeCredentials, sendWhatsAppText } from "./whatsappProvider.js";
 
 const AUTOMATION_QUEUE = "automations";
@@ -46,16 +47,32 @@ export async function processAutomationSendMessage(data) {
       }
     : account;
 
+  // testMode is a flow-builder test run, not a real customer send - must never count toward or be
+  // blocked by usage limits, same reasoning as the incrementUsage skip further down.
+  const usageStatus = testMode ? null : await checkUsageLimit(organizationId, "messagesSent");
+  if (usageStatus?.softWarn) {
+    warnUsageSoftLimitOnce(organizationId, workspaceId, usageStatus).catch(() => undefined);
+  }
+
   let providerResult;
-  try {
-    providerResult = await sendWhatsAppText({ account: sendAccount, to: contact.phone, body });
-  } catch (error) {
+  if (usageStatus?.exceeded && getFlagSync("usageLimitHardBlock")) {
     providerResult = {
-      providerMessageId: `failed_automation_${flowId}_${Date.now()}`,
+      providerMessageId: `blocked_automation_${flowId}_${Date.now()}`,
       status: "failed",
       mode: "meta",
-      error,
+      error: new Error(usageLimitMessage("messagesSent", usageStatus.limit)),
     };
+  } else {
+    try {
+      providerResult = await sendWhatsAppText({ account: sendAccount, to: contact.phone, body });
+    } catch (error) {
+      providerResult = {
+        providerMessageId: `failed_automation_${flowId}_${Date.now()}`,
+        status: "failed",
+        mode: "meta",
+        error,
+      };
+    }
   }
 
   const message = await Message.create({

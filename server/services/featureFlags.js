@@ -42,6 +42,13 @@ export const FEATURE_FLAG_DEFINITIONS = [
     envVar: "FEATURE_ZERO_DOWNTIME_MODE",
     gatesRealBehavior: false,
   },
+  {
+    key: "usageLimitHardBlock",
+    label: "Usage Limit Hard Block",
+    description: "Once a workspace exceeds its plan's monthly messagesSent limit (PLAN_LIMITS in services/entitlements.js), blocks further sends - manual replies, template sends, campaign launches, and per-recipient campaign/automation sends - instead of only soft-warning via an in-app notification. Off by default until a full billing cycle of real UsageCounter data justifies enabling it (master plan, Phase 6).",
+    envVar: "FEATURE_USAGE_LIMIT_HARD_BLOCK",
+    gatesRealBehavior: true,
+  },
 ];
 
 const KNOWN_FLAG_KEYS = new Set(FEATURE_FLAG_DEFINITIONS.map((definition) => definition.key));
