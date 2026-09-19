@@ -10,7 +10,7 @@ import { requireActiveBilling } from "../middleware/billingGate.js";
 import { requireUnderUsageLimit } from "../middleware/usageLimit.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import { publishConversationChanged } from "../realtime/events.js";
-import { ensureConversationInCrm, normalizeLeadStage } from "../services/crm.js";
+import { ensureConversationInCrm } from "../services/crm.js";
 import { syncLeadToGoogleSheetInBackground } from "../services/googleSheets.js";
 import { logger } from "../services/logger.js";
 import { sendInstagramMessage } from "../services/instagramProvider.js";
@@ -609,7 +609,6 @@ conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"),
     return res.status(404).json({ error: "NOT_FOUND", message: "Conversation not found." });
   }
 
-  const stage = normalizeLeadStage(req.body?.stage || "new_lead");
   const latestInboundMessage = await Message.findOne({
     conversationId: conversation._id,
     workspaceId: req.user.workspaceId,
@@ -622,7 +621,9 @@ conversationsRouter.post("/:id/add-to-crm", requirePermission("contacts:write"),
     conversation,
     inboundMessage: latestInboundMessage || conversation.lastMessageId,
     source: "manual_inbox_action",
-    stage,
+    // ensureConversationInCrm resolves the workspace's real stages and normalizes this itself
+    // (including the "new_lead" default when unset) - no need to pre-normalize here.
+    stage: req.body?.stage,
     manual: true,
   });
 

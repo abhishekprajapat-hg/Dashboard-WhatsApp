@@ -1,5 +1,81 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-19 (later): CRM industry-specificity built and verified locally - NOT YET committed/deployed
+
+**Read this first if resuming.** Direct response to real user feedback: "what you built [the
+IndustryPack templates-only feature] was the college project... we want a full scale system."
+The user then supplied 22 real business-audit documents (their own research, not invented) and
+directed a scoped rebuild: make pipeline stages, contact custom fields, and support ticket
+categories genuinely workspace-configurable, then make IndustryPack seed real CRM structure per
+industry, not just template text. Full plan at `C:\Users\HP\.claude\plans\glowing-jingling-meadow.md`.
+Real industry research preserved at `server/docs/industry-research/` (22 raw extractions +
+`SUMMARY.md` condensing all of it into stages/fields/categories/pain-points per sub-industry -
+this survives for the future Marketing/Billing/Shipping sections too, not just CRM).
+
+**Architecture**: `Lead.status` (open/won/lost/archived) stays the universal field; `Lead.stage`
+lost its hard Mongoose enum (`leadStages` in `models/Lead.js`) and became a per-workspace
+configurable value. Every pipeline stage now carries a semantic `type` (`open`/`won`/`lost`)
+independent of its label - `services/pipelineStages.js` is the new single source of truth
+(`getPipelineStages`, `resolveStageType`, `normalizeLeadStage`, `deriveLeadStatus`), replacing
+every literal `stage === "won"` check across `crm.js` (incl. the Meta Conversions API trigger),
+`leads.js`, `analytics.js`'s revenue math, and `assistant.js`'s AI tool-call path (found and fixed
+a real pre-existing bug there too: the AI `updateLeadStage` tool never updated `Lead.status` at
+all). Config lives in `Workspace.settings.crm.pipelineStages`/`customFieldDefinitions` and
+`settings.support.categories`, same established pattern as `integrations`/`notifications`. Zero
+data migration - any workspace with no custom config falls back to `DEFAULT_PIPELINE_STAGES`
+(identical to today's old hardcoded 6 values), so the 3 real production tenants are completely
+unaffected until they explicitly configure something.
+
+New Settings > CRM tab (`CrmSettingsPanel.tsx`) manages all three - pipeline stages (with the
+won/lost type dropdown, reorder, and a real 400-rejection if a saved list has zero won or zero
+lost stages), custom field definitions (text/number/date/select, archive-not-delete), and support
+categories. `LeadsView.tsx`'s Kanban and `SupportView.tsx`'s ticket-category dropdown both switched
+from hardcoded arrays to fetching the real config. `ContactsView.tsx`'s create-contact form
+renders a dynamic section per custom field definition; values land in `Contact.customFields.custom.<key>`
+(namespaced deliberately, to never collide with `crm.js`'s reserved internal keys). Contact
+create/update routes needed a real fix too - `customFields` wasn't even writable through them
+before tonight.
+
+**IndustryPack** (`models/IndustryPack.js`) now carries `pipelineStages`/`customFieldDefinitions`/
+`supportCategories` alongside the existing templates, and `POST /organizations/:id/provision`
+(`routes/platformAdmin.js`) `$set`s them onto the target workspace's `settings.crm`/`settings.support`
+- a real, structural provisioning action now, not just template text. The 3 generic packs seeded
+last night (retail/restaurant/professional_services) were retired and replaced with 10 real
+Phase 1 packs, each grounded in the actual research and user-prioritized by "highest demand for
+this kind of solution" (`scripts/seedIndustryPacks.js`): Hospitality (Restaurants/Cafés, Hotels/
+Resorts, Travel Agencies/MICE), Healthcare (Clinic/OPD, Diagnostics/Labs, Telemedicine/Home-care
+- the last one added mid-session at the user's explicit request), Trade & Commerce (B2B Wholesale,
+B2C Retail), Professional Services (Advisory), and Entertainment (Membership-based). Real Estate
+was deliberately excluded - Samvid OS already covers it as a general platform. Phase 2 (rest of
+the user's selected list: Logistics, Financial Services, Automobile, the industrial-manufacturing
+cluster, etc.) and Phase 3 (explicitly deferred: Education, Construction, Chemicals, Pharma, Food
+Processing, Cement) are scoped in the plan file with their research already extracted - seeding
+work when it's time, not re-research. **One data-quality flag from the research itself**: the
+Chemicals document's own "Tier 2/3 MSME" section appears to have accidentally substituted Cement &
+Building Materials content - verify against the source before ever seeding a Chemicals pack.
+
+**Verified, not just typechecked**: full backend test suite green (only the same pre-existing,
+already-documented flakes from earlier tonight - leads.e2e PATCH ownerUserId, automationEngine
+timing flakiness, adminSettingsSchema, whatsappSystemAccount - none new, none related). New
+`tests/pipelineStages.unit.test.js` covers the type-resolution logic directly. Frontend `tsc
+--noEmit` and a full production `npm run build` both clean. End-to-end against a real local
+server + real browser session: provisioned a test workspace with the `healthcare_clinic` pack via
+the real platform-admin API, confirmed `GET /settings` reflected the real industry config,
+created a real Lead and PATCHed its stage to `billing_closed` (a workspace-custom stage name) and
+confirmed `Lead.status` correctly derived to `"won"` via the stage's `type` - not a literal string
+match, which is the entire point of this rework. Logged into the real browser UI as the real admin
+account, confirmed the Pipeline Kanban and the new Settings > CRM tab render and save correctly,
+including a real save → page-reload → still-there round-trip test. All test data (contact, lead,
+templates, debug user, and - caught after an initial miss - an orphaned Membership document left
+behind when the debug user was deleted) cleaned up afterward; workspace settings reverted to
+unset so Main Workspace's production behavior is completely unchanged.
+
+**Not yet done**: this work is fully built and verified locally but **not yet committed or
+pushed** - given the scope (a schema change removing a hard enum, changing `normalizeLeadStage`'s
+signature everywhere) and that production real client data (Sundrishti, The Office on Rent) is on
+the other end of this, review the diff before pushing/deploying rather than auto-shipping the way
+the smaller Phase 6-8 changes were tonight.
+
 ## 2026-09-19: Phase 6 shipped and deployed; Phases 7-8 backend shipped and deployed; Vega-side Phase 7 built, tested, and pushed but NOT deployed (blocked by a safety gate, needs a human to run it)
 
 **Read this first if resuming.** Picked up right where the entry below left off ("Phase 6...

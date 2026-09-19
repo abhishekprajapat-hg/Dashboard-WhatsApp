@@ -298,9 +298,12 @@ async function buildAnalytics(req) {
     .map(([stage, count]) => ({ stage, count }));
   const leadBySource = Array.from(leads.reduce((map, lead) => map.set(lead.source || "Unknown", (map.get(lead.source || "Unknown") || 0) + 1), new Map()))
     .map(([source, count]) => ({ source, count }));
-  const wonLeads = leads.filter((lead) => lead.status === "won" || lead.stage === "won").length;
+  // status alone is sufficient (and more correct than checking stage too) now that it's always
+  // derived from the workspace's own configured stage type at write time (see
+  // services/pipelineStages.js) - a workspace's "won" stage may not literally be keyed "won".
+  const wonLeads = leads.filter((lead) => lead.status === "won").length;
   const revenueWon = leads
-    .filter((lead) => lead.status === "won" || lead.stage === "won")
+    .filter((lead) => lead.status === "won")
     .reduce((sum, lead) => sum + Number(lead.customFields?.revenue || lead.customFields?.dealValue || lead.customFields?.value || 0), 0);
   const pipeline = leads.reduce((sum, lead) => sum + Number(lead.customFields?.dealValue || lead.customFields?.value || 0), 0);
 

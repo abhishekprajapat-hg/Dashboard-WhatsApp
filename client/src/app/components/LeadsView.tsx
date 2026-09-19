@@ -24,10 +24,12 @@ import {
   createTask,
   getLead,
   getLeads,
+  getSettings,
   getTasks,
   getTeamMembers,
   updateLead,
   updateTask,
+  type PipelineStage,
 } from "../lib/api";
 
 interface Lead {
@@ -88,23 +90,43 @@ interface MemberOption {
   name: string;
 }
 
-const STAGES: { id: string; label: string }[] = [
-  { id: "new_lead", label: "New lead" },
-  { id: "contacted", label: "Contacted" },
-  { id: "qualified", label: "Qualified" },
-  { id: "proposal_sent", label: "Proposal sent" },
-  { id: "won", label: "Won" },
-  { id: "lost", label: "Lost" },
+// Fallback only, shown until GET /settings resolves - matches services/pipelineStages.js's
+// DEFAULT_PIPELINE_STAGES so a first paint before the fetch completes looks identical to what a
+// workspace with no custom stages configured actually gets from the server. The real, possibly
+// workspace-customized list (master plan "CRM industry-specificity") replaces this via the
+// `stages` state below.
+const DEFAULT_STAGES: PipelineStage[] = [
+  { key: "new_lead", label: "New lead", color: "info", type: "open" },
+  { key: "contacted", label: "Contacted", color: "warning", type: "open" },
+  { key: "qualified", label: "Qualified", color: "primary", type: "open" },
+  { key: "proposal_sent", label: "Proposal sent", color: "primary", type: "open" },
+  { key: "won", label: "Won", color: "success", type: "won" },
+  { key: "lost", label: "Lost", color: "destructive", type: "lost" },
 ];
 
-const STAGE_ACCENT: Record<string, string> = {
-  new_lead: "border-t-info",
-  contacted: "border-t-warning",
-  qualified: "border-t-primary",
-  proposal_sent: "border-t-primary",
-  won: "border-t-primary",
-  lost: "border-t-destructive",
+// A workspace's stored `color` is a generic name (sky/amber/violet/indigo/green/red, etc. - see
+// the industry pack seed data) or already one of this app's own theme tokens - map either onto a
+// real border-t-* class from the design system's actual palette (theme.css), rather than trying
+// to generate arbitrary Tailwind color classes at runtime.
+const COLOR_TO_ACCENT: Record<string, string> = {
+  sky: "border-t-info",
+  info: "border-t-info",
+  blue: "border-t-info",
+  amber: "border-t-warning",
+  warning: "border-t-warning",
+  yellow: "border-t-warning",
+  violet: "border-t-primary",
+  indigo: "border-t-primary",
+  primary: "border-t-primary",
+  green: "border-t-success",
+  success: "border-t-success",
+  red: "border-t-destructive",
+  destructive: "border-t-destructive",
 };
+
+function stageAccent(color: string) {
+  return COLOR_TO_ACCENT[color] || "border-t-primary";
+}
 
 function relativeTime(iso?: string | null) {
   if (!iso) return "Never";
@@ -184,6 +206,19 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
   const [savingDeal, setSavingDeal] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [savingComment, setSavingComment] = useState(false);
+  const [stages, setStages] = useState<PipelineStage[]>(DEFAULT_STAGES);
+
+  useEffect(() => {
+    let active = true;
+    getSettings<{ crm?: { pipelineStages?: PipelineStage[] } }>()
+      .then((response) => {
+        if (active && response.crm?.pipelineStages?.length) setStages(response.crm.pipelineStages);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -345,13 +380,13 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
   }
 
   const columns = useMemo(() => {
-    return STAGES.map((stage) => ({
+    return stages.map((stage) => ({
       ...stage,
       leads: leads
-        .filter((lead) => lead.stage === stage.id)
+        .filter((lead) => lead.stage === stage.key)
         .sort((a, b) => new Date(b.lastActivityAt || b.updatedAt).getTime() - new Date(a.lastActivityAt || a.updatedAt).getTime()),
     }));
-  }, [leads]);
+  }, [leads, stages]);
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -364,7 +399,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
             Pipeline
           </Badge>
           <h1 className="text-2xl font-semibold text-foreground">Lead pipeline</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{leads.length} leads across {STAGES.length} stages</p>
+          <p className="mt-1 text-sm text-muted-foreground">{leads.length} leads across {stages.length} stages</p>
         </div>
       </div>
 
@@ -382,8 +417,8 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
       ) : (
         <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 sm:p-4">
           {columns.map((column) => (
-            <div key={column.id} className="flex h-full w-72 shrink-0 flex-col rounded-xl border border-border/80 bg-card/60">
-              <div className={`flex items-center justify-between border-b border-t-2 ${STAGE_ACCENT[column.id]} border-border/70 px-3 py-2.5`}>
+            <div key={column.key} className="flex h-full w-72 shrink-0 flex-col rounded-xl border border-border/80 bg-card/60">
+              <div className={`flex items-center justify-between border-b border-t-2 ${stageAccent(column.color)} border-border/70 px-3 py-2.5`}>
                 <span className="text-sm font-semibold text-foreground">{column.label}</span>
                 <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-xs text-muted-foreground">{column.leads.length}</span>
               </div>
@@ -426,8 +461,8 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
                         disabled={savingField}
                         className="mt-2 h-7 w-full rounded-md border border-input bg-input-background px-1.5 text-[11px] text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
                       >
-                        {STAGES.map((stage) => (
-                          <option key={stage.id} value={stage.id}>
+                        {stages.map((stage) => (
+                          <option key={stage.key} value={stage.key}>
                             {stage.label}
                           </option>
                         ))}
@@ -479,8 +514,8 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
                         onChange={(event) => handleStageChange(detail.id, event.target.value)}
                         className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
                       >
-                        {STAGES.map((stage) => (
-                          <option key={stage.id} value={stage.id}>
+                        {stages.map((stage) => (
+                          <option key={stage.key} value={stage.key}>
                             {stage.label}
                           </option>
                         ))}

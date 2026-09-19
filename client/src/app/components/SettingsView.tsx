@@ -32,8 +32,10 @@ import {
   Workflow,
   Instagram,
   Facebook,
+  Target,
 } from "lucide-react";
 import { AdsSettingsPanel } from "./AdsSettingsPanel";
+import { CrmSettingsPanel } from "./CrmSettingsPanel";
 import { WhatsAppFlowsPanel } from "./WhatsAppFlowsPanel";
 import { InstagramSettingsPanel } from "./InstagramSettingsPanel";
 import { FacebookSettingsPanel } from "./FacebookSettingsPanel";
@@ -65,7 +67,7 @@ import {
   updateCurrentWorkspace,
 } from "../lib/api";
 
-type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "facebook" | "ads" | "api" | "integrations" | "billing" | "notifications" | "security";
+type SettingsTab = "workspace" | "whatsapp" | "flows" | "instagram" | "facebook" | "ads" | "crm" | "api" | "integrations" | "billing" | "notifications" | "security";
 
 interface WhatsAppAccount {
   id: string;
@@ -180,6 +182,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "instagram", label: "Instagram", icon: <Instagram size={14} /> },
   { id: "facebook", label: "Facebook", icon: <Facebook size={14} /> },
   { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
+  { id: "crm", label: "CRM", icon: <Target size={14} /> },
   { id: "api", label: "API Keys", icon: <Key size={14} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
   { id: "billing", label: "Billing", icon: <CreditCard size={14} /> },
@@ -1444,6 +1447,12 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
           </div>
         )}
 
+        {activeTab === "crm" && (
+          <div className="max-w-4xl">
+            <CrmSettingsPanel />
+          </div>
+        )}
+
         {activeTab === "instagram" && (
           <div className="max-w-4xl">
             <InstagramSettingsPanel />
@@ -1936,7 +1945,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "facebook" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "billing" && activeTab !== "api" && activeTab !== "notifications" && activeTab !== "security" && (
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "facebook" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "crm" && activeTab !== "billing" && activeTab !== "api" && activeTab !== "notifications" && activeTab !== "security" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>

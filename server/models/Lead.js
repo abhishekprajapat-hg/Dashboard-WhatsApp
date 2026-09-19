@@ -1,5 +1,10 @@
 import mongoose from "mongoose";
 
+// DEPRECATED as a schema constraint - kept only as the historical/default stage-key list (see
+// services/pipelineStages.js's DEFAULT_PIPELINE_STAGES, which supersedes this for actual
+// resolution). Lead.stage is no longer enum-validated against this array; a workspace's real
+// stage list now lives in Workspace.settings.crm.pipelineStages (master plan "CRM
+// industry-specificity").
 export const leadStages = ["new_lead", "contacted", "qualified", "proposal_sent", "won", "lost"];
 
 const leadSchema = new mongoose.Schema(
@@ -12,7 +17,11 @@ const leadSchema = new mongoose.Schema(
     source: { type: String, default: "WhatsApp", index: true },
     campaign: String,
     metaCtwaClid: { type: String, trim: true, default: "" },
-    stage: { type: String, enum: leadStages, default: "new_lead", index: true },
+    // No hard enum, deliberately - a workspace's own configurable pipeline stage (see
+    // services/pipelineStages.js). Same "loose, route-validated" pattern Conversation.
+    // supportCategory already uses successfully, for the same reason: the valid set of values is
+    // now per-workspace, not platform-wide, so a schema-level enum can't express it.
+    stage: { type: String, trim: true, default: "new_lead", index: true },
     score: { type: Number, default: 10, index: true },
     status: { type: String, enum: ["open", "won", "lost", "archived"], default: "open", index: true },
     providerMessageId: { type: String, index: true },

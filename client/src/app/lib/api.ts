@@ -426,7 +426,7 @@ export function bulkImportContacts<T>(rows: { name: string; phone: string; email
   });
 }
 
-export function createContact<T>(contact: { name: string; phone: string; email?: string; tags?: string[] }) {
+export function createContact<T>(contact: { name: string; phone: string; email?: string; tags?: string[]; customFields?: Record<string, unknown> }) {
   return request<T>("/contacts", {
     method: "POST",
     body: JSON.stringify(contact),
@@ -782,6 +782,40 @@ export function updateNotifications<T>(notifications: {
     method: "PUT",
     body: JSON.stringify(notifications),
   });
+}
+
+// CRM industry-specificity - a workspace's own configurable pipeline stages, custom contact
+// fields, and support ticket categories (replacing what used to be fixed platform-wide lists).
+export interface PipelineStage {
+  key: string;
+  label: string;
+  color: string;
+  type: "open" | "won" | "lost";
+}
+
+export interface CustomFieldDefinition {
+  key: string;
+  label: string;
+  type: "text" | "number" | "date" | "select";
+  options: string[];
+  archived: boolean;
+}
+
+export interface SupportCategory {
+  key: string;
+  label: string;
+}
+
+export function updatePipelineStages<T>(stages: PipelineStage[]) {
+  return request<T>("/settings/crm/pipeline-stages", { method: "PUT", body: JSON.stringify(stages) });
+}
+
+export function updateCustomFieldDefinitions<T>(fields: CustomFieldDefinition[]) {
+  return request<T>("/settings/crm/custom-fields", { method: "PUT", body: JSON.stringify(fields) });
+}
+
+export function updateSupportCategories<T>(categories: SupportCategory[]) {
+  return request<T>("/settings/support/categories", { method: "PUT", body: JSON.stringify(categories) });
 }
 
 export function createWhatsAppAccount<T>(account: {

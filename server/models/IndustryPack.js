@@ -5,15 +5,14 @@ import mongoose from "mongoose";
 // Platform Admin console (Phase 7) lists these for staff to pick from; the provisioning API
 // (Phase 8, routes/platformAdmin.js) clones a pack's templates into a target workspace as drafts.
 //
-// Scoped honestly against what's actually configurable in this codebase today: the master plan's
-// "default CRM pipeline stages/lead fields" and "default support ticket categories" turned out to
-// require schema changes this pass didn't make - Lead.leadStages (models/Lead.js) is a fixed
-// platform-wide enum, not per-workspace, and support ticket categories are a hardcoded UI list
-// (SupportView.tsx), not read from any workspace setting. Faking those fields here would imply a
-// capability that doesn't exist. Only WhatsApp templates are real and workspace-scoped today - the
-// master plan's own example ("pre-built campaign/automation templates, cloned into the workspace
-// as drafts") is exactly what this does. Automation flow cloning is a natural v2 extension of the
-// same mechanism once a flow-graph clone is worth building; not done here.
+// Originally scoped to templates only, because pipeline stages/custom fields/support categories
+// weren't workspace-configurable yet (Lead.leadStages was a fixed platform-wide enum, support
+// categories a hardcoded UI list). That gap is closed (see services/pipelineStages.js and
+// routes/settings.js's crm/support config) - this pack now carries real CRM structure per
+// industry, not just template text: pipelineStages/customFieldDefinitions/supportCategories are
+// $set onto the target workspace's settings.crm/settings.support at provisioning time
+// (routes/platformAdmin.js), same shapes routes/settings.js's own schemas validate. Automation
+// flow cloning is still a natural v2 extension of the same mechanism, not done here.
 const industryPackSchema = new mongoose.Schema(
   {
     key: { type: String, required: true, trim: true, unique: true },
@@ -47,6 +46,40 @@ const industryPackSchema = new mongoose.Schema(
             ],
             default: [],
           },
+        },
+      ],
+      default: [],
+    },
+    // Same shape services/pipelineStages.js resolves at runtime and routes/settings.js's
+    // pipelineStagesSchema validates - `type` is the semantic won/lost/open tag every downstream
+    // "is this deal won" check now keys off, independent of the stage's own label.
+    pipelineStages: {
+      type: [
+        {
+          key: { type: String, required: true, trim: true },
+          label: { type: String, required: true, trim: true },
+          color: { type: String, default: "primary" },
+          type: { type: String, enum: ["open", "won", "lost"], required: true },
+        },
+      ],
+      default: [],
+    },
+    customFieldDefinitions: {
+      type: [
+        {
+          key: { type: String, required: true, trim: true },
+          label: { type: String, required: true, trim: true },
+          type: { type: String, enum: ["text", "number", "date", "select"], required: true },
+          options: { type: [String], default: [] },
+        },
+      ],
+      default: [],
+    },
+    supportCategories: {
+      type: [
+        {
+          key: { type: String, required: true, trim: true },
+          label: { type: String, required: true, trim: true },
         },
       ],
       default: [],

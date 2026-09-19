@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { AuditLog, Lead, Membership, Role, Tag, WhatsAppAccount } from "../models/index.js";
-import { leadStages } from "../models/Lead.js";
+import { AuditLog, Lead, Membership, Role, Tag, WhatsAppAccount, Workspace } from "../models/index.js";
+import { deriveLeadStatus, normalizeLeadStage, resolveStageType } from "./pipelineStages.js";
 import { sendConversionEvent } from "./metaConversionsApi.js";
 import { pushLeadToVega } from "./vegaIntegration.js";
 import { logger } from "./logger.js";
@@ -10,10 +10,7 @@ const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const phonePattern = /(?:\+?\d[\d\s().-]{7,}\d)/;
 const namePattern = /\b(my name is|i am|i'm|this is)\s+[a-z][a-z\s]{1,40}\b/i;
 
-export function normalizeLeadStage(stage = "new_lead") {
-  const value = String(stage || "").trim().toLowerCase();
-  return leadStages.includes(value) ? value : "new_lead";
-}
+export { normalizeLeadStage };
 
 export function detectWhatsAppLead({ normalized, message, isAdLead = false, isFirstConversation = false } = {}) {
   const body = String(message?.body || normalized?.body || "").trim();
@@ -120,12 +117,16 @@ export async function ensureConversationInCrm({
   const organizationId = contact.organizationId || conversation.organizationId;
   const workspaceId = contact.workspaceId || conversation.workspaceId;
   const now = new Date();
+  // Fetched once and threaded through - every normalizeLeadStage/resolveStageType/
+  // deriveLeadStatus call below needs the workspace's own configured pipeline stages, not the
+  // old platform-wide fixed list (master plan "CRM industry-specificity").
+  const workspace = await Workspace.findById(workspaceId).select("settings");
   const leadTag = await ensureLeadTag({ organizationId, workspaceId });
   const ownerUserId = await chooseOwner({ workspaceId, contact, conversation });
   const campaign = extractCampaign({ normalized, source });
   const ctwaClid = contact?.customFields?.metaAdReferral?.ctwa_clid || "";
   const location = extractLocation(normalized);
-  const normalizedStage = normalizeLeadStage(stage);
+  const normalizedStage = normalizeLeadStage(workspace, stage);
   // Broader than leadFilter below on purpose - leadFilter requires status:"open" to match, so it
   // stops seeing a lead the moment it's already won. This read is only used to detect a genuine
   // open->won transition (see the conversion-event call after the upsert), which needs the lead's
@@ -177,7 +178,7 @@ export async function ensureConversationInCrm({
     },
     crm: {
       ...crm,
-      stage: normalizeLeadStage(crm.stage || normalizedStage),
+      stage: normalizeLeadStage(workspace, crm.stage || normalizedStage),
       leadScore: Number(crm.leadScore || 10),
       source,
       campaign,
@@ -250,8 +251,8 @@ export async function ensureConversationInCrm({
         source,
         campaign,
         metaCtwaClid: ctwaClid || existingLead?.metaCtwaClid || "",
-        stage: normalizeLeadStage(crm.stage || normalizedStage),
-        status: ["won", "lost"].includes(normalizeLeadStage(crm.stage || normalizedStage)) ? normalizeLeadStage(crm.stage || normalizedStage) : "open",
+        stage: normalizeLeadStage(workspace, crm.stage || normalizedStage),
+        status: deriveLeadStatus(workspace, normalizeLeadStage(workspace, crm.stage || normalizedStage)),
         score: Number(crm.leadScore || 10),
         lastActivityAt: conversation.lastMessageAt || now,
         followUpAt: crm.followUpAt || undefined,
@@ -276,7 +277,7 @@ export async function ensureConversationInCrm({
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  if (normalizedStage === "won" && existingLead?.status !== "won" && lead.metaCtwaClid) {
+  if (resolveStageType(workspace, normalizedStage) === "won" && existingLead?.status !== "won" && lead.metaCtwaClid) {
     try {
       const whatsappAccount = await WhatsAppAccount.findOne({ workspaceId, provider: "meta" });
       if (whatsappAccount) {

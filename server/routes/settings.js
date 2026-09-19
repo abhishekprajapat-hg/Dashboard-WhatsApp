@@ -8,6 +8,8 @@ import { roleDefinitions } from "../utils/rbac.js";
 import { httpUrlString, optionalHttpUrlString } from "../utils/zodHelpers.js";
 import { callOutboundWebhook } from "../services/integrations.js";
 import { credentialSummary } from "../services/whatsappProvider.js";
+import { SUPPORT_CATEGORIES } from "./support.js";
+import { getPipelineStages } from "../services/pipelineStages.js";
 
 export const settingsRouter = Router();
 
@@ -77,6 +79,84 @@ export const notificationsSchema = z.object({
     whatsappQualityDropped: z.boolean().optional().default(true),
   }).optional().default({}),
 });
+
+// Master plan "CRM industry-specificity" - a workspace's own support ticket taxonomy. Loose
+// strings, not a hard enum, matching Conversation.supportCategory's own established "never
+// blocks an unrecognized value" reasoning - this is a UI-presented list, not access control.
+const supportCategorySchema = z.object({
+  key: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+});
+
+export const supportCategoriesSchema = z
+  .array(supportCategorySchema)
+  .refine((categories) => new Set(categories.map((c) => c.key)).size === categories.length, {
+    message: "Category keys must be unique.",
+  });
+
+// SUPPORT_CATEGORIES (routes/support.js) was exported but never imported anywhere until now -
+// this is that dead export's real purpose: the default list every workspace starts with until it
+// customizes its own.
+function defaultSupportCategories() {
+  return SUPPORT_CATEGORIES.map((key) => ({ key, label: key.charAt(0).toUpperCase() + key.slice(1) }));
+}
+
+function getSupportCategories(workspace) {
+  const configured = workspace?.settings?.support?.categories;
+  return Array.isArray(configured) && configured.length ? configured : defaultSupportCategories();
+}
+
+// Custom field DEFINITIONS a workspace can add to its contacts (MVP: text/number/date/select,
+// values land in the existing free-form Contact.customFields.custom.<key> - see
+// services/crm.js's reserved-key comment for why the "custom" namespace matters). "select"
+// requires at least one option; other types ignore `options` entirely.
+const customFieldDefinitionSchema = z
+  .object({
+    key: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+    type: z.enum(["text", "number", "date", "select"]),
+    options: z.array(z.string().trim().min(1)).optional().default([]),
+    archived: z.boolean().optional().default(false),
+  })
+  .refine((field) => field.type !== "select" || field.options.length > 0, {
+    message: "A select field needs at least one option.",
+    path: ["options"],
+  });
+
+export const customFieldDefinitionsSchema = z
+  .array(customFieldDefinitionSchema)
+  .refine((fields) => new Set(fields.map((f) => f.key)).size === fields.length, {
+    message: "Field keys must be unique.",
+  });
+
+function getCustomFieldDefinitions(workspace) {
+  return workspace?.settings?.crm?.customFieldDefinitions || [];
+}
+
+// Master plan "CRM industry-specificity" - a workspace's own configurable sales pipeline (see
+// services/pipelineStages.js for how `type` is resolved everywhere "won"/"lost" used to be a
+// literal string check). The won/lost invariant is enforced HERE, not just documented - without
+// at least one of each, analytics.js's revenue math and the Meta Conversions API "won" trigger
+// silently go dark for that workspace.
+const pipelineStageSchema = z.object({
+  key: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+  color: z.string().trim().optional().default("sky"),
+  type: z.enum(["open", "won", "lost"]),
+});
+
+export const pipelineStagesSchema = z
+  .array(pipelineStageSchema)
+  .min(1, "At least one pipeline stage is required.")
+  .refine((stages) => new Set(stages.map((s) => s.key)).size === stages.length, {
+    message: "Stage keys must be unique.",
+  })
+  .refine((stages) => stages.some((s) => s.type === "won"), {
+    message: "At least one stage must be typed \"won\".",
+  })
+  .refine((stages) => stages.some((s) => s.type === "lost"), {
+    message: "At least one stage must be typed \"lost\".",
+  });
 
 function defaultIntegrations() {
   return {
@@ -168,6 +248,13 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
       })),
       integrations: mergeIntegrations(workspace?.settings?.integrations),
       notifications: mergeNotifications(workspace?.settings?.notifications),
+      crm: {
+        pipelineStages: getPipelineStages(workspace),
+        customFieldDefinitions: getCustomFieldDefinitions(workspace),
+      },
+      support: {
+        categories: getSupportCategories(workspace),
+      },
     });
   }
 
@@ -177,6 +264,8 @@ settingsRouter.get("/", requirePermission("settings:read"), async (req, res) => 
     integrations: defaultIntegrations(),
     notifications: defaultNotifications(),
     roles: Object.entries(roleDefinitions).map(([key, role]) => ({ id: `role_${key}`, key, ...role })),
+    crm: { pipelineStages: getPipelineStages(null), customFieldDefinitions: [] },
+    support: { categories: getSupportCategories(null) },
   });
 });
 
@@ -284,6 +373,78 @@ settingsRouter.put("/notifications", requirePermission("settings:write"), valida
 
   res.json({ notifications });
 });
+
+settingsRouter.put(
+  "/support/categories",
+  requirePermission("settings:write"),
+  validateBody(supportCategoriesSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    const currentWorkspace = await Workspace.findById(req.user.workspaceId);
+    if (!currentWorkspace) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
+    }
+
+    const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
+    const support = { ...(settings.support || {}), categories: req.body };
+
+    currentWorkspace.settings = { ...settings, support };
+    currentWorkspace.markModified("settings");
+    await currentWorkspace.save();
+
+    res.json({ categories: req.body });
+  }
+);
+
+settingsRouter.put(
+  "/crm/pipeline-stages",
+  requirePermission("settings:write"),
+  validateBody(pipelineStagesSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    const currentWorkspace = await Workspace.findById(req.user.workspaceId);
+    if (!currentWorkspace) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
+    }
+
+    const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
+    const crm = { ...(settings.crm || {}), pipelineStages: req.body };
+
+    currentWorkspace.settings = { ...settings, crm };
+    currentWorkspace.markModified("settings");
+    await currentWorkspace.save();
+
+    res.json({ pipelineStages: req.body });
+  }
+);
+
+settingsRouter.put(
+  "/crm/custom-fields",
+  requirePermission("settings:write"),
+  validateBody(customFieldDefinitionsSchema),
+  async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: "DATABASE_UNAVAILABLE", message: "MongoDB is required." });
+    }
+    const currentWorkspace = await Workspace.findById(req.user.workspaceId);
+    if (!currentWorkspace) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found." });
+    }
+
+    const settings = currentWorkspace.settings && typeof currentWorkspace.settings === "object" ? currentWorkspace.settings : {};
+    const crm = { ...(settings.crm || {}), customFieldDefinitions: req.body };
+
+    currentWorkspace.settings = { ...settings, crm };
+    currentWorkspace.markModified("settings");
+    await currentWorkspace.save();
+
+    res.json({ customFieldDefinitions: req.body });
+  }
+);
 
 settingsRouter.post("/integrations/test-webhook", requirePermission("settings:write"), validateBody(testWebhookSchema), async (req, res) => {
   const { url, secret } = req.body;

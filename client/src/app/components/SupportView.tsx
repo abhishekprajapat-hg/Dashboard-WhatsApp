@@ -8,7 +8,7 @@ import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
 import { isPlanLimitError, PlanLockedState } from "./PlanLockedState";
-import { createTicket, getConversations, getTeamMembers, getTickets, suggestTicketReply, updateTicket } from "../lib/api";
+import { createTicket, getConversations, getSettings, getTeamMembers, getTickets, suggestTicketReply, updateTicket, type SupportCategory } from "../lib/api";
 
 interface MemberOption {
   userId: string;
@@ -39,13 +39,18 @@ interface SupportViewProps {
   canWrite?: boolean;
 }
 
-const CATEGORY_OPTIONS = [
-  { id: "billing", label: "Billing" },
-  { id: "delivery", label: "Delivery" },
-  { id: "product", label: "Product" },
-  { id: "technical", label: "Technical" },
-  { id: "general", label: "General" },
-  { id: "other", label: "Other" },
+// Fallback only, shown until GET /settings resolves - matches
+// server/routes/settings.js's defaultSupportCategories() so a first paint before the fetch
+// completes looks identical to what a workspace with no custom categories actually gets from the
+// server (master plan "CRM industry-specificity" - this list is now workspace-configurable via
+// Settings > CRM, not a fixed platform-wide array).
+const DEFAULT_CATEGORIES: SupportCategory[] = [
+  { key: "billing", label: "Billing" },
+  { key: "delivery", label: "Delivery" },
+  { key: "product", label: "Product" },
+  { key: "technical", label: "Technical" },
+  { key: "general", label: "General" },
+  { key: "other", label: "Other" },
 ];
 
 const STATUS_BADGE: Record<string, { variant: "outline" | "warning" | "success"; label: string }> = {
@@ -54,8 +59,8 @@ const STATUS_BADGE: Record<string, { variant: "outline" | "warning" | "success";
   resolved: { variant: "success", label: "Resolved" },
 };
 
-function categoryLabel(id: string) {
-  return CATEGORY_OPTIONS.find((option) => option.id === id)?.label || id;
+function categoryLabel(categories: SupportCategory[], id: string) {
+  return categories.find((option) => option.key === id)?.label || id;
 }
 
 export function SupportView({ canWrite = false }: SupportViewProps) {
@@ -67,6 +72,15 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
   const [lockedMessage, setLockedMessage] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const [suggestingTicket, setSuggestingTicket] = useState<TicketRecord | null>(null);
+  const [categories, setCategories] = useState<SupportCategory[]>(DEFAULT_CATEGORIES);
+
+  useEffect(() => {
+    getSettings<{ support?: { categories?: SupportCategory[] } }>()
+      .then((response) => {
+        if (response.support?.categories?.length) setCategories(response.support.categories);
+      })
+      .catch(() => undefined);
+  }, []);
 
   function loadTickets() {
     setLoading(true);
@@ -220,7 +234,7 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
                     return (
                       <tr key={ticket.id} className="group border-b border-border/70 transition-colors hover:bg-secondary/35">
                         <td className="px-3 py-3 font-medium text-foreground">{ticket.contactName}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{categoryLabel(ticket.category)}</td>
+                        <td className="px-3 py-3 text-muted-foreground">{categoryLabel(categories, ticket.category)}</td>
                         <td className="max-w-[220px] truncate px-3 py-3 text-muted-foreground">{ticket.preview}</td>
                         <td className="px-3 py-3">
                           {canWrite ? (
@@ -279,6 +293,7 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
       {showForm && canWrite && (
         <NewTicketModal
           members={members}
+          categories={categories}
           onClose={() => setShowForm(false)}
           onCreated={(created) => {
             setTickets((items) => [created, ...items]);
@@ -357,11 +372,13 @@ function SuggestReplyModal({ ticket, onClose, onLocked }: { ticket: TicketRecord
 
 function NewTicketModal({
   members,
+  categories,
   onClose,
   onCreated,
   onLocked,
 }: {
   members: MemberOption[];
+  categories: SupportCategory[];
   onClose: () => void;
   onCreated: (ticket: TicketRecord) => void;
   onLocked: (message: string) => void;
@@ -465,8 +482,8 @@ function NewTicketModal({
               className="flex h-9 w-full min-w-0 rounded-md border border-input/85 bg-input-background px-3 text-sm text-foreground outline-none"
               required
             >
-              {CATEGORY_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
+              {categories.map((option) => (
+                <option key={option.key} value={option.key}>{option.label}</option>
               ))}
             </select>
           </label>

@@ -28,7 +28,9 @@ import {
   deleteContact,
   getContactFilterOptions,
   getContacts,
+  getSettings,
   getTeamMembers,
+  type CustomFieldDefinition,
 } from "../lib/api";
 import { demoContacts } from "../lib/demoData";
 
@@ -397,6 +399,8 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   const [selectedContactId, setSelectedContactId] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", tags: "" });
+  const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefinition[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [teamMembers, setTeamMembers] = useState<{ userId: string; name: string }[]>([]);
@@ -409,6 +413,12 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
   const [leadCount, setLeadCount] = useState(0);
   const [customerCount, setCustomerCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    getSettings<{ crm?: { customFieldDefinitions?: CustomFieldDefinition[] } }>()
+      .then((response) => setCustomFieldDefs((response.crm?.customFieldDefinitions || []).filter((field) => !field.archived)))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -526,10 +536,12 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
         phone: form.phone.trim(),
         email: form.email.trim(),
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        customFields: Object.fromEntries(Object.entries(customFieldValues).filter(([, value]) => value !== "")),
       });
       setContacts((items) => [response.data, ...items]);
       setSelectedContactId(response.data.id);
       setForm({ name: "", phone: "", email: "", tags: "" });
+      setCustomFieldValues({});
       setShowCreate(false);
     } finally {
       setSaving(false);
@@ -689,6 +701,29 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                 <span className="text-foreground">Tags</span>
                 <Input value={form.tags} onChange={(e) => setForm((current) => ({ ...current, tags: e.target.value }))} placeholder="VIP, Sales, Support" />
               </label>
+              {customFieldDefs.map((field) => (
+                <label key={field.key} className="space-y-1.5 text-sm">
+                  <span className="text-foreground">{field.label}</span>
+                  {field.type === "select" ? (
+                    <select
+                      value={customFieldValues[field.key] || ""}
+                      onChange={(e) => setCustomFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
+                      className="flex h-9 w-full min-w-0 rounded-md border border-input/85 bg-input-background px-3 text-sm text-foreground outline-none"
+                    >
+                      <option value="">Select…</option>
+                      {field.options.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+                      value={customFieldValues[field.key] || ""}
+                      onChange={(e) => setCustomFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
+                    />
+                  )}
+                </label>
+              ))}
             </div>
 
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

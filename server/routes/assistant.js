@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { hasEntitlementForActor, requireEntitlement, requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { AutomationFlow, Conversation, Lead, Message, Organization } from "../models/index.js";
+import { AutomationFlow, Conversation, Lead, Message, Organization, Workspace } from "../models/index.js";
 import { publishConversationChanged } from "../realtime/events.js";
 import { createKnowledgeDocument, draftTemplateCopy, retrieveKnowledge, runAssistantTask, transcriptionFallback } from "../services/aiAssistant.js";
-import { normalizeLeadStage } from "../services/crm.js";
+import { deriveLeadStatus, normalizeLeadStage } from "../services/pipelineStages.js";
 import { getWorkspaceIntegrations } from "../services/integrations.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
@@ -230,10 +230,13 @@ assistantRouter.post("/tool-call", requirePermission("assistant:write"), require
     : null;
 
   if (name === "updateLeadStage" && conversation) {
+    const workspace = await Workspace.findById(req.user.workspaceId).select("settings");
+    const nextStage = normalizeLeadStage(workspace, args.stage || "qualified");
     const lead = await Lead.findOneAndUpdate(
       { workspaceId: req.user.workspaceId, conversationId: conversation._id, status: "open" },
       {
-        stage: normalizeLeadStage(args.stage || "qualified"),
+        stage: nextStage,
+        status: deriveLeadStatus(workspace, nextStage),
         score: Number(args.score || 50),
         lastActivityAt: new Date(),
         $push: { timeline: { type: "ai_tool_call", label: "AI updated lead stage", at: new Date(), data: args } },

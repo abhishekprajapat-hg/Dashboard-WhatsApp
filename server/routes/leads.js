@@ -3,9 +3,8 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requirePermission } from "../middleware/auth.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { Lead } from "../models/index.js";
-import { leadStages } from "../models/Lead.js";
-import { normalizeLeadStage } from "../services/crm.js";
+import { Lead, Workspace } from "../models/index.js";
+import { deriveLeadStatus, normalizeLeadStage } from "../services/pipelineStages.js";
 import { optionalDateString, optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
 export const leadsRouter = Router();
@@ -96,7 +95,9 @@ leadsRouter.get("/", requirePermission("contacts:read"), validateQuery(listLeads
   const { stage, ownerUserId, source, skip, limit } = req.query;
   const filter = { workspaceId: req.user.workspaceId };
 
-  if (stage && leadStages.includes(stage)) filter.stage = stage;
+  // No enum check - a workspace's valid stage set is now its own configured list, not a fixed
+  // platform-wide array. An unrecognized/legacy key just yields zero rows, harmless.
+  if (stage) filter.stage = stage;
   if (ownerUserId) filter.ownerUserId = ownerUserId;
   if (source) filter.source = new RegExp(source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 
@@ -146,10 +147,11 @@ leadsRouter.patch("/:id", requirePermission("contacts:write"), validateBody(patc
   const timelineEvents = [];
 
   if (req.body.stage !== undefined) {
-    const nextStage = normalizeLeadStage(req.body.stage);
+    const workspace = await Workspace.findById(req.user.workspaceId).select("settings");
+    const nextStage = normalizeLeadStage(workspace, req.body.stage);
     if (nextStage !== lead.stage) {
       set.stage = nextStage;
-      set.status = ["won", "lost"].includes(nextStage) ? nextStage : "open";
+      set.status = deriveLeadStatus(workspace, nextStage);
       timelineEvents.push({
         id: `stage:${lead._id}:${now.getTime()}`,
         type: "stage_change",

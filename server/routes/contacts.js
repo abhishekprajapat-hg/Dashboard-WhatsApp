@@ -5,7 +5,8 @@ import { contacts } from "../data/demoData.js";
 import { requirePermission } from "../middleware/auth.js";
 import { actionPasswordGuard } from "../middleware/requireActionPassword.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
-import { AuditLog, Contact, Conversation, Message, Tag } from "../models/index.js";
+import { AuditLog, Contact, Conversation, Message, Tag, Workspace } from "../models/index.js";
+import { getPipelineStages } from "../services/pipelineStages.js";
 import { serializeContact } from "../utils/serializers.js";
 import { optionalObjectIdString, trimmedString } from "../utils/zodHelpers.js";
 
@@ -36,16 +37,20 @@ export const bulkImportContactsSchema = z.object({
     .max(500, "Import is limited to 500 rows at a time."),
 });
 
-// Same enum as server/models/Lead.js's leadStages - duplicated here rather than imported since a
-// Contact's CRM stage lives in the loosely-typed customFields.crm.stage, not a real Lead
-// reference, and this filter only needs the list of values a client could plausibly send.
-const CONTACT_STAGES = ["new_lead", "contacted", "qualified", "proposal_sent", "won", "lost"];
+// Workspace-defined custom field values (master plan "CRM industry-specificity",
+// server/routes/settings.js's customFieldDefinitionsSchema owns the field DEFINITIONS this data
+// is validated against at the UI layer) - loose keyed values here, same reasoning
+// Workspace.settings itself uses: the real shape is workspace-specific, a fixed schema can't
+// express it. Namespaced under customFields.custom.<key> below to avoid colliding with crm.js's
+// reserved internal keys (crm, notes, tasks, deals, ...).
+const customFieldValuesSchema = z.record(z.string(), z.any()).optional().default({});
 
 export const createContactSchema = z.object({
   name: trimmedString("Name is required."),
   phone: trimmedString("Phone is required."),
   email: z.string().trim().optional().default(""),
   tags: z.array(z.string()).optional().default([]),
+  customFields: customFieldValuesSchema,
 });
 
 export const updateContactSchema = createContactSchema.extend({
@@ -76,18 +81,22 @@ export async function ensureTags({ organizationId, workspaceId, names }) {
 
 contactsRouter.get("/filter-options", requirePermission("contacts:read"), async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
-    return res.json({ data: { stages: CONTACT_STAGES, sources: [], tags: [] } });
+    return res.json({ data: { stages: getPipelineStages(null).map((s) => s.key), sources: [], tags: [] } });
   }
 
   const workspaceId = req.user.workspaceId;
-  const [sources, tags] = await Promise.all([
+  const [sources, tags, workspace] = await Promise.all([
     Contact.distinct("source", { workspaceId }),
     Tag.find({ workspaceId }).select("name").sort({ name: 1 }),
+    Workspace.findById(workspaceId).select("settings"),
   ]);
 
   res.json({
     data: {
-      stages: CONTACT_STAGES,
+      // The workspace's real configured pipeline stages (master plan "CRM industry-specificity"),
+      // not the old fixed platform-wide list - falls back to DEFAULT_PIPELINE_STAGES automatically
+      // for any workspace that hasn't customized its own (see getPipelineStages).
+      stages: getPipelineStages(workspace).map((stage) => stage.key),
       sources: sources.filter(Boolean).sort(),
       tags: tags.map((tag) => ({ id: tag._id.toString(), name: tag.name })),
     },
@@ -108,7 +117,10 @@ contactsRouter.get("/", requirePermission("contacts:read"), validateQuery(listCo
       filter.lifecycleStatus = lifecycle;
     }
 
-    if (CONTACT_STAGES.includes(stage)) {
+    // No enum check - a workspace's valid stage set is now its own configured list (see
+    // routes/contacts.js's /filter-options), not a fixed platform-wide array. An
+    // unrecognized/legacy key just yields zero rows, harmless.
+    if (stage) {
       filter["customFields.crm.stage"] = stage;
     }
 
@@ -172,7 +184,7 @@ contactsRouter.get("/", requirePermission("contacts:read"), validateQuery(listCo
 });
 
 contactsRouter.post("/", requirePermission("contacts:write"), validateBody(createContactSchema), async (req, res) => {
-  const { name, phone, email, tags } = req.body;
+  const { name, phone, email, tags, customFields } = req.body;
 
   if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(req.user?.workspaceId)) {
     const tagIds = await ensureTags({
@@ -191,6 +203,7 @@ contactsRouter.post("/", requirePermission("contacts:write"), validateBody(creat
       lifecycleStatus: "lead",
       tagIds,
       lastMessageAt: new Date(),
+      customFields: Object.keys(customFields).length ? { custom: customFields } : undefined,
     });
 
     const hydrated = await Contact.findById(contact._id).populate("tagIds").populate("ownerUserId", "name");
@@ -272,13 +285,20 @@ contactsRouter.put("/:id", requirePermission("contacts:write"), validateBody(upd
     return res.status(404).json({ error: "NOT_FOUND", message: "Contact not found." });
   }
 
-  const { name, phone, email, tags, status } = req.body;
+  const { name, phone, email, tags, status, customFields } = req.body;
 
   const tagIds = await ensureTags({
     organizationId: req.user.organizationId,
     workspaceId: req.user.workspaceId,
     names: Array.isArray(tags) ? tags : [],
   });
+
+  // Dot-notation $set per key (not a whole-object customFields replace) so this can never clobber
+  // crm.js's reserved internal keys (customFields.crm, .notes, .tasks, ...) that live alongside
+  // customFields.custom on the same document.
+  const customFieldSets = Object.fromEntries(
+    Object.entries(customFields).map(([key, value]) => [`customFields.custom.${key}`, value])
+  );
 
   const contact = await Contact.findOneAndUpdate(
     { _id: req.params.id, workspaceId: req.user.workspaceId },
@@ -288,6 +308,7 @@ contactsRouter.put("/:id", requirePermission("contacts:write"), validateBody(upd
       email: email.trim(),
       tagIds,
       lifecycleStatus: status === "inactive" ? "inactive" : "active",
+      ...customFieldSets,
     },
     { new: true }
   ).populate("tagIds").populate("ownerUserId", "name");

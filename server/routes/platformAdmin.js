@@ -203,6 +203,9 @@ platformAdminRouter.get("/industry-packs", requireDatabase, async (req, res) => 
       industry: pack.industry,
       description: pack.description,
       templateCount: pack.templates.length,
+      pipelineStageCount: pack.pipelineStages.length,
+      customFieldCount: pack.customFieldDefinitions.length,
+      supportCategoryCount: pack.supportCategories.length,
     })),
   });
 });
@@ -255,8 +258,29 @@ platformAdminRouter.post(
       created.push({ id: template._id.toString(), name: template.name });
     }
 
+    // Full replace, not a merge - "provision this workspace as this industry" is a one-time
+    // onboarding action (master plan Phase 8), the same semantic as cloning templates above.
+    // Only overwrites a section the pack actually defines - a pack with no supportCategories
+    // (none seeded yet) must never wipe out a workspace's own already-configured categories.
+    const settings = workspace.settings && typeof workspace.settings === "object" ? workspace.settings : {};
+    const crm = { ...(settings.crm || {}) };
+    const support = { ...(settings.support || {}) };
+    if (pack.pipelineStages.length) crm.pipelineStages = pack.pipelineStages;
+    if (pack.customFieldDefinitions.length) crm.customFieldDefinitions = pack.customFieldDefinitions;
+    if (pack.supportCategories.length) support.categories = pack.supportCategories;
+    workspace.settings = { ...settings, crm, support };
+    workspace.markModified("settings");
+    await workspace.save();
+
     await logPlatformAdminAction(organization, "platformAdmin.provisioned", {
-      after: { workspaceId: workspace._id.toString(), industryPackKey: pack.key, templatesCreated: created.length },
+      after: {
+        workspaceId: workspace._id.toString(),
+        industryPackKey: pack.key,
+        templatesCreated: created.length,
+        pipelineStagesApplied: pack.pipelineStages.length,
+        customFieldsApplied: pack.customFieldDefinitions.length,
+        supportCategoriesApplied: pack.supportCategories.length,
+      },
     });
 
     res.status(201).json({
@@ -264,6 +288,9 @@ platformAdminRouter.post(
         industryPackKey: pack.key,
         workspaceId: workspace._id.toString(),
         templatesCreated: created,
+        pipelineStages: crm.pipelineStages || [],
+        customFieldDefinitions: crm.customFieldDefinitions || [],
+        supportCategories: support.categories || [],
       },
     });
   }
