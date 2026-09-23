@@ -1,5 +1,50 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-23 (even later): One client identity across Dashboard-WhatsApp/Vega/website - live, end-to-end verified, test data cleaned up
+
+**Read this first if resuming.** Closes the cross-product identity gap: a Dashboard-WhatsApp signup
+now auto-links to a Vega `Client` (`server/services/vegaIntegration.js`'s new
+`linkOrganizationToVegaClient()`, called from every `provisionWorkspaceForNewUser()` site in
+`routes/auth.js` plus the admin-provision path - fire-and-forget, deliberately does **not** call
+`isPlatformOwnerOrg()` since this is org identity/plan/billing-status, not lead/conversation data;
+see the existing `notifyVega()` gate for the leak this is intentionally kept separate from). Landed
+as `6b6d1aa` "Auto-link new signups to a Vega Client, one identity across products", on `main`,
+pushed to `origin/main`. Vega's side is PR
+[Nemnidhi/Vega#10](https://github.com/Nemnidhi/Vega/pull/10) (`feat/dashboard-client-identity-link`,
+merged as `8a9270d`): new `dashboard-client-created` route (find-or-create by
+`dashboardOrganizationId`), `Client.dashboardBillingStatus` field, extended `dashboard-events`
+`plan_changed` handling, and a fix in `createClientSignup()` so a Dashboard-auto-created `Client`
+(has `dashboardOrganizationId`, no `User` yet) gets a `User` attached instead of being treated as a
+duplicate. The website side is
+[abhishekprajapat-hg/Nemnidhi#23](https://github.com/abhishekprajapat-hg/Nemnidhi/pull/23) "Show
+trial/paid service status on the client portal", merged 2026-09-23T17:24Z - the portal now renders
+Vega's new `services` array as a status card.
+
+**End-to-end verified live** with a real new Dashboard-WhatsApp signup
+(`client-link-verify-20260923@example.com`, "Client Link Verify Co"): confirmed the org linked to a
+new Vega `Client`, and that same email could complete a portal signup on nemnidhi.com resolving to
+one `Client` (not a duplicate) with the services card showing.
+
+**Test data cleanup, same day**: `node scripts/deleteTestTenants.mjs --execute` deleted 2
+organizations - "Client Link Verify Co" (this test, as expected) and **also "info LNU"**, whose only
+user was `info@nemnidhi.com`. That second one wasn't something this session created intentionally;
+the script's allowlist logic says it's safe (zero real activity - just bare
+`Workspace`/`Membership`/`Role`, no leads/conversations/templates), but it's tied to Nemnidhi's own
+info address rather than an obvious `@example.com` test address, so flagging it here rather than
+letting it pass silently. Confirm next session it wasn't anything real.
+
+Vega's counterpart cleanup script needed a fresh deploy first - production `hrms` was still on a
+pre-`delete:test-client`-script build (`npm error Missing script: "delete:test-client"` when tried
+directly). Deployed via `sudo -u hrmsdeploy bash /home/hrmsdeploy/apps/hrms/scripts/deploy-via-git.sh`
+(never as root - see [[vega-deployment]]), build succeeded, health check passed. Then
+`npm run delete:test-client -- --apply client-link-verify-20260923@example.com` deleted the matching
+Vega `Client`/`User`/`ClientOnboarding` records.
+
+**Still open, deferred**: `prod-onboarding-verify-20260923@example.com` / "Prod Onboarding Verify Co"
+(from the industry-pack-wizard test, entry below) was not among the deletable orgs in this run -
+likely has real `Template`/CRM data attached now, landing it in the "kept: real activity" bucket.
+Not cleaned up yet; revisit later.
+
 ## 2026-09-23 (later): Client-facing industry-pack picker + first-login onboarding wizard built and fully live-verified - NOT YET committed/pushed
 
 **Read this first if resuming.** Follows directly from the audit below (same day): the two real
