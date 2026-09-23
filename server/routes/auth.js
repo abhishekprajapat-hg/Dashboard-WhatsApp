@@ -18,6 +18,7 @@ import { buildAuthorizeUrl, exchangeCodeForProfile, isKnownProvider, isProviderC
 import { generateAndSendOtp, verifyOtp } from "../services/otpService.js";
 import { sendPasswordResetEmail } from "../services/mailer.js";
 import { logger } from "../services/logger.js";
+import { linkOrganizationToVegaClient } from "../services/vegaIntegration.js";
 
 export const authRouter = Router();
 
@@ -131,6 +132,19 @@ export async function provisionWorkspaceForNewUser(user, workspaceName, { startT
     status: "active",
     joinedAt: new Date(),
   });
+
+  // Fire-and-forget, deliberately not awaited - links this org to a Vega Client without adding
+  // Vega's network latency to every signup response. Covers every caller of this shared function
+  // (register, every OAuth provider, WhatsApp OTP, and admin.js's manual tenant provisioning) in
+  // one place instead of repeating the call at each site. See vegaIntegration.js's own comment on
+  // why this deliberately bypasses the platform-owner leak-prevention gate.
+  linkOrganizationToVegaClient(organization, user.name, user.email)
+    .then((result) => {
+      if (result.sent && result.clientId) {
+        return Organization.updateOne({ _id: organization._id }, { vegaClientId: result.clientId });
+      }
+    })
+    .catch((error) => logger.warn({ err: error, organizationId: organization._id.toString() }, "provisionWorkspaceForNewUser: Vega link follow-up failed"));
 
   return { organization, workspace, role };
 }

@@ -56,6 +56,48 @@ export async function notifyVega(organizationId, event, data = {}) {
   }
 }
 
+// Links a brand-new Organization to its Vega Client record, so a self-serve Dashboard signup is
+// visible to Nemnidhi's sales/management layer and to the client's own nemnidhi.com/portal login
+// (Vega mints the canonical cross-product client ID; this is how Dashboard gets it). Deliberately
+// does NOT go through isPlatformOwnerOrg() like notifyVega/pushLeadToVega above - that gate exists
+// to stop a client's own leads/conversations leaking into Vega's internal sales pipeline (a real
+// past incident). This is a different, safe category of data: an org's own basic identity and
+// plan/billing status, syncing to its OWN Client record, for every organization by design - the
+// entire point is Vega learning about self-serve signups it would otherwise never see.
+export async function linkOrganizationToVegaClient(organization, contactName, contactEmail) {
+  if (!config.vega.apiUrl || !config.vega.integrationSecret) {
+    return { sent: false, reason: "not_configured" };
+  }
+
+  const { signal, clear } = withTimeout();
+  try {
+    const response = await fetch(`${config.vega.apiUrl}/api/integrations/dashboard-client-created`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-integration-secret": config.vega.integrationSecret },
+      body: JSON.stringify({
+        dashboardOrganizationId: organization._id.toString(),
+        legalName: organization.name,
+        contactName,
+        contactEmail,
+        plan: organization.plan,
+        billingStatus: organization.billingStatus,
+      }),
+      signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, organizationId: organization._id.toString() }, "linkOrganizationToVegaClient: Vega rejected the request");
+      return { sent: false, reason: `http_${response.status}` };
+    }
+    const body = await response.json().catch(() => null);
+    return { sent: true, clientId: body?.data?.clientId };
+  } catch (error) {
+    logger.warn({ err: error, organizationId: organization._id.toString() }, "linkOrganizationToVegaClient: request failed");
+    return { sent: false, reason: "request_failed" };
+  } finally {
+    clear();
+  }
+}
+
 // A WhatsApp conversation becoming a real lead - distinct from notifyVega above, which only ever
 // updates a Client that already exists in Vega (an established relationship). A brand-new
 // conversation has no Client yet by definition, so it needs its own endpoint that creates a real

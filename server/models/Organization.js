@@ -35,6 +35,11 @@ const organizationSchema = new mongoose.Schema(
     currentPeriodEnd: { type: Date, default: null },
     razorpayCustomerId: { type: String, trim: true, default: "" },
     razorpaySubscriptionId: { type: String, trim: true, default: "" },
+    // Vega's Client._id for this organization - the canonical cross-product client identity (Vega
+    // is the "relationship spine", referenced by this org and by the client's nemnidhi.com/portal
+    // login, not minted here). Set by services/vegaIntegration.js's linkOrganizationToVegaClient,
+    // best-effort on signup - stays "" if Vega was unreachable at the time, never retried.
+    vegaClientId: { type: String, trim: true, default: "" },
     // Client-supplied GST billing profile - needed to issue a valid tax invoice (GSTIN/address are
     // optional under GST for an unregistered/B2C recipient, but billingState is what actually
     // decides CGST+SGST vs IGST on every invoice, see services/gstInvoice.js). Client enters these

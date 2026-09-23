@@ -235,8 +235,14 @@ billingRouter.post("/verify", requirePermission("billing:write"), validateBody(v
 
   // Fired after the response, same fire-and-forget shape as admin.js's entitlements/plan route -
   // reuses that exact event so this billing flow feeds the same Dashboard->Vega stream a manual
-  // admin plan change already does, not a second parallel mechanism.
-  notifyVega(organization._id.toString(), "plan_changed", { plan: organization.plan, previousPlan }).catch(() => undefined);
+  // admin plan change already does, not a second parallel mechanism. billingStatus is included here
+  // (not just plan) since this is the real trial->active conversion moment - the whole reason a
+  // linked Vega Client needs to hear about this event at all.
+  notifyVega(organization._id.toString(), "plan_changed", {
+    plan: organization.plan,
+    previousPlan,
+    billingStatus: organization.billingStatus,
+  }).catch(() => undefined);
 });
 
 billingRouter.post("/cancel", requirePermission("billing:write"), async (req, res) => {
