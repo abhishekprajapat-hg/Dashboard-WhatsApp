@@ -3,6 +3,7 @@ import {
   AlertCircle,
   BarChart3,
   Bot,
+  Chrome,
   Eye,
   EyeOff,
   Loader2,
@@ -15,7 +16,8 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { forgotPassword, login, type AuthSession } from "../lib/api";
+import { forgotPassword, login, completeOauthSignup, type AuthSession } from "../lib/api";
+import { usePopupOAuth, type OAuthIdentity } from "../hooks/usePopupOAuth";
 
 interface LoginPageProps {
   onLogin: (session: AuthSession) => void;
@@ -43,6 +45,30 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
   const [notice, setNotice] = useState("");
   const [mode, setMode] = useState<"login" | "forgot">("login");
   const [forgotSent, setForgotSent] = useState(false);
+
+  const [pendingIdentity, setPendingIdentity] = useState<OAuthIdentity | null>(null);
+  const [followUpEmail, setFollowUpEmail] = useState("");
+
+  const { start: startOAuth, connectingProvider } = usePopupOAuth({
+    onSession: onLogin,
+    onNeedsEmail: (identity) => setPendingIdentity(identity),
+    onError: (message) => setNotice(message),
+  });
+
+  async function handleFollowUpEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pendingIdentity) return;
+    setLoading(true);
+    setNotice("");
+    try {
+      const session = await completeOauthSignup({ continuationToken: pendingIdentity.continuationToken, email: followUpEmail });
+      onLogin(session);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not finish signing in.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,6 +103,35 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
     setMode("login");
     setForgotSent(false);
     setNotice("");
+  }
+
+  if (pendingIdentity) {
+    return (
+      <div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 text-foreground">
+        <div className="w-full max-w-sm rounded-xl border border-border/90 bg-card/88 p-6 shadow-2xl">
+          <h1 className="text-lg font-semibold text-foreground">One more thing</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {pendingIdentity.provider === "instagram" ? "Instagram" : "This provider"} doesn't share an email address - what's
+            yours?
+          </p>
+          <form onSubmit={handleFollowUpEmail} className="mt-4 space-y-3">
+            <Input
+              type="email"
+              value={followUpEmail}
+              onChange={(e) => setFollowUpEmail(e.target.value)}
+              placeholder="you@company.com"
+              className="h-11"
+              required
+              autoFocus
+            />
+            {notice && <p className="text-sm text-destructive">{notice}</p>}
+            <Button type="submit" size="xl" className="w-full" disabled={loading}>
+              {loading ? "Finishing up..." : "Continue"}
+            </Button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -225,6 +280,24 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
                       Access your WhatsApp CRM, automations, campaigns, and analytics.
                     </p>
                   </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xl"
+                  className="w-full border-border"
+                  onClick={() => startOAuth("google")}
+                  disabled={connectingProvider !== ""}
+                >
+                  {connectingProvider === "google" ? <Loader2 size={16} className="animate-spin" /> : <Chrome size={16} className="mr-2" />}
+                  {connectingProvider === "google" ? "Connecting..." : "Continue with Google"}
+                </Button>
+
+                <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  or sign in with email
+                  <div className="h-px flex-1 bg-border" />
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
