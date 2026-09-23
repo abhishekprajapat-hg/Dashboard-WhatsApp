@@ -1,5 +1,60 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-23: Onboarding funnel audited end-to-end; Facebook Login/Embedded Signup blocker finally escalated to Meta as an official bug report
+
+**Read this first if resuming.** No code changes this session. User wants to put a public "start
+your free demo" link on the marketing website and asked first for a full audit of the client-facing
+onboarding funnel (signup -> live, working client), then specifically asked to pursue the Meta
+Facebook Login blocker to ground.
+
+**Note**: the entry immediately below this one (2026-09-19, Marketing pillar) says "NOT YET
+committed/pushed" - that status is stale. It was in fact committed (`a95b266`), pushed, and
+confirmed deployed later that same day; see the Phase 2 industry-pack entry's own note about this
+pattern. Left as-is rather than rewritten.
+
+### Onboarding funnel audit (3 parallel research passes + direct verification)
+
+Full findings in memory (`dashboard-whatsapp-onboarding-funnel-audit`, linked from `MEMORY.md`) -
+summary: email/password signup and the 7-day trial land cleanly, WhatsApp OTP send is proven. Do
+**not** link the Google or Instagram signup buttons (never configured, guaranteed inline error) or
+Facebook (blocked, see below) until fixed. Two real gaps to build, not fix: there is **no
+client-facing industry-pack picker anywhere** (provisioning is 100% staff/Vega-gated,
+`requireVegaSecret`) and **no first-login onboarding wizard** (just one skippable WhatsApp-connect
+screen, then a bare Dashboard). Razorpay billing is real code but has never been live-tested with a
+real payment - unconfirmed since 2026-09-11, still unconfirmed now.
+
+### Facebook Login for Business / Embedded Signup: every app-side cause now conclusively eliminated, Meta bug report filed
+
+Direct re-verification in the live Meta App Dashboard (app ID `1622746365465041`), not inference:
+- Privacy Policy / ToS / Data Deletion Instructions URLs, app icon, category - all present
+- **App is genuinely Published** (checked the actual Publish page) - not Development Mode, which
+  would have been the classic explanation for "works for roles, fails for everyone else" and was
+  never explicitly checked in any prior session
+- **Advanced Access for `whatsapp_business_management`/`whatsapp_business_messaging` definitively
+  confirmed** two ways: their Actions menu offers "Reduce access" (contrasted directly against
+  `email`, a real Standard-access permission, which shows "Add to App Review" instead), AND hard
+  documentary proof - App Review > Submissions history shows both permissions **Approved on August
+  13, 2026**. This closes out the access-level theory that every prior session left as the one
+  remaining lead.
+- No country/age/IP restrictions either.
+
+Since literally everything checkable from our side is now proven clean, filed an official Meta bug
+report (not a community question) at
+**`https://developers.facebook.com/support/bugs/960991477083774/`** - Business "Nemnidhi Empire",
+Status "Open" as of filing. Full repro steps and the complete elimination list are in the report
+body itself. **Next session: check that URL for Meta's response before re-investigating anything** -
+do not re-check app settings again, they're already proven clean and documented there.
+
+### What's still open after today
+
+- Meta's response on the bug report above - the actual blocker for Facebook Login and WhatsApp
+  Embedded Signup both.
+- Google OAuth Client (signup) - never created.
+- Instagram Login (signup) - never configured.
+- A real Razorpay live-payment test - still unconfirmed since 2026-09-11.
+- Client-facing industry-pack picker - doesn't exist, real build work.
+- First-login onboarding wizard - doesn't exist, real build work.
+
 ## 2026-09-19 (even later): Marketing pillar Phase 1 built and verified locally - NOT YET committed/pushed
 
 **Read this first if resuming.** New pillar, not a CRM change - direct continuation of the user's
