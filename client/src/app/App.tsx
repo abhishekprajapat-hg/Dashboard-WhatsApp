@@ -1,8 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { LoginPage } from "./components/LoginPage";
 import { SignupPage } from "./components/SignupPage";
-import { EmbeddedSignupButton } from "./components/EmbeddedSignupButton";
-import { Button } from "./components/ui/button";
+import { OnboardingWizard } from "./components/OnboardingWizard";
 import { ActivityBar, type ViewId } from "./components/ActivityBar";
 import { DashboardView } from "./components/DashboardView";
 import { InboxView } from "./components/InboxView";
@@ -240,20 +239,7 @@ export default function App() {
   }
 
   if (showWhatsAppOnboarding) {
-    return (
-      <div className="flex h-dvh w-screen items-center justify-center bg-background px-4 text-foreground">
-        <div className="w-full max-w-md space-y-4">
-          <div className="text-center">
-            <h1 className="text-xl font-semibold text-foreground">Welcome to {session.workspace.name}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Connect your WhatsApp Business number to start receiving conversations.</p>
-          </div>
-          <EmbeddedSignupButton onConnected={() => setShowWhatsAppOnboarding(false)} />
-          <Button type="button" variant="outline" className="w-full border-border" onClick={() => setShowWhatsAppOnboarding(false)}>
-            Skip for now
-          </Button>
-        </div>
-      </div>
-    );
+    return <OnboardingWizard workspaceName={session.workspace.name} onFinish={() => setShowWhatsAppOnboarding(false)} />;
   }
 
   return (

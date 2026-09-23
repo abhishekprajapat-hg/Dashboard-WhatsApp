@@ -1798,6 +1798,29 @@ export function deleteCalendarEvent(id: string) {
   });
 }
 
+export interface OnboardingIndustryPack {
+  id: string;
+  key: string;
+  label: string;
+  industry: string;
+  description: string;
+  templateCount: number;
+  pipelineStageCount: number;
+  customFieldCount: number;
+  supportCategoryCount: number;
+}
+
+export function getOnboardingIndustryPacks<T>() {
+  return request<T>("/onboarding/industry-packs");
+}
+
+export function provisionIndustryPack<T>(industryPackKey: string) {
+  return request<T>("/onboarding/provision", {
+    method: "POST",
+    body: JSON.stringify({ industryPackKey }),
+  });
+}
+
 export function getCurrentWorkspace<T>() {
   return request<T>("/workspaces/current");
 }

@@ -28,6 +28,7 @@ import { shippingRouter } from "./routes/shipping.js";
 import { supportRouter } from "./routes/support.js";
 import { meetingAvailabilityRouter } from "./routes/meetingAvailability.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { onboardingRouter } from "./routes/onboarding.js";
 import { platformAdminRouter } from "./routes/platformAdmin.js";
 import { settingsRouter } from "./routes/settings.js";
 import { tasksRouter } from "./routes/tasks.js";
@@ -128,6 +129,7 @@ app.use("/api/automation", requireAuth, requireWorkspaceContext, automationRoute
 app.use("/api/team", requireAuth, requireWorkspaceContext, teamRouter);
 app.use("/api/tasks", requireAuth, requireWorkspaceContext, tasksRouter);
 app.use("/api/notifications", requireAuth, requireWorkspaceContext, notificationsRouter);
+app.use("/api/onboarding", requireAuth, requireWorkspaceContext, onboardingRouter);
 app.use("/api/calendar-events", requireAuth, requireWorkspaceContext, calendarEventsRouter);
 app.use("/api/templates", requireAuth, requireWorkspaceContext, templatesRouter);
 // No requireAuth/requireWorkspaceContext - authenticated per-route via requireApiKey instead,

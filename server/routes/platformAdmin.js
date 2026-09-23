@@ -16,6 +16,7 @@ import { requireVegaSecret } from "../middleware/requireVegaSecret.js";
 import { validateBody } from "../middleware/validate.js";
 import { getEntitlements, PACK_TIERS } from "../services/entitlements.js";
 import { getOrganizationUsageSummary } from "../services/usageMetering.js";
+import { provisionWorkspaceWithIndustryPack } from "../services/industryProvisioning.js";
 
 // Master plan Phase 7 (Vega admin console): the external-caller counterpart to routes/admin.js's
 // tenant-management endpoints. Those are session+requirePlatformOwner-gated for Nemnidhi staff
@@ -232,51 +233,30 @@ platformAdminRouter.post(
     if (!organization) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Organization not found." });
     }
-    const workspace = await Workspace.findOne({ _id: req.body.workspaceId, organizationId: organization._id });
-    if (!workspace) {
-      return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found on this organization." });
-    }
-    const pack = await IndustryPack.findOne({ key: req.body.industryPackKey, isActive: true });
-    if (!pack) {
-      return res.status(404).json({ error: "NOT_FOUND", message: "Industry pack not found." });
-    }
 
-    const created = [];
-    for (const templateDraft of pack.templates) {
-      const template = await Template.create({
+    let result;
+    try {
+      result = await provisionWorkspaceWithIndustryPack({
         organizationId: organization._id,
-        workspaceId: workspace._id,
-        name: templateDraft.name,
-        language: templateDraft.language,
-        category: templateDraft.category,
-        body: templateDraft.body,
-        variables: templateDraft.variables,
-        header: templateDraft.header,
-        buttons: templateDraft.buttons,
-        status: "draft",
+        workspaceId: req.body.workspaceId,
+        industryPackKey: req.body.industryPackKey,
       });
-      created.push({ id: template._id.toString(), name: template.name });
+    } catch (error) {
+      if (error.code === "WORKSPACE_NOT_FOUND") {
+        return res.status(404).json({ error: "NOT_FOUND", message: "Workspace not found on this organization." });
+      }
+      if (error.code === "PACK_NOT_FOUND") {
+        return res.status(404).json({ error: "NOT_FOUND", message: "Industry pack not found." });
+      }
+      throw error;
     }
-
-    // Full replace, not a merge - "provision this workspace as this industry" is a one-time
-    // onboarding action (master plan Phase 8), the same semantic as cloning templates above.
-    // Only overwrites a section the pack actually defines - a pack with no supportCategories
-    // (none seeded yet) must never wipe out a workspace's own already-configured categories.
-    const settings = workspace.settings && typeof workspace.settings === "object" ? workspace.settings : {};
-    const crm = { ...(settings.crm || {}) };
-    const support = { ...(settings.support || {}) };
-    if (pack.pipelineStages.length) crm.pipelineStages = pack.pipelineStages;
-    if (pack.customFieldDefinitions.length) crm.customFieldDefinitions = pack.customFieldDefinitions;
-    if (pack.supportCategories.length) support.categories = pack.supportCategories;
-    workspace.settings = { ...settings, crm, support };
-    workspace.markModified("settings");
-    await workspace.save();
+    const { pack, workspace, templatesCreated, crm, support } = result;
 
     await logPlatformAdminAction(organization, "platformAdmin.provisioned", {
       after: {
         workspaceId: workspace._id.toString(),
         industryPackKey: pack.key,
-        templatesCreated: created.length,
+        templatesCreated: templatesCreated.length,
         pipelineStagesApplied: pack.pipelineStages.length,
         customFieldsApplied: pack.customFieldDefinitions.length,
         supportCategoriesApplied: pack.supportCategories.length,
@@ -287,7 +267,7 @@ platformAdminRouter.post(
       data: {
         industryPackKey: pack.key,
         workspaceId: workspace._id.toString(),
-        templatesCreated: created,
+        templatesCreated,
         pipelineStages: crm.pipelineStages || [],
         customFieldDefinitions: crm.customFieldDefinitions || [],
         supportCategories: support.categories || [],

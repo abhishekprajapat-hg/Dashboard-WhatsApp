@@ -1,5 +1,85 @@
 # Handoff — WhatsApp CRM engine work
 
+## 2026-09-23 (later): Client-facing industry-pack picker + first-login onboarding wizard built and fully live-verified - NOT YET committed/pushed
+
+**Read this first if resuming.** Follows directly from the audit below (same day): the two real
+engineering gaps it found - no client-facing industry-pack picker, no real onboarding wizard - are
+now built.
+
+**What changed:**
+- `server/services/industryProvisioning.js` (new) - extracted the provisioning logic (draft-Template
+  creation + settings full-replace merge) that used to live inline in `platformAdmin.js`'s
+  `POST /organizations/:id/provision`, so both the Vega (staff) path and a new client path share one
+  implementation.
+- `server/routes/platformAdmin.js` - refactored to call the shared service. Pure internal refactor:
+  same pre-checks, same audit call, byte-identical response shape - confirmed both by a line-by-line
+  diff against the original and by a real live call post-refactor (see below).
+- `server/routes/onboarding.js` (new) - `GET /api/onboarding/industry-packs` and
+  `POST /api/onboarding/provision`, both `requirePermission`-gated (`settings:read`/`settings:write`,
+  same permission `CrmSettingsPanel.tsx` already uses - no entitlement gate, free at every tier).
+  Security boundary: `organizationId`/`workspaceId` always come from `req.user`, never from the
+  request body - a client can only ever provision their own workspace. Writes its own `AuditLog`
+  entry (`onboarding.industry_pack_provisioned`, with a real `actorUserId` - unlike Vega's
+  shared-secret path, which has none).
+- Mounted in `server/index.js` at `/api/onboarding` (`requireAuth` + `requireWorkspaceContext`, same
+  pattern as every other tenant-scoped router).
+- `client/src/app/lib/api.ts` - `getOnboardingIndustryPacks()`, `provisionIndustryPack()`.
+- `client/src/app/components/OnboardingWizard.tsx` (new) - 2-step wizard. Step 1: the 29 packs,
+  grouped client-side by vertical (`label.split(" - ")[0]`), card grid, "Use this pack" or "Skip for
+  now". Step 2: the existing WhatsApp Embedded-Signup step, moved here unchanged.
+- `client/src/app/App.tsx` - the old inline one-screen "connect WhatsApp" gate is now
+  `<OnboardingWizard>`. Same `isNewAccount`-only trigger, no `AuthSession` shape change.
+
+**Static verification:** `node --check` on every new/edited server file, `tsc --noEmit` clean, `npm
+run build` clean, unit test suite 177/178 passing (the 1 failure is
+`routeValidation.unit.test.js`'s `adminSettingsSchema` test - pre-existing, unrelated to this work,
+about `routes/admin.js` API-key defaults).
+
+**Local MongoDB gotcha, resolved:** this sandbox's `node index.js` couldn't reach Mongo at first
+(`ECONNREFUSED 127.0.0.1:27017`) - not the Redis-quota issue from
+[[dashboard-whatsapp-local-dev-redis-quota]], a different gap. Root cause: the machine's MongoDB
+Windows service ("MongoDB Server (MongoDB)", 6.0, data at `C:\Program Files\MongoDB\Server\6.0\data`)
+was simply stopped, and this session's shell has no admin rights to start a Windows service or write
+into `Program Files`. Fix used: copied the data directory to a writable scratch path and ran
+`mongod.exe --dbpath <copy> --logpath <copy>` directly (bypassing the service). **If this happens
+again**: check `Get-Service MongoDB` first - if it's `Stopped`, either start it from an elevated
+PowerShell (`Start-Service MongoDB`) or use the copy-and-run-directly trick above.
+
+**Full live verification, all green**, run against that copy of the real local dev database (so the
+actual local dev DB was never touched - the copy was deleted after):
+- Real local server boot (`node index.js`) + real Vite client, real browser pass via a **genuinely
+  new signup** (`onboarding-wizard-test-20260923@example.com`) - `isNewAccount` correctly triggered
+  the wizard.
+- Step 1 loaded all **29 packs**, correctly grouped into their 14 verticals. Picked "Restaurants &
+  Cafés" -> `POST /api/onboarding/provision` returned `201` with 3 draft templates, 3 pipeline
+  stages, 4 custom fields, 4 support categories - counts matched the card's own badges exactly.
+- Confirmed directly against the raw Mongo collections (not just the API response): the 3 `Template`
+  docs exist with `status: "draft"`, the `Workspace.settings.crm`/`.support` full-replace landed
+  correctly, and the `AuditLog` row exists with the real `actorUserId`, action
+  `onboarding.industry_pack_provisioned`, and correct `after` payload.
+- Step 2 (WhatsApp connect) rendered unchanged; "Skip for now" completed the wizard into the real app
+  - the Pipeline view immediately showed "0 leads across 3 stages", the new pack's stages, with zero
+  extra plumbing.
+- **Security boundary confirmed live, not just by code review**: the client call only ever sends
+  `{ industryPackKey }` - verified by reading `api.ts`'s exact fetch call, and functionally by the
+  fact provisioning succeeded with no id in the body at all.
+- **Vega path (`platformAdmin.js`) re-verified post-refactor**: booted the server with a temporary
+  `VEGA_INTEGRATION_SECRET` and called `POST /api/platform-admin/organizations/:id/provision`
+  directly with `x-integration-secret` - `201`, byte-identical response shape to the onboarding
+  route's. Also confirmed both routes' error paths: wrong secret -> `401`, unknown
+  `industryPackKey` -> `404 NOT_FOUND` (via the shared service's typed errors), on both routes.
+- Templates/Support UI views themselves are plan-gated behind `campaigns`/`support` entitlements on a
+  fresh trial account (pre-existing, unrelated to this work) - confirmed the underlying data directly
+  in Mongo instead, which is a stronger check anyway.
+
+**Test data cleanup**: none needed - the whole verification pass ran against a disposable copy of the
+local Mongo data directory in the scratchpad, which was deleted afterward. The real local dev
+database and the user's actual dev org/workspace/leads were never touched.
+
+**Not committed or pushed** - waiting on explicit instruction, per this session's own git discipline.
+
+**Not committed or pushed** - waiting on explicit instruction, per this session's own git discipline.
+
 ## 2026-09-23: Onboarding funnel audited end-to-end; Facebook Login/Embedded Signup blocker finally escalated to Meta as an official bug report
 
 **Read this first if resuming.** No code changes this session. User wants to put a public "start
