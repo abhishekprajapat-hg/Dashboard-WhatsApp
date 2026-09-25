@@ -7,8 +7,16 @@
 // pack is genuinely three things, not just templates: pipeline stages (with the won/lost `type`
 // every downstream revenue/automation check now keys off, see services/pipelineStages.js),
 // support ticket categories, and draft WhatsApp templates cloned into a workspace at provisioning
-// time (POST /api/platform-admin/organizations/:id/provision). Real Estate is deliberately
-// excluded - Samvid OS already covers it as a general platform.
+// time (POST /api/platform-admin/organizations/:id/provision).
+//
+// Real Estate (added 2026-09-25): originally excluded because Samvid OS covered it, then added by
+// the founder's decision so the website's lead example (a builder's 11:47 PM enquiry) is backed by
+// a real pack. Two packs, Builder/Developer and Broker/Agency - the split the research's own
+// qualifying questions make. Grounded in server/docs/industry-research/REAL ESTATE (1).txt: its
+// Tier 2/3 MSME flow (enquiry -> site visit -> negotiation -> booking -> construction-linked
+// instalments -> registration/handover), its playbook pipeline (New Enquiry -> Contacted -> Site
+// Visit Scheduled -> Negotiation -> Booking) and its lead sources (portals, Meta/Google, brokers,
+// referrals, walk-ins).
 //
 // Phase 2 (added same session): support categories weren't in SUMMARY.md for most of these - each
 // one was re-extracted directly from the raw source .txt in server/docs/industry-research/ via a
@@ -1432,6 +1440,445 @@ const packs = [
         variables: ["buyer_name", "sku_description", "stock_level"],
       },
     ],
+  },
+  {
+    key: "real_estate_developer",
+    label: "Real Estate - Builder / Developer",
+    industry: "real_estate_developer",
+    description: "Enquiry-to-booking pipeline, site-visit scheduling, construction-linked instalment reminders and handover updates for a builder or developer.",
+    pipelineStages: [
+      {
+        key: "new_enquiry",
+        label: "New Enquiry",
+        color: "info",
+        type: "open"
+      },
+      {
+        key: "contacted",
+        label: "Contacted",
+        color: "primary",
+        type: "open"
+      },
+      {
+        key: "site_visit_scheduled",
+        label: "Site Visit Scheduled",
+        color: "warning",
+        type: "open"
+      },
+      {
+        key: "site_visit_done",
+        label: "Site Visit Done",
+        color: "warning",
+        type: "open"
+      },
+      {
+        key: "negotiation",
+        label: "Negotiation",
+        color: "primary",
+        type: "open"
+      },
+      {
+        key: "booked",
+        label: "Booked",
+        color: "success",
+        type: "won"
+      },
+      {
+        key: "lost",
+        label: "Lost",
+        color: "destructive",
+        type: "lost"
+      }
+    ],
+    customFieldDefinitions: [
+      {
+        key: "project_interested",
+        label: "Project Interested",
+        type: "text",
+        options: []
+      },
+      {
+        key: "configuration",
+        label: "Configuration",
+        type: "select",
+        options: [
+          "1 BHK",
+          "2 BHK",
+          "3 BHK",
+          "4 BHK+",
+          "Plot",
+          "Shop / Office"
+        ]
+      },
+      {
+        key: "budget",
+        label: "Budget",
+        type: "text",
+        options: []
+      },
+      {
+        key: "preferred_location",
+        label: "Preferred Location",
+        type: "text",
+        options: []
+      },
+      {
+        key: "purchase_timeline",
+        label: "Purchase Timeline",
+        type: "select",
+        options: [
+          "Immediate",
+          "1-3 months",
+          "3-6 months",
+          "6+ months"
+        ]
+      },
+      {
+        key: "home_loan_required",
+        label: "Home Loan Required",
+        type: "select",
+        options: [
+          "Yes",
+          "No",
+          "Undecided"
+        ]
+      },
+      {
+        key: "lead_source",
+        label: "Lead Source",
+        type: "select",
+        options: [
+          "Meta Ads",
+          "Google Ads",
+          "99acres",
+          "MagicBricks",
+          "Housing.com",
+          "Broker / Channel Partner",
+          "Referral",
+          "Walk-in",
+          "Website"
+        ]
+      },
+      {
+        key: "site_visit_date",
+        label: "Site Visit Date",
+        type: "date",
+        options: []
+      },
+      {
+        key: "unit_number",
+        label: "Unit Number",
+        type: "text",
+        options: []
+      }
+    ],
+    supportCategories: [
+      {
+        key: "instalment_payment_query",
+        label: "Instalment/Payment Query"
+      },
+      {
+        key: "construction_progress",
+        label: "Construction Progress Update"
+      },
+      {
+        key: "agreement_documentation",
+        label: "Agreement/Documentation"
+      },
+      {
+        key: "home_loan_assistance",
+        label: "Home Loan Assistance"
+      },
+      {
+        key: "registration_possession",
+        label: "Registration/Possession"
+      },
+      {
+        key: "snagging_maintenance_complaint",
+        label: "Snagging/Maintenance Complaint"
+      }
+    ],
+    templates: [
+      {
+        name: "site_visit_confirmation",
+        category: "utility",
+        body: "Hi {{1}}, your site visit to {{2}} is confirmed for {{3}} at {{4}}. Our team will meet you at the sales office.",
+        variables: [
+          "customer_name",
+          "project_name",
+          "date",
+          "time"
+        ]
+      },
+      {
+        name: "site_visit_reminder",
+        category: "utility",
+        body: "Hi {{1}}, a reminder that your site visit to {{2}} is today at {{3}}. Reply here if you need directions or want to reschedule.",
+        variables: [
+          "customer_name",
+          "project_name",
+          "time"
+        ]
+      },
+      {
+        name: "booking_confirmation",
+        category: "utility",
+        body: "Hi {{1}}, thank you for booking unit {{2}} at {{3}}. We have received your booking amount of Rs {{4}}. Our team will share the next steps shortly.",
+        variables: [
+          "customer_name",
+          "unit_number",
+          "project_name",
+          "amount"
+        ]
+      },
+      {
+        name: "instalment_due_reminder",
+        category: "utility",
+        body: "Hi {{1}}, your instalment of Rs {{2}} for unit {{3}} at {{4}} is due on {{5}}. Please reply here if you have any questions.",
+        variables: [
+          "customer_name",
+          "amount",
+          "unit_number",
+          "project_name",
+          "due_date"
+        ]
+      },
+      {
+        name: "payment_received",
+        category: "utility",
+        body: "Hi {{1}}, we have received your payment of Rs {{2}} for unit {{3}}. Thank you.",
+        variables: [
+          "customer_name",
+          "amount",
+          "unit_number"
+        ]
+      },
+      {
+        name: "construction_progress_update",
+        category: "utility",
+        body: "Hi {{1}}, here is the latest construction update for {{2}}: {{3}}. Thank you for your continued trust.",
+        variables: [
+          "customer_name",
+          "project_name",
+          "milestone_update"
+        ]
+      },
+      {
+        name: "possession_handover",
+        category: "utility",
+        body: "Hi {{1}}, your unit {{2}} at {{3}} is ready for handover. Please reply to schedule your possession date.",
+        variables: [
+          "customer_name",
+          "unit_number",
+          "project_name"
+        ]
+      }
+    ]
+  },
+  {
+    key: "real_estate_broker",
+    label: "Real Estate - Broker / Agency",
+    industry: "real_estate_broker",
+    description: "Buyer and tenant requirements, shortlists, site-visit scheduling and deal closure for a broker, agency or property consultant.",
+    pipelineStages: [
+      {
+        key: "new_enquiry",
+        label: "New Enquiry",
+        color: "info",
+        type: "open"
+      },
+      {
+        key: "requirement_captured",
+        label: "Requirement Captured",
+        color: "primary",
+        type: "open"
+      },
+      {
+        key: "options_shared",
+        label: "Options Shared",
+        color: "primary",
+        type: "open"
+      },
+      {
+        key: "site_visit_scheduled",
+        label: "Site Visit Scheduled",
+        color: "warning",
+        type: "open"
+      },
+      {
+        key: "negotiation",
+        label: "Negotiation",
+        color: "warning",
+        type: "open"
+      },
+      {
+        key: "deal_closed",
+        label: "Deal Closed",
+        color: "success",
+        type: "won"
+      },
+      {
+        key: "lost",
+        label: "Lost",
+        color: "destructive",
+        type: "lost"
+      }
+    ],
+    customFieldDefinitions: [
+      {
+        key: "requirement_type",
+        label: "Requirement",
+        type: "select",
+        options: [
+          "Buy",
+          "Rent",
+          "Sell",
+          "Lease Out"
+        ]
+      },
+      {
+        key: "property_type",
+        label: "Property Type",
+        type: "select",
+        options: [
+          "Flat / Apartment",
+          "Independent House / Villa",
+          "Plot",
+          "Shop",
+          "Office",
+          "Warehouse"
+        ]
+      },
+      {
+        key: "configuration",
+        label: "Configuration",
+        type: "select",
+        options: [
+          "1 BHK",
+          "2 BHK",
+          "3 BHK",
+          "4 BHK+",
+          "Not applicable"
+        ]
+      },
+      {
+        key: "budget",
+        label: "Budget / Rent",
+        type: "text",
+        options: []
+      },
+      {
+        key: "preferred_localities",
+        label: "Preferred Localities",
+        type: "text",
+        options: []
+      },
+      {
+        key: "move_in_timeline",
+        label: "Timeline",
+        type: "select",
+        options: [
+          "Immediate",
+          "Within 1 month",
+          "1-3 months",
+          "3+ months"
+        ]
+      },
+      {
+        key: "lead_source",
+        label: "Lead Source",
+        type: "select",
+        options: [
+          "Meta Ads",
+          "Google Ads",
+          "99acres",
+          "MagicBricks",
+          "Housing.com",
+          "Referral",
+          "Walk-in",
+          "Website"
+        ]
+      },
+      {
+        key: "site_visit_date",
+        label: "Site Visit Date",
+        type: "date",
+        options: []
+      }
+    ],
+    supportCategories: [
+      {
+        key: "listing_query",
+        label: "Listing Query"
+      },
+      {
+        key: "visit_reschedule",
+        label: "Site Visit Reschedule"
+      },
+      {
+        key: "agreement_documentation",
+        label: "Agreement/Documentation"
+      },
+      {
+        key: "brokerage_billing",
+        label: "Brokerage/Billing"
+      },
+      {
+        key: "tenant_owner_issue",
+        label: "Tenant/Owner Issue"
+      }
+    ],
+    templates: [
+      {
+        name: "requirement_received",
+        category: "utility",
+        body: "Hi {{1}}, thanks for sharing your requirement for a {{2}} in {{3}}. We will send you matching options shortly.",
+        variables: [
+          "customer_name",
+          "property_type",
+          "locality"
+        ]
+      },
+      {
+        name: "property_options_shared",
+        category: "utility",
+        body: "Hi {{1}}, we have shortlisted {{2}} properties matching your requirement. Reply with the ones you would like to visit.",
+        variables: [
+          "customer_name",
+          "option_count"
+        ]
+      },
+      {
+        name: "site_visit_confirmation",
+        category: "utility",
+        body: "Hi {{1}}, your visit to {{2}} is confirmed for {{3}} at {{4}}. Our agent {{5}} will meet you there.",
+        variables: [
+          "customer_name",
+          "property_address",
+          "date",
+          "time",
+          "agent_name"
+        ]
+      },
+      {
+        name: "visit_feedback",
+        category: "utility",
+        body: "Hi {{1}}, thank you for visiting {{2}} today. How did you like it? Reply and we will take the next step with you.",
+        variables: [
+          "customer_name",
+          "property_address"
+        ]
+      },
+      {
+        name: "listing_confirmation",
+        category: "utility",
+        body: "Hi {{1}}, your property at {{2}} is now listed with us. We will update you as soon as we have interested buyers or tenants.",
+        variables: [
+          "owner_name",
+          "property_address"
+        ]
+      }
+    ]
   },
 ];
 
