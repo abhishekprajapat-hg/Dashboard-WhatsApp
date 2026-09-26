@@ -642,9 +642,9 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                     </select>
                   </label>
                 </div>
-                <label className="block space-y-1.5 md:col-span-2">
+                <div className="block space-y-1.5 md:col-span-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-muted-foreground">Body</span>
+                    <label htmlFor="template-body" className="text-[11px] font-medium text-muted-foreground">Body</label>
                     <TemplateCopyGenerator
                       category={editing.category}
                       onGenerated={(body, variables) =>
@@ -652,8 +652,8 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                       }
                     />
                   </div>
-                  <textarea value={editing.body} onChange={(event) => setEditing((current) => current && ({ ...current, body: event.target.value }))} placeholder="Message body. Use {{name}} variables." className={textareaClass} />
-                </label>
+                  <textarea id="template-body" value={editing.body} onChange={(event) => setEditing((current) => current && ({ ...current, body: event.target.value }))} placeholder="Message body. Use {{name}} variables." className={textareaClass} />
+                </div>
                 <label className="block space-y-1.5 md:col-span-2">
                   <span className="text-[11px] font-medium text-muted-foreground">Variables</span>
                   <input value={editing.variables} onChange={(event) => setEditing((current) => current && ({ ...current, variables: event.target.value }))} placeholder="name, phone, requirement" className={fieldClass} />

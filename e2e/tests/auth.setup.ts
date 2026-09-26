@@ -25,9 +25,9 @@ setup("authenticate as the seeded admin", async ({ page }) => {
   const response = await loginResponse;
   console.log(`[login] responded ${response.status()} in this browser context`);
 
-  // Lands on the Dashboard view after login - its description string is unique, visible text
-  // (nav items are icon-based, not reliably matched by getByText).
-  await expect(page.getByText("Workspace command center", { exact: true })).toBeVisible({ timeout: 15_000 });
+  // Lands on Today after login (admins start there; agents start on Inbox) - the top bar's
+  // subtitle for the screen is unique, visible text.
+  await expect(page.getByText("What needs you today", { exact: true })).toBeVisible({ timeout: 15_000 });
 
   await page.context().storageState({ path: AUTH_FILE });
 });

@@ -1,14 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// The top bar's subtitle for each screen (client/src/app/components/shell/nav.ts).
 const VIEW_DESCRIPTIONS: Record<string, string> = {
-  dashboard: "Workspace command center",
-  inbox: "Live WhatsApp conversations",
+  dashboard: "What needs you today",
+  inbox: "WhatsApp, Instagram and Facebook chats",
   contacts: "Customer records and lifecycle",
-  automation: "Flows, triggers, and routing",
+  automation: "Flows, triggers and routing",
   templates: "Approved message templates",
   campaigns: "Broadcasts and audience sends",
   analytics: "Reports and performance",
-  team: "Members, roles, and workload",
+  team: "Members, roles and workload",
   tasks: "Tasks and calendar for your team",
   assistant: "AI tools and conversation insights",
   admin: "Platform controls",
@@ -87,7 +88,7 @@ test.describe("Contacts - real CRUD through the actual UI", () => {
 
     await page.getByLabel("Name").fill(name);
     await page.getByLabel("Phone").fill(phone);
-    await page.getByRole("button", { name: "Save contact" }).click();
+    await page.getByRole("button", { name: "Save lead" }).click();
 
     const row = page.locator("tr", { hasText: name });
     await expect(row).toBeVisible({ timeout: 15_000 });
@@ -96,6 +97,8 @@ test.describe("Contacts - real CRUD through the actual UI", () => {
     // propagation - checking it selects for bulk actions instead of navigating away.
     await row.getByRole("checkbox").check();
     await page.getByRole("button", { name: "Delete" }).click();
+    // Bulk delete asks for confirmation first.
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
 
     await expect(page.locator("tr", { hasText: name })).toHaveCount(0);
   });
@@ -110,7 +113,7 @@ test.describe("Templates - real create/edit/archive through the actual UI", () =
     await page.getByRole("button", { name: "New template" }).first().click();
 
     await page.getByLabel("Template name").fill(name);
-    await page.getByLabel("Body").fill("Hello {{name}}, this is a test template.");
+    await page.getByLabel("Body", { exact: true }).fill("Hello {{name}}, this is a test template.");
     await page.getByRole("button", { name: "Save template" }).click();
 
     // Each template renders as its own Card (not a table row) - `.cursor-pointer` is that
