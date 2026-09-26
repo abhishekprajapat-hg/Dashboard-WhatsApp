@@ -305,7 +305,7 @@ export function AdsSettingsPanel() {
               {accountSaving ? "Saving..." : "Save account"}
             </Button>
           </div>
-          <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+          <div className="rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
             Secrets are masked after saving and are never shown again in this UI. Replace a token by entering a new value.
           </div>
         </form>

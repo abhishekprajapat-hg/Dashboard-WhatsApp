@@ -394,7 +394,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
+      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -420,10 +420,10 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
 
       <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-4 sm:px-6">
         {[
-          ["Total", counts.total, <FileText size={14} />, "from-primary/20 to-emerald-400/5"],
-          ["WhatsApp", counts.whatsapp, <MessageSquareText size={14} />, "from-blue-500/15 to-cyan-400/5"],
-          ["Active", counts.active, <Sparkles size={14} />, "from-violet-500/15 to-fuchsia-400/5"],
-          ["Archived", counts.archived, <Archive size={14} />, "from-red-500/15 to-orange-400/5"],
+          ["Total", counts.total, <FileText size={14} />, "from-primary/20 to-success/5"],
+          ["WhatsApp", counts.whatsapp, <MessageSquareText size={14} />, "from-info/15 to-primary/5"],
+          ["Active", counts.active, <Sparkles size={14} />, "from-chart-3/15 to-chart-3/5"],
+          ["Archived", counts.archived, <Archive size={14} />, "from-destructive/15 to-warning/5"],
         ].map(([label, value, icon, accent]) => (
           <Card key={String(label)} className={`overflow-hidden border-border bg-gradient-to-br ${String(accent)} p-3`}>
             <div className="flex items-center justify-between gap-3">
@@ -431,7 +431,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                 <div className="text-lg font-semibold text-foreground">{String(value)}</div>
                 <div className="text-[11px] text-muted-foreground">{String(label)}</div>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-card/70 text-primary">{icon}</div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{icon}</div>
             </div>
           </Card>
         ))}
@@ -499,7 +499,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
           <div className="grid gap-3 xl:grid-cols-2">
             {!loading && templates.map((template) => (
               <Card key={template.id} className={`cursor-pointer overflow-hidden border-border bg-card transition hover:border-primary/25 hover:shadow-xl hover:shadow-black/10 ${selected?.id === template.id ? "ring-1 ring-primary" : ""}`} onClick={() => setSelectedId(template.id)}>
-                <div className="h-1 bg-gradient-to-r from-primary/70 via-blue-400/55 to-violet-400/55" />
+                <div className="h-1 bg-gradient-to-r from-primary/70 via-chart-2/55 to-chart-3/55" />
                 <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 gap-3">

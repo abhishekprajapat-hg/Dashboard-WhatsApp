@@ -173,7 +173,7 @@ export function BillingSettingsPanel() {
         subscription_id: response.subscriptionId,
         name: "Nemnidhi",
         description: `${PLAN_LABELS[planKey] || planKey} plan subscription`,
-        theme: { color: "#22c55e" },
+        theme: { color: "var(--success)" },
         handler: async (result: { razorpay_payment_id: string; razorpay_signature: string }) => {
           try {
             await verifyBillingPayment({
@@ -266,8 +266,8 @@ export function BillingSettingsPanel() {
       </Card>
 
       {notice && (
-        <Card className={isSuccessNotice ? `p-3 border-emerald-500/25 bg-emerald-500/10 ${cardClass}` : `p-3 border-destructive/40 bg-destructive/5 ${cardClass}`}>
-          <p className={isSuccessNotice ? "text-xs text-emerald-300" : "text-xs text-destructive"}>{notice}</p>
+        <Card className={isSuccessNotice ? `p-3 border-success/25 bg-success/10 ${cardClass}` : `p-3 border-destructive/40 bg-destructive/5 ${cardClass}`}>
+          <p className={isSuccessNotice ? "text-xs text-success" : "text-xs text-destructive"}>{notice}</p>
         </Card>
       )}
 
@@ -326,7 +326,7 @@ export function BillingSettingsPanel() {
             </div>
           </form>
           {profileNotice && (
-            <p className={`mt-2 text-xs ${profileNotice.startsWith("Saved") ? "text-emerald-500" : "text-destructive"}`}>{profileNotice}</p>
+            <p className={`mt-2 text-xs ${profileNotice.startsWith("Saved") ? "text-success" : "text-destructive"}`}>{profileNotice}</p>
           )}
         </Card>
       )}

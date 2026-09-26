@@ -75,7 +75,7 @@ function ConversationRow({
       )}
       onClick={() => onSelect(conversation.id)}
     >
-      <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br text-white shadow-[0_10px_24px_rgba(47,168,118,0.14)]", avatarGradient(conversation.name))}>
+      <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br text-white shadow-[0_10px_24px_rgba(11,116,128,0.14)]", avatarGradient(conversation.name))}>
         <div className="flex h-full w-full items-center justify-center text-sm font-semibold">{initials(conversation.name)}</div>
         {conversation.channel === "instagram" ? (
           <span className="absolute bottom-0 right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
@@ -124,7 +124,7 @@ function ConversationRow({
           {pinned ? <Pin size={13} className="shrink-0 text-muted-foreground" /> : null}
           {muted ? <BellOff size={13} className="shrink-0 text-muted-foreground" /> : null}
           {conversation.unread > 0 ? (
-            <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-bold leading-5 text-primary-foreground shadow-[0_0_18px_rgba(47,168,118,0.35)]">
+            <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-bold leading-5 text-primary-foreground shadow-[0_0_18px_rgba(11,116,128,0.35)]">
               {conversation.unread}
             </span>
           ) : null}
@@ -330,8 +330,8 @@ export function ConversationList({
             />
             <ChannelSection
               label="Instagram"
-              icon={<Instagram size={13} className="text-fuchsia-400" />}
-              accentClass="bg-fuchsia-500/10"
+              icon={<Instagram size={13} className="text-[#c13584]" />}
+              accentClass="bg-[#c13584]/10"
               conversations={instagramConversations}
               count={channelCounts?.instagram}
               selectedId={selectedId}
@@ -343,8 +343,8 @@ export function ConversationList({
             />
             <ChannelSection
               label="Facebook"
-              icon={<Facebook size={13} className="text-blue-400" />}
-              accentClass="bg-blue-500/10"
+              icon={<Facebook size={13} className="text-info" />}
+              accentClass="bg-info/10"
               conversations={facebookConversations}
               count={channelCounts?.facebook}
               selectedId={selectedId}

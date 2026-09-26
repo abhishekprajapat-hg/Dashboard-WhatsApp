@@ -195,7 +195,7 @@ type AutomationNodeData = {
 const statusStyle: Record<string, string> = {
   active: "bg-primary/20 text-primary border-primary/30",
   inactive: "bg-secondary text-muted-foreground border-border",
-  draft: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  draft: "bg-warning/20 text-warning border-warning/30",
 };
 
 const fieldClass =
@@ -211,14 +211,14 @@ const statusLabel: Record<string, string> = {
 };
 
 const statusDot: Record<string, string> = {
-  active: "bg-primary shadow-[0_0_14px_rgba(34,197,94,0.45)]",
+  active: "bg-success",
   inactive: "bg-muted-foreground",
-  draft: "bg-yellow-400 shadow-[0_0_14px_rgba(250,204,21,0.35)]",
+  draft: "bg-warning",
 };
 
 const runStatusStyle: Record<string, string> = {
-  running: "border-blue-500/30 bg-blue-500/15 text-blue-300",
-  waiting: "border-yellow-500/30 bg-yellow-500/15 text-yellow-300",
+  running: "border-info/30 bg-info/15 text-info",
+  waiting: "border-warning/30 bg-warning/15 text-warning",
   completed: "border-primary/30 bg-primary/15 text-primary",
   failed: "border-destructive/30 bg-destructive/15 text-destructive",
   cancelled: "border-border bg-secondary text-muted-foreground",
@@ -226,10 +226,10 @@ const runStatusStyle: Record<string, string> = {
 
 const stepStatusColor: Record<string, string> = {
   ok: "text-primary",
-  queued: "text-blue-300",
+  queued: "text-info",
   skipped: "text-muted-foreground",
   failed: "text-destructive",
-  waiting: "text-yellow-300",
+  waiting: "text-warning",
 };
 
 function formatDateTime(value?: string) {
@@ -267,39 +267,50 @@ function flowLastRun(flow: Flow) {
 }
 
 const nodeCatalog = [
-  { kind: "trigger", label: "Trigger", icon: "Zap", color: "#22c55e", description: "Start from inbound events" },
-  { kind: "delay", label: "Delay", icon: "Hourglass", color: "#f59e0b", description: "Wait before next action" },
-  { kind: "condition", label: "Condition", icon: "Diamond", color: "#38bdf8", description: "Route by fields" },
-  { kind: "if_else", label: "If Else", icon: "GitBranch", color: "#06b6d4", description: "Branch workflow" },
-  { kind: "call_webhook", label: "Webhook", icon: "Webhook", color: "#f97316", description: "Send webhook event" },
-  { kind: "api", label: "API", icon: "Globe2", color: "#3b82f6", description: "Call an API" },
-  { kind: "add_to_crm", label: "CRM", icon: "Database", color: "#10b981", description: "Create/update CRM" },
-  { kind: "google_sheets", label: "Google Sheets", icon: "Sheet", color: "#22c55e", description: "Append a sheet row" },
-  { kind: "openai", label: "OpenAI", icon: "Sparkles", color: "#a855f7", description: "Generate AI response" },
-  { kind: "claude", label: "Claude", icon: "Bot", color: "#8b5cf6", description: "Claude reasoning step" },
-  { kind: "gemini", label: "Gemini", icon: "Sparkles", color: "#6366f1", description: "Gemini generation step" },
-  { kind: "email", label: "Email", icon: "Mail", color: "#0ea5e9", description: "Send email" },
-  { kind: "sms", label: "SMS", icon: "Send", color: "#14b8a6", description: "Send SMS" },
-  { kind: "send_instagram", label: "Instagram DM", icon: "Instagram", color: "#e1306c", description: "Send an Instagram DM" },
-  { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "#22c55e", description: "Send WhatsApp message" },
-  { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "#f472b6", description: "Send an in-chat form" },
-  { kind: "ask_mcq", label: "Ask MCQ", icon: "ListChecks", color: "#fb923c", description: "In-chat buttons, AI handles edge cases" },
-  { kind: "check_office_hours", label: "Office Hours", icon: "Clock", color: "#facc15", description: "Branch on Vega's live office-hours config" },
-  { kind: "book_meeting", label: "Book Meeting", icon: "CalendarDays", color: "#34d399", description: "Show real Vega slots in-chat and book one" },
-  { kind: "billstack_invoice", label: "Bill via BillStack", icon: "Receipt", color: "#f59e0b", description: "Create a real invoice in this workspace's own BillStack account" },
-  { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "#0ea5e9", description: "Send a catalog product" },
-  { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "#f43f5e", description: "Assign owner" },
-  { kind: "add_tag", label: "Tag User", icon: "Tag", color: "#eab308", description: "Apply label" },
-  { kind: "lead_stage", label: "Lead Stage", icon: "Activity", color: "#06b6d4", description: "Move CRM stage" },
-  { kind: "task", label: "Task", icon: "CheckCircle2", color: "#a3e635", description: "Create task" },
-  { kind: "calendar", label: "Calendar", icon: "CalendarDays", color: "#f97316", description: "Create event" },
-  { kind: "http_request", label: "HTTP Request", icon: "Globe2", color: "#60a5fa", description: "Advanced HTTP call" },
-  { kind: "loop", label: "Loop", icon: "RefreshCcw", color: "#facc15", description: "Iterate over items" },
-  { kind: "variables", label: "Variables", icon: "Variable", color: "#c084fc", description: "Set variables" },
-  { kind: "json_parser", label: "JSON Parser", icon: "Braces", color: "#818cf8", description: "Parse JSON payload" },
-  { kind: "code_block", label: "Code Block", icon: "Code2", color: "#94a3b8", description: "Run custom logic" },
-  { kind: "sub_workflow", label: "Sub Workflow", icon: "Network", color: "#fb7185", description: "Call another flow" },
+  { kind: "trigger", label: "Trigger", icon: "Zap", color: "var(--node-start)", description: "Start from inbound events" },
+  { kind: "delay", label: "Delay", icon: "Hourglass", color: "var(--node-logic)", description: "Wait before next action" },
+  { kind: "condition", label: "Condition", icon: "Diamond", color: "var(--node-logic)", description: "Route by fields" },
+  { kind: "if_else", label: "If Else", icon: "GitBranch", color: "var(--node-logic)", description: "Branch workflow" },
+  { kind: "call_webhook", label: "Webhook", icon: "Webhook", color: "var(--node-connect)", description: "Send webhook event" },
+  { kind: "api", label: "API", icon: "Globe2", color: "var(--node-connect)", description: "Call an API" },
+  { kind: "add_to_crm", label: "CRM", icon: "Database", color: "var(--node-people)", description: "Create/update CRM" },
+  { kind: "google_sheets", label: "Google Sheets", icon: "Sheet", color: "var(--node-connect)", description: "Append a sheet row" },
+  { kind: "openai", label: "OpenAI", icon: "Sparkles", color: "var(--node-ai)", description: "Generate AI response" },
+  { kind: "claude", label: "Claude", icon: "Bot", color: "var(--node-ai)", description: "Claude reasoning step" },
+  { kind: "gemini", label: "Gemini", icon: "Sparkles", color: "var(--node-ai)", description: "Gemini generation step" },
+  { kind: "email", label: "Email", icon: "Mail", color: "var(--node-message)", description: "Send email" },
+  { kind: "sms", label: "SMS", icon: "Send", color: "var(--node-message)", description: "Send SMS" },
+  { kind: "send_instagram", label: "Instagram DM", icon: "Instagram", color: "var(--node-message)", description: "Send an Instagram DM" },
+  { kind: "send_message", label: "WhatsApp Send", icon: "MessageCircle", color: "var(--node-message)", description: "Send WhatsApp message" },
+  { kind: "send_flow", label: "Send Flow", icon: "Workflow", color: "var(--node-message)", description: "Send an in-chat form" },
+  { kind: "ask_mcq", label: "Ask MCQ", icon: "ListChecks", color: "var(--node-message)", description: "In-chat buttons, AI handles edge cases" },
+  { kind: "check_office_hours", label: "Office Hours", icon: "Clock", color: "var(--node-logic)", description: "Branch on Vega's live office-hours config" },
+  { kind: "book_meeting", label: "Book Meeting", icon: "CalendarDays", color: "var(--node-people)", description: "Show real Vega slots in-chat and book one" },
+  { kind: "billstack_invoice", label: "Bill via BillStack", icon: "Receipt", color: "var(--node-money)", description: "Create a real invoice in this workspace's own BillStack account" },
+  { kind: "send_product_message", label: "Send Product", icon: "ShoppingBag", color: "var(--node-message)", description: "Send a catalog product" },
+  { kind: "assign_user", label: "Assign Agent", icon: "UserRoundPlus", color: "var(--node-people)", description: "Assign owner" },
+  { kind: "add_tag", label: "Tag User", icon: "Tag", color: "var(--node-people)", description: "Apply label" },
+  { kind: "lead_stage", label: "Lead Stage", icon: "Activity", color: "var(--node-people)", description: "Move CRM stage" },
+  { kind: "task", label: "Task", icon: "CheckCircle2", color: "var(--node-people)", description: "Create task" },
+  { kind: "calendar", label: "Calendar", icon: "CalendarDays", color: "var(--node-people)", description: "Create event" },
+  { kind: "http_request", label: "HTTP Request", icon: "Globe2", color: "var(--node-connect)", description: "Advanced HTTP call" },
+  { kind: "loop", label: "Loop", icon: "RefreshCcw", color: "var(--node-logic)", description: "Iterate over items" },
+  { kind: "variables", label: "Variables", icon: "Variable", color: "var(--node-logic)", description: "Set variables" },
+  { kind: "json_parser", label: "JSON Parser", icon: "Braces", color: "var(--node-logic)", description: "Parse JSON payload" },
+  { kind: "code_block", label: "Code Block", icon: "Code2", color: "var(--node-logic)", description: "Run custom logic" },
+  { kind: "sub_workflow", label: "Sub Workflow", icon: "Network", color: "var(--node-logic)", description: "Call another flow" },
 ];
+
+// Node colour comes from its kind, not the colour saved on the node, so flows saved before the
+// Nacre redesign (with the old per-node colours) show the same families as new ones.
+const nodeColorByKind: Record<string, string> = Object.fromEntries(nodeCatalog.map((item) => [item.kind, item.color]));
+function nodeColor(data: { kind?: string; color?: string }) {
+  return (data.kind && nodeColorByKind[data.kind]) || data.color || "var(--node-logic)";
+}
+// A soft tint of any colour value, including CSS variables (appending hex alpha only works for hex).
+function tint(color: string, percent = 14) {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
 
 const templates = [
   { name: "Inbound Lead Capture", nodes: ["Trigger", "CRM", "Assign Agent", "WhatsApp Send"] },
@@ -363,7 +374,7 @@ const branchHandlesByKind: Record<string, { id: string; label: string; dotClassN
     { id: "false", label: "F", dotClassName: "!bg-destructive", textClassName: "text-destructive" },
   ],
   loop: [
-    { id: "loop", label: "↻", dotClassName: "!bg-yellow-500", textClassName: "text-yellow-300" },
+    { id: "loop", label: "↻", dotClassName: "!bg-warning", textClassName: "text-warning" },
     { id: "done", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
   ],
   // matched: the reply was a button/list tap (or free text) matching one of the configured
@@ -371,7 +382,7 @@ const branchHandlesByKind: Record<string, { id: string; label: string; dotClassN
   // answer that doesn't match) - wire this to a "claude" node to interpret it.
   ask_mcq: [
     { id: "matched", label: "✓", dotClassName: "!bg-primary", textClassName: "text-primary" },
-    { id: "edge_case", label: "AI", dotClassName: "!bg-purple-500", textClassName: "text-purple-300" },
+    { id: "edge_case", label: "AI", dotClassName: "!bg-chart-3", textClassName: "text-chart-3" },
   ],
   // open/closed reads Vega's MeetingAvailability.weeklyWindows live - no schedule configured here.
   check_office_hours: [
@@ -395,7 +406,7 @@ function AutomationNode({ data, selected }: NodeProps<Node<AutomationNodeData>>)
     <div className={`relative w-[210px] rounded-md border bg-card shadow-sm transition ${selected ? "border-primary ring-2 ring-primary/20" : "border-border"}`}>
       <Handle type="target" position={Position.Left} className={handleClass} />
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: `${data.color}22`, color: data.color }}>
+        <div className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: tint(nodeColor(data)), color: nodeColor(data) }}>
           {iconFor(data.icon)}
         </div>
         <div className="min-w-0">
@@ -553,7 +564,7 @@ function RunHistoryEntry({
                 const item = catalogFor(step.type);
                 return (
                   <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: tint(item.color), color: item.color }}>
                       {iconFor(item.icon, 12)}
                     </span>
                     <span className="min-w-0 flex-1">
@@ -1594,7 +1605,7 @@ function BuilderCanvas({
   }
 
   const controlButtonClass =
-    "flex h-9 w-9 items-center justify-center border-b border-white/10 text-white transition last:border-b-0 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+    "flex h-9 w-9 items-center justify-center border-b border-border text-white transition last:border-b-0 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 
   // Four literal, statically-scannable variants (Tailwind's JIT compiler needs the full class
   // string to appear verbatim in source, not built from interpolated fragments) - one per
@@ -1641,7 +1652,7 @@ function BuilderCanvas({
               onDragStart={(event) => onDragStart(event, item.kind)}
               className={`flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left transition ${canWrite ? "hover:border-primary/40 hover:bg-secondary" : "cursor-not-allowed opacity-60"}`}
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: `${item.color}22`, color: item.color }}>
+              <span className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: tint(item.color), color: item.color }}>
                 {iconFor(item.icon)}
               </span>
               <span className="min-w-0">
@@ -1654,19 +1665,19 @@ function BuilderCanvas({
       </aside>
       ) : null}
 
-      <main className="relative min-h-0 min-w-0 bg-[#0b0f14]">
-        <div className="absolute left-2 right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-2 rounded-md border border-white/10 bg-black/50 p-2 backdrop-blur sm:left-3 sm:right-auto sm:top-3">
+      <main className="relative min-h-0 min-w-0 bg-surface-subtle">
+        <div className="absolute left-2 right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-2 rounded-lg border border-border bg-card/90 p-2 shadow-card backdrop-blur sm:left-3 sm:right-auto sm:top-3">
           {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
             <Save size={13} className="mr-1" /> {saving ? "Saving" : "Save"}
           </Button>}
-          {canWrite && <Button size="sm" variant="outline" className="h-8 border-white/15 bg-black/20 text-xs text-white" onClick={() => saveCanvas("active")} disabled={saving}>
+          {canWrite && <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => saveCanvas("active")} disabled={saving}>
             Publish
           </Button>}
-          <Button size="sm" variant="outline" className="h-8 border-white/15 bg-black/20 text-xs text-white" onClick={() => setDebugMode((value) => !value)}>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDebugMode((value) => !value)}>
             Debug {debugMode ? "On" : "Off"}
           </Button>
         </div>
-        <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-md border border-white/15 bg-[#111820]/95 shadow-xl backdrop-blur sm:left-3">
+        <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-lg border border-border bg-card/95 shadow-float backdrop-blur sm:left-3">
           <button
             type="button"
             className={controlButtonClass}
@@ -1727,8 +1738,8 @@ function BuilderCanvas({
           nodesConnectable={!canvasLocked && canWrite}
           elementsSelectable={!canvasLocked}
         >
-          <Background color="#23313d" variant={BackgroundVariant.Dots} gap={18} size={1} />
-          <MiniMap pannable zoomable nodeStrokeWidth={3} nodeColor={(node: Node<AutomationNodeData>) => node.data.color || "#22c55e"} />
+          <Background color="var(--input)" variant={BackgroundVariant.Dots} gap={18} size={1} />
+          <MiniMap pannable zoomable nodeStrokeWidth={3} nodeColor={(node: Node<AutomationNodeData>) => nodeColor(node.data)} />
         </ReactFlow>
       </main>
 
@@ -1752,7 +1763,7 @@ function BuilderCanvas({
             {selectedNode ? (
               <div className="space-y-2 rounded-md border border-border bg-background p-3">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded" style={{ backgroundColor: `${selectedNode.data.color}22`, color: selectedNode.data.color }}>
+                  <span className="flex h-8 w-8 items-center justify-center rounded" style={{ backgroundColor: tint(nodeColor(selectedNode.data)), color: nodeColor(selectedNode.data) }}>
                     {iconFor(selectedNode.data.icon)}
                   </span>
                   <div>
@@ -1861,7 +1872,7 @@ function BuilderCanvas({
                       ? "border-destructive/30 bg-destructive/10 text-destructive"
                       : testResult.matched
                         ? "border-primary/30 bg-primary/10 text-foreground"
-                        : "border-yellow-500/30 bg-yellow-500/10 text-foreground"
+                        : "border-warning/30 bg-warning/10 text-foreground"
                   }`}
                 >
                   {"error" in testResult ? (
@@ -1870,7 +1881,7 @@ function BuilderCanvas({
                     <>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">{testResult.matched ? "Matched automation" : "No match"}</span>
-                        <Badge variant="outline" className={testResult.matched ? "border-primary/30 bg-primary/15 text-primary" : "border-yellow-500/30 bg-yellow-500/15 text-yellow-300"}>
+                        <Badge variant="outline" className={testResult.matched ? "border-primary/30 bg-primary/15 text-primary" : "border-warning/30 bg-warning/15 text-warning"}>
                           {testResult.actions.length} actions
                         </Badge>
                       </div>
@@ -2182,7 +2193,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
   return (
     <ReactFlowProvider>
       <div className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden overflow-y-visible">
-        <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.74),rgba(2,6,23,0.18))] px-3 py-4 sm:px-6">
+        <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.74),rgba(2,6,23,0.18))] px-3 py-4 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -2205,9 +2216,9 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
 
         <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 sm:grid-cols-3 sm:px-6">
           {[
-            { label: "Flow runs today", value: summary.runsToday.toLocaleString(), icon: <Zap size={15} />, accent: "from-primary/20 to-emerald-400/5" },
-            { label: "Messages automated", value: summary.automatedMessages.toLocaleString(), icon: <MessageCircle size={15} />, accent: "from-blue-500/15 to-cyan-400/5" },
-            { label: "Handoff to agent", value: summary.handoffs.toLocaleString(), icon: <UserRoundPlus size={15} />, accent: "from-violet-500/15 to-fuchsia-400/5" },
+            { label: "Flow runs today", value: summary.runsToday.toLocaleString(), icon: <Zap size={15} />, accent: "from-primary/20 to-success/5" },
+            { label: "Messages automated", value: summary.automatedMessages.toLocaleString(), icon: <MessageCircle size={15} />, accent: "from-info/15 to-primary/5" },
+            { label: "Handoff to agent", value: summary.handoffs.toLocaleString(), icon: <UserRoundPlus size={15} />, accent: "from-chart-3/15 to-chart-3/5" },
           ].map((item) => (
             <Card key={item.label} className={`overflow-hidden border-border bg-gradient-to-br ${item.accent} p-3`}>
               <div className="flex items-center justify-between gap-3">
@@ -2215,7 +2226,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                   <div className="text-lg font-semibold text-foreground">{item.value}</div>
                   <div className="mt-0.5 text-[11px] text-muted-foreground">{item.label}</div>
                 </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-card/70 text-primary">{item.icon}</div>
+                <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{item.icon}</div>
               </div>
             </Card>
           ))}
@@ -2277,7 +2288,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
 
                 <section className="space-y-3 bg-card p-4">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/10 text-blue-300"><GitBranch size={14} /></span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-info/10 text-info"><GitBranch size={14} /></span>
                     <div>
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Conditions</h3>
                       <p className="text-[11px] text-muted-foreground">Set CRM stage and flow state.</p>
@@ -2307,7 +2318,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
 
                 <section className="space-y-3 bg-card p-4">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-500/10 text-violet-300"><Send size={14} /></span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-chart-3/10 text-chart-3"><Send size={14} /></span>
                     <div>
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Actions</h3>
                       <p className="text-[11px] text-muted-foreground">Reply, tag, update status, and sync.</p>
@@ -2403,7 +2414,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                   return (
                     <button
                       key={flow.id}
-                      className={`mb-2 w-full rounded-md border p-3 text-left transition ${selectedFlowId === flow.id ? "border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(34,197,94,0.12)]" : "border-border bg-background hover:border-primary/30 hover:bg-card"}`}
+                      className={`mb-2 w-full rounded-md border p-3 text-left transition ${selectedFlowId === flow.id ? "border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(31,138,91,0.12)]" : "border-border bg-background hover:border-primary/30 hover:bg-card"}`}
                       onClick={() => setSelectedFlowId(flow.id)}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -2429,12 +2440,12 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                           <span className="truncate">Keywords: {flowKeywordSummary(flow)}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Send size={12} className="text-blue-300" />
+                          <Send size={12} className="text-info" />
                           <span className="truncate">Actions: {flowActionSummary(flow)}</span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
                           <span className="flex min-w-0 items-center gap-1.5 truncate">
-                            <History size={12} className="text-violet-300" />
+                            <History size={12} className="text-chart-3" />
                             Last run: {flowLastRun(flow)}
                           </span>
                           {canWrite ? (
@@ -2454,7 +2465,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                       </div>
 
                       {result ? (
-                        <div className={`mt-3 rounded-md border px-2 py-1.5 text-[11px] ${"error" in result ? "border-destructive/30 bg-destructive/10 text-destructive" : result.matched ? "border-primary/30 bg-primary/10 text-primary" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"}`}>
+                        <div className={`mt-3 rounded-md border px-2 py-1.5 text-[11px] ${"error" in result ? "border-destructive/30 bg-destructive/10 text-destructive" : result.matched ? "border-primary/30 bg-primary/10 text-primary" : "border-warning/30 bg-warning/10 text-warning"}`}>
                           {"error" in result ? result.error : `${result.matched ? "Matched" : "No match"} - ${result.actions.length} actions executed`}
                         </div>
                       ) : null}

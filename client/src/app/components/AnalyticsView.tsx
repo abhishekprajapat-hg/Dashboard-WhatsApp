@@ -165,12 +165,12 @@ function isoDate(offsetDays = 0) {
 function KpiCard({ item, icon }: { item: { label: string; value: string; delta: string; up: boolean }; icon: ReactNode }) {
   return (
     <Card className={`${premiumCard} overflow-hidden`}>
-      <div className={`h-1 ${item.up ? "bg-gradient-to-r from-primary/80 to-emerald-300/40" : "bg-gradient-to-r from-orange-400/70 to-red-400/40"}`} />
+      <div className={`h-1 ${item.up ? "bg-gradient-to-r from-primary/80 to-success/40" : "bg-gradient-to-r from-warning/70 to-destructive/40"}`} />
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <div className="truncate text-xs text-muted-foreground">{item.label}</div>
           <div className="mt-1 text-2xl font-semibold tracking-normal">{item.value}</div>
-          <Badge variant="outline" className={`mt-2 text-[10px] ${item.up ? "border-primary/30 bg-primary/10 text-primary" : "border-orange-500/30 bg-orange-500/10 text-orange-300"}`}>
+          <Badge variant="outline" className={`mt-2 text-[10px] ${item.up ? "border-primary/30 bg-primary/10 text-primary" : "border-warning/30 bg-warning/10 text-warning"}`}>
             {item.delta}
           </Badge>
         </div>
@@ -221,7 +221,7 @@ function HeatMap({ data }: { data: { day: number; hour: number; value: number }[
                   key={`${day}-${hour}`}
                   title={`${dayNames[day]} ${hour}:00 - ${value} messages`}
                   className="h-5 rounded-sm border border-border"
-                  style={{ backgroundColor: `rgba(47,168,118, ${opacity})` }}
+                  style={{ backgroundColor: `rgba(11,116,128, ${opacity})` }}
                 />
               );
             })}
@@ -268,7 +268,7 @@ export function AnalyticsView() {
   const selectedReport = analytics.customReports.find((item) => item.id === report) || analytics.customReports[0];
 
   return (
-    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
         <div className="rounded-lg border border-border bg-card/80 p-4 shadow-xl shadow-black/10">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -357,8 +357,8 @@ export function AnalyticsView() {
                       <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="analyticsOutbound" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      <stop offset="5%" stopColor="var(--info)" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="var(--info)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -366,8 +366,8 @@ export function AnalyticsView() {
                   <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={chartTooltip} />
                   <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#analyticsInbound)" />
-                  <Area type="monotone" dataKey="outbound" stroke="#3b82f6" strokeWidth={2} fill="url(#analyticsOutbound)" />
-                  <Line type="monotone" dataKey="resolved" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Area type="monotone" dataKey="outbound" stroke="var(--info)" strokeWidth={2} fill="url(#analyticsOutbound)" />
+                  <Line type="monotone" dataKey="resolved" stroke="var(--warning)" strokeWidth={2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer></div> : <EmptyChart label="No message volume for this date range." />}
             </CardContent>

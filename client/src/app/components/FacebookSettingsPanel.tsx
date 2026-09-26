@@ -168,11 +168,11 @@ export function FacebookSettingsPanel() {
         <Card
           className={
             notice === "Message sent."
-              ? `p-3 border-emerald-500/25 bg-emerald-500/10 ${cardClass}`
+              ? `p-3 border-success/25 bg-success/10 ${cardClass}`
               : `p-3 border-destructive/40 bg-destructive/5 ${cardClass}`
           }
         >
-          <p className={notice === "Message sent." ? "text-xs text-emerald-300" : "text-xs text-destructive"}>{notice}</p>
+          <p className={notice === "Message sent." ? "text-xs text-success" : "text-xs text-destructive"}>{notice}</p>
         </Card>
       )}
 

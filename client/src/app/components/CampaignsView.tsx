@@ -111,16 +111,16 @@ interface CampaignReport extends Omit<Campaign, "recipients"> {
 
 const statusStyle: Record<string, string> = {
   sent: "bg-primary/20 text-primary border-primary/30",
-  scheduled: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  scheduled: "bg-info/20 text-info border-info/30",
   draft: "bg-secondary text-muted-foreground border-border",
-  running: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  queued: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  paused: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  running: "bg-warning/20 text-warning border-warning/30",
+  queued: "bg-primary/20 text-primary border-primary/30",
+  paused: "bg-warning/20 text-warning border-warning/30",
   failed: "bg-destructive/20 text-destructive border-destructive/30",
-  pending_approval: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  approved: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-  rejected: "bg-red-500/20 text-red-300 border-red-500/30",
-  cancelled: "bg-zinc-500/20 text-zinc-300 border-zinc-500/30",
+  pending_approval: "bg-chart-3/20 text-chart-3 border-chart-3/30",
+  approved: "bg-success/20 text-success border-success/30",
+  rejected: "bg-destructive/20 text-destructive border-destructive/30",
+  cancelled: "bg-muted text-muted-foreground border-border",
 };
 
 const audienceLabels: Record<string, string> = {
@@ -423,7 +423,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
+      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -512,7 +512,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
               <section className="space-y-3 bg-card p-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/10 text-blue-300"><Users size={14} /></span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-info/10 text-info"><Users size={14} /></span>
                   <div>
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Audience</h3>
                     <p className="text-[11px] text-muted-foreground">Select and preview reachable contacts.</p>
@@ -546,7 +546,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
               <section className="space-y-3 bg-card p-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-500/10 text-violet-300"><ShieldCheck size={14} /></span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-chart-3/10 text-chart-3"><ShieldCheck size={14} /></span>
                   <div>
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Template</h3>
                     <p className="text-[11px] text-muted-foreground">Choose approved WhatsApp content.</p>
@@ -596,13 +596,13 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                 <div className="rounded-md border border-border bg-background/60 p-3 text-[11px] text-muted-foreground">
                   <div className="font-medium text-foreground">{selectedTemplate?.name || "No template selected"}</div>
                   <div className="mt-1">{selectedTemplate ? `${selectedTemplate.category} - ${selectedTemplate.language} - ${selectedTemplate.status}` : "Approved WhatsApp template is required."}</div>
-                  {form.abTest && selectedTemplateB ? <div className="mt-1 text-violet-300">Variant B: {selectedTemplateB.name}</div> : null}
+                  {form.abTest && selectedTemplateB ? <div className="mt-1 text-chart-3">Variant B: {selectedTemplateB.name}</div> : null}
                 </div>
               </section>
 
               <section className="space-y-3 bg-card p-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-500/10 text-cyan-300"><CalendarClock size={14} /></span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><CalendarClock size={14} /></span>
                   <div>
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">Schedule and limits</h3>
                     <p className="text-[11px] text-muted-foreground">Control send timing and throughput.</p>
@@ -635,11 +635,11 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
       <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-5 sm:px-6">
         {[
-          ["Total sent", summary.totalSent.toLocaleString(), <Send size={14} />, "from-primary/20 to-emerald-400/5"],
-          ["Delivery rate", `${summary.deliveryRate}%`, <CheckCircle2 size={14} />, "from-blue-500/15 to-cyan-400/5"],
-          ["Read rate", `${summary.readRate}%`, <Eye size={14} />, "from-violet-500/15 to-fuchsia-400/5"],
-          ["Reply rate", `${summary.replyRate}%`, <Users size={14} />, "from-cyan-500/15 to-blue-400/5"],
-          ["Failures", summary.failures.toLocaleString(), <AlertTriangle size={14} />, "from-red-500/15 to-orange-400/5"],
+          ["Total sent", summary.totalSent.toLocaleString(), <Send size={14} />, "from-primary/20 to-success/5"],
+          ["Delivery rate", `${summary.deliveryRate}%`, <CheckCircle2 size={14} />, "from-info/15 to-primary/5"],
+          ["Read rate", `${summary.readRate}%`, <Eye size={14} />, "from-chart-3/15 to-chart-3/5"],
+          ["Reply rate", `${summary.replyRate}%`, <Users size={14} />, "from-primary/15 to-chart-2/5"],
+          ["Failures", summary.failures.toLocaleString(), <AlertTriangle size={14} />, "from-destructive/15 to-warning/5"],
         ].map(([label, value, icon, accent]) => (
           <Card key={String(label)} className={`overflow-hidden border-border bg-gradient-to-br ${String(accent)} p-3`}>
             <div className="flex items-center justify-between gap-3">
@@ -647,7 +647,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                 <div className={`text-lg font-semibold ${metricTone(String(label))}`}>{String(value)}</div>
                 <div className="text-[11px] text-muted-foreground">{String(label)}</div>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-card/70 text-primary">{icon}</div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{icon}</div>
             </div>
           </Card>
         ))}
@@ -698,7 +698,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
             </div>
           ) : filtered.map((campaign) => (
             <Card key={campaign.id} className="overflow-hidden border-border bg-card transition hover:border-primary/25 hover:shadow-xl hover:shadow-black/10">
-              <div className="h-1 bg-gradient-to-r from-primary/70 via-blue-400/55 to-violet-400/55" />
+              <div className="h-1 bg-gradient-to-r from-primary/70 via-chart-2/55 to-chart-3/55" />
               <div className="p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
@@ -711,8 +711,8 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                         <h3 className="truncate text-sm font-semibold text-foreground">{campaign.name}</h3>
                     <Badge variant="outline" className={`text-[10px] ${statusStyle[campaign.status] || statusStyle.draft}`}>{campaign.status.replace("_", " ")}</Badge>
                     <Badge variant="outline" className="border-border text-[10px] text-muted-foreground">{campaign.type.replace("_", " ")}</Badge>
-                    {campaign.abTest?.enabled && <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-[10px] text-purple-300">A/B {campaign.abTest.split || 50}%</Badge>}
-                    {campaign.approval?.required && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-300">approval {campaign.approval.status}</Badge>}
+                    {campaign.abTest?.enabled && <Badge variant="outline" className="border-chart-3/30 bg-chart-3/10 text-[10px] text-chart-3">A/B {campaign.abTest.split || 50}%</Badge>}
+                    {campaign.approval?.required && <Badge variant="outline" className="border-success/30 bg-success/10 text-[10px] text-success">approval {campaign.approval.status}</Badge>}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
                         <span className="flex items-center gap-1"><Users size={12} /> {campaign.audience}</span>

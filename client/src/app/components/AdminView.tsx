@@ -266,7 +266,7 @@ function StatCard({
   return (
     <Card className="group rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5 transition-colors hover:border-primary/25">
       <CardContent className="flex items-center gap-3 p-4">
-        <div className={`flex size-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] transition-colors group-hover:bg-primary/10 ${tone}`}>
+        <div className={`flex size-10 items-center justify-center rounded-md border border-border bg-white/[0.04] transition-colors group-hover:bg-primary/10 ${tone}`}>
           {icon}
         </div>
         <div className="min-w-0">
@@ -1274,14 +1274,14 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                       </label>
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Palette size={14} /> Primary Color</span>
-                        <input type="color" value={branding.primaryColor || "#22c55e"} onChange={(event) => setBranding((current) => ({ ...current, primaryColor: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-2" />
+                        <input type="color" value={branding.primaryColor || "var(--success)"} onChange={(event) => setBranding((current) => ({ ...current, primaryColor: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-2" />
                       </label>
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Link2 size={14} /> Logo URL</span>
                         <input value={branding.logoUrl || ""} onChange={(event) => setBranding((current) => ({ ...current, logoUrl: event.target.value }))} disabled className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none" />
                       </label>
                       <div className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-center md:col-span-2">
-                        <div className="flex size-11 items-center justify-center rounded-md text-white" style={{ backgroundColor: branding.primaryColor || "#22c55e" }}>
+                        <div className="flex size-11 items-center justify-center rounded-md text-white" style={{ backgroundColor: branding.primaryColor || "var(--success)" }}>
                           <KeyRound size={18} />
                         </div>
                         <div>

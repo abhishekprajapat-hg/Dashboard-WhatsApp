@@ -133,7 +133,7 @@ export function EmbeddedSignupButton({ onConnected }: EmbeddedSignupButtonProps)
         access token to hunt down and hand over manually.
       </p>
       {notConfigured ? (
-        <p className="text-xs text-yellow-300">
+        <p className="text-xs text-warning">
           Not configured yet - set VITE_META_APP_ID and VITE_META_EMBEDDED_SIGNUP_CONFIG_ID (the latter comes from
           App Dashboard → Facebook Login for Business → Configurations).
         </p>

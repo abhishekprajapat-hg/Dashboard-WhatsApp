@@ -34,8 +34,8 @@ interface TeamMember {
 }
 
 const roleStyle: Record<string, string> = {
-  super_admin: "border-yellow-500/30 bg-yellow-500/15 text-yellow-300",
-  admin: "border-blue-500/30 bg-blue-500/15 text-blue-300",
+  super_admin: "border-warning/30 bg-warning/15 text-warning",
+  admin: "border-info/30 bg-info/15 text-info",
   manager: "border-primary/30 bg-primary/15 text-primary",
   agent: "border-border bg-secondary/70 text-foreground",
   viewer: "border-border bg-surface-elevated/45 text-muted-foreground",
@@ -50,7 +50,7 @@ const roleLabel: Record<string, string> = {
 };
 
 const statusDot: Record<string, string> = {
-  online: "bg-primary shadow-[0_0_0_3px_rgba(47,168,118,0.14)]",
+  online: "bg-primary shadow-[0_0_0_3px_rgba(11,116,128,0.14)]",
   busy: "bg-destructive shadow-[0_0_0_3px_rgba(255,95,87,0.14)]",
   away: "bg-warning shadow-[0_0_0_3px_rgba(245,158,11,0.14)]",
   offline: "bg-muted-foreground/60",
@@ -197,7 +197,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(47,168,118,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(11,116,128,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
       <div className="shrink-0 border-b border-border/70 px-3 py-4 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
@@ -292,13 +292,13 @@ export function TeamView({ canManage = false }: TeamViewProps) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { label: "Agents online", value: onlineCount, icon: <Users size={16} />, detail: "Online or busy", tone: "text-primary" },
-              { label: "Open conversations", value: assignedCount, icon: <MessageCircle size={16} />, detail: "Assigned right now", tone: "text-blue-300" },
+              { label: "Open conversations", value: assignedCount, icon: <MessageCircle size={16} />, detail: "Assigned right now", tone: "text-info" },
               { label: "Resolved today", value: resolvedCount, icon: <BadgeCheck size={16} />, detail: "Across all members", tone: "text-primary" },
-              { label: "Admin seats", value: adminCount, icon: <Shield size={16} />, detail: "Elevated access", tone: "text-yellow-300" },
+              { label: "Admin seats", value: adminCount, icon: <Shield size={16} />, detail: "Elevated access", tone: "text-warning" },
             ].map((item) => (
               <Card key={item.label} className="rounded-lg border-border/70 bg-card/90 p-4 shadow-xl shadow-black/5">
                 <div className="flex items-center justify-between gap-3">
-                  <div className={`flex size-10 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] ${item.tone}`}>{item.icon}</div>
+                  <div className={`flex size-10 items-center justify-center rounded-md border border-border bg-white/[0.04] ${item.tone}`}>{item.icon}</div>
                   <span className="text-[11px] text-muted-foreground">{item.detail}</span>
                 </div>
                 <div className="mt-4 text-2xl font-semibold tracking-normal text-foreground">{item.value}</div>
@@ -361,7 +361,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 gap-3">
                       <div className="relative shrink-0">
-                        <div className="flex size-12 items-center justify-center rounded-full border border-border bg-gradient-to-br from-primary/20 via-blue-500/15 to-purple-500/15 text-sm font-semibold text-foreground">
+                        <div className="flex size-12 items-center justify-center rounded-full border border-border bg-gradient-to-br from-primary/20 via-chart-2/15 to-chart-3/15 text-sm font-semibold text-foreground">
                           {getInitials(member)}
                         </div>
                         <span className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-card ${statusDot[member.status]}`} />

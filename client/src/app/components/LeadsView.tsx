@@ -390,7 +390,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(47,168,118,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(79,140,255,0.08),transparent_24rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
 
       <div className="relative z-10 flex flex-col gap-3 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
         <div className="min-w-0">
@@ -432,7 +432,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-teal-700 text-[10px] font-semibold text-primary-foreground">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#075a63] text-[10px] font-semibold text-primary-foreground">
                         {initials(lead.contactName)}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -492,7 +492,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
             <>
               <SheetHeader className="border-b border-border/80 pb-4">
                 <div className="flex items-start gap-3">
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-teal-700 text-sm font-semibold text-primary-foreground">
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#075a63] text-sm font-semibold text-primary-foreground">
                     {initials(detail.contactName)}
                   </div>
                   <div className="min-w-0 flex-1">

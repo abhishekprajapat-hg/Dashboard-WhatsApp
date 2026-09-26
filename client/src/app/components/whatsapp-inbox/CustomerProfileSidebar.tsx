@@ -48,7 +48,7 @@ export function CustomerProfileSidebar({
   return (
     <aside className="flex h-full w-full flex-col overflow-y-auto border-l border-border/80 bg-card/75 backdrop-blur-xl">
       <div className="border-b border-border/80 p-5 text-center">
-        <div className={cn("mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-xl font-semibold text-white shadow-[0_18px_42px_rgba(47,168,118,0.16)]", avatarGradient(conversation.name))}>
+        <div className={cn("mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-xl font-semibold text-white shadow-[0_18px_42px_rgba(11,116,128,0.16)]", avatarGradient(conversation.name))}>
           {initials(conversation.name)}
         </div>
         <div className="mt-3 text-base font-semibold text-foreground">{conversation.name}</div>

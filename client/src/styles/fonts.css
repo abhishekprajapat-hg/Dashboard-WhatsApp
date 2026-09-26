@@ -1,1 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Nacre type: Instrument Sans for everything you read, Instrument Serif for page titles and money,
+   Mukta for Hindi (fetched only when Devanagari appears, thanks to unicode-range). */
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&family=Instrument+Serif:ital@0;1&family=Mukta:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');

@@ -11,7 +11,7 @@ interface MessageBubbleProps {
 }
 
 function StatusIcon({ status }: { status?: WhatsAppMessage["status"] }) {
-  if (status === "failed") return <RotateCcw size={13} className="text-red-400" />;
+  if (status === "failed") return <RotateCcw size={13} className="text-destructive" />;
   if (status === "queued") return <Clock3 size={13} className="text-emerald-950/65" />;
   if (status === "read") return <CheckCheck size={13} className="text-blue-700 drop-shadow-[0_0_3px_rgba(255,255,255,0.24)]" />;
   if (status === "delivered") return <CheckCheck size={13} className="text-emerald-950/70" />;
@@ -85,7 +85,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
         ) : null}
 
         <div className={cn("mt-1 flex items-center justify-end gap-1.5 text-[10px]", fromAgent ? "text-primary-foreground/75" : "text-muted-foreground")}>
-          {message.starred ? <Star size={11} className="fill-amber-400 text-amber-400" /> : null}
+          {message.starred ? <Star size={11} className="fill-warning text-warning" /> : null}
           <span>{displayTime(message)}</span>
           {fromAgent ? <StatusIcon status={message.status} /> : null}
           {fromAgent ? <span className="sr-only">{visibleStatus(message.status)}</span> : null}
@@ -109,7 +109,7 @@ export function MessageBubble({ message, replyLabel, selected, onAction }: Messa
               <Icon size={14} />
             </button>
           ))}
-          <MoreVertical size={14} className="text-zinc-400" />
+          <MoreVertical size={14} className="text-muted-foreground" />
         </div>
       </div>
     </motion.div>

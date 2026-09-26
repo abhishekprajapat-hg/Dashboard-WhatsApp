@@ -14,13 +14,13 @@ function EmptyState({ icon, title, description, action, className, ...props }: E
     <div
       data-slot="empty-state"
       className={cn(
-        "flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-surface-subtle/60 px-6 py-8 text-center",
+        "flex min-h-44 flex-col items-center justify-center rounded-xl border border-dashed border-input bg-surface-subtle/70 px-6 py-9 text-center",
         className,
       )}
       {...props}
     >
       {icon && (
-        <div className="mb-4 flex size-11 items-center justify-center rounded-md border border-border/80 bg-surface-elevated text-primary shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
+        <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-jewel-soft text-primary">
           {icon}
         </div>
       )}

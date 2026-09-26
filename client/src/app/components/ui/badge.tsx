@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./utils";
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium tracking-normal transition-[color,box-shadow,background-color,border-color] [&>svg]:size-3 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/25",
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border px-2 py-px text-[11px] font-medium leading-[1.35rem] tracking-[0.005em] transition-[color,box-shadow,background-color,border-color] [&>svg]:size-3 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:border-destructive aria-invalid:ring-[3px] aria-invalid:ring-destructive/25",
   {
     variants: {
       variant: {
@@ -14,15 +14,17 @@ const badgeVariants = cva(
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
-          "border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/30",
+          "border-transparent bg-problem-soft text-destructive [a&]:hover:bg-destructive/15 focus-visible:ring-destructive/30",
         outline:
-          "border-border/80 bg-surface-elevated/35 text-muted-foreground [a&]:hover:bg-surface-elevated [a&]:hover:text-foreground",
+          "border-border bg-card text-muted-foreground [a&]:hover:bg-secondary [a&]:hover:text-foreground",
         success:
-          "border-primary/25 bg-primary/10 text-primary [a&]:hover:bg-primary/15",
+          "border-transparent bg-success/12 text-success [a&]:hover:bg-success/18",
         info:
-          "border-info/25 bg-info/10 text-info [a&]:hover:bg-info/15",
+          "border-transparent bg-jewel-soft text-primary [a&]:hover:bg-primary/15",
         warning:
-          "border-warning/25 bg-warning/10 text-warning [a&]:hover:bg-warning/15",
+          "border-transparent bg-warning/12 text-warning [a&]:hover:bg-warning/18",
+        money:
+          "border-transparent bg-money-soft text-money [a&]:hover:bg-money/18",
       },
     },
     defaultVariants: {

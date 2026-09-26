@@ -244,7 +244,7 @@ export default function App() {
 
   return (
     <div className="relative flex h-dvh w-screen max-w-[100vw] flex-col overflow-hidden bg-background font-[Inter,system-ui,sans-serif] text-foreground md:flex-row">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_-10%,rgba(47,168,118,0.12),transparent_28rem),radial-gradient(circle_at_86%_0%,rgba(79,140,255,0.1),transparent_26rem)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_-10%,rgba(11,116,128,0.12),transparent_28rem),radial-gradient(circle_at_86%_0%,rgba(47,111,176,0.1),transparent_26rem)]" />
       <div className="pointer-events-none absolute inset-y-0 left-[72px] hidden w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent md:block" />
       <ActivityBar
         activeView={activeView}

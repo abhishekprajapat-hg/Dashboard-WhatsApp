@@ -262,14 +262,14 @@ const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 
 
 function statusBadgeClass(status = "") {
   if (status === "connected" || status === "healthy" || status === "processed" || status === "synced") return "border-primary/30 bg-primary/10 text-primary";
-  if (status === "needs_attention" || status === "pending" || status === "syncing") return "border-yellow-500/30 bg-yellow-500/10 text-yellow-300";
+  if (status === "needs_attention" || status === "pending" || status === "syncing") return "border-warning/30 bg-warning/10 text-warning";
   if (status === "disconnected" || status === "failed" || status === "error") return "border-destructive/30 bg-destructive/10 text-destructive";
   return "border-border bg-secondary text-muted-foreground";
 }
 
 function statusDotClass(status = "") {
-  if (status === "connected" || status === "healthy" || status === "processed") return "bg-primary shadow-[0_0_14px_rgba(34,197,94,0.45)]";
-  if (status === "needs_attention" || status === "pending") return "bg-yellow-400 shadow-[0_0_14px_rgba(250,204,21,0.35)]";
+  if (status === "connected" || status === "healthy" || status === "processed") return "bg-primary shadow-[0_0_14px_rgba(31,138,91,0.45)]";
+  if (status === "needs_attention" || status === "pending") return "bg-warning shadow-[0_0_14px_rgba(250,204,21,0.35)]";
   return "bg-destructive";
 }
 
@@ -771,7 +771,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   ];
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
       <div className="shrink-0 border-b border-border bg-card/70 py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
         <div className="hidden px-4 mb-3 md:block">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Settings</p>
@@ -784,7 +784,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
               onClick={() => setActiveTab(tab.id)}
               className={`flex shrink-0 items-center gap-2.5 px-2.5 py-2 rounded-md text-xs transition-colors text-left md:w-full ${
                 activeTab === tab.id
-                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_rgba(34,197,94,0.16)]"
+                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_rgba(31,138,91,0.16)]"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
               }`}
             >
@@ -887,7 +887,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
             <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: "Connected accounts", value: whatsappConsole.health.connectedAccounts, icon: <MessageCircle size={15} />, tone: "text-primary" },
-                { label: "Inbound messages", value: whatsappConsole.messageStats.inbound, icon: <Inbox size={15} />, tone: "text-blue-400" },
+                { label: "Inbound messages", value: whatsappConsole.messageStats.inbound, icon: <Inbox size={15} />, tone: "text-info" },
                 { label: "Outbound messages", value: whatsappConsole.messageStats.outbound, icon: <Send size={15} />, tone: "text-primary" },
                 { label: "Failed sends", value: whatsappConsole.messageStats.failed, icon: <AlertCircle size={15} />, tone: whatsappConsole.messageStats.failed ? "text-destructive" : "text-muted-foreground" },
               ].map((item) => (
@@ -897,7 +897,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                       <div className="text-xl font-semibold text-foreground">{item.value.toLocaleString()}</div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">{item.label}</div>
                     </div>
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-background/70 ${item.tone}`}>{item.icon}</div>
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background/70 ${item.tone}`}>{item.icon}</div>
                   </div>
                 </Card>
               ))}
@@ -1168,7 +1168,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                     Cancel
                   </Button>
                 </div>
-                <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+                <div className="rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
                   Secrets are masked after saving and are never shown again in this UI. Replace a token by entering a new value.
                 </div>
               </form>
@@ -1178,7 +1178,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
               {settings.whatsappAccounts.length === 0 && (
                 <Card className={`p-4 ${cardClass}`}>
                   <div className="flex items-start gap-3">
-                    <AlertCircle size={16} className="text-yellow-400 mt-0.5" />
+                    <AlertCircle size={16} className="text-warning mt-0.5" />
                     <div>
                       <p className="text-sm text-foreground">No WhatsApp account connected</p>
                       <p className="text-xs text-muted-foreground">Add account details to enable real webhook routing and provider sends.</p>
@@ -1189,7 +1189,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
               {settings.whatsappAccounts.map((account) => (
                 <Card key={account.id} className={`overflow-hidden ${cardClass}`}>
-                  <div className={`h-1 ${account.status === "connected" ? "bg-gradient-to-r from-primary/80 to-emerald-300/40" : account.status === "needs_attention" ? "bg-gradient-to-r from-yellow-400/80 to-orange-300/40" : "bg-gradient-to-r from-destructive/80 to-red-300/40"}`} />
+                  <div className={`h-1 ${account.status === "connected" ? "bg-gradient-to-r from-primary/80 to-success/40" : account.status === "needs_attention" ? "bg-gradient-to-r from-warning/80 to-warning/40" : "bg-gradient-to-r from-destructive/80 to-destructive/40"}`} />
                   <div className="p-4">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-md border border-primary/25 bg-primary/10 flex items-center justify-center shrink-0">
@@ -1208,7 +1208,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                         {account.qualityRating && (
                           <Badge
                             variant="outline"
-                            className={`text-[10px] ${account.qualityRating === "GREEN" ? "border-primary/30 text-primary" : account.qualityRating === "YELLOW" ? "border-yellow-500/30 text-yellow-400" : "border-destructive/40 text-destructive"}`}
+                            className={`text-[10px] ${account.qualityRating === "GREEN" ? "border-primary/30 text-primary" : account.qualityRating === "YELLOW" ? "border-warning/30 text-warning" : "border-destructive/40 text-destructive"}`}
                           >
                             quality {account.qualityRating.toLowerCase()}
                           </Badge>
@@ -1216,19 +1216,19 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                         {account.isSystemAccount && (
                           <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">system account</Badge>
                         )}
-                        <Badge variant="outline" className={`text-[10px] ${account.credentials?.accessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                        <Badge variant="outline" className={`text-[10px] ${account.credentials?.accessTokenConfigured ? "border-primary/30 text-primary" : "border-warning/30 text-warning"}`}>
                           token {account.credentials?.accessTokenConfigured ? "saved" : "missing"}
                         </Badge>
                         {account.provider === "meta" && (
                           <>
-                            <Badge variant="outline" className={`text-[10px] ${account.credentials?.verifyTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                            <Badge variant="outline" className={`text-[10px] ${account.credentials?.verifyTokenConfigured ? "border-primary/30 text-primary" : "border-warning/30 text-warning"}`}>
                               verify {account.credentials?.verifyTokenConfigured ? "saved" : "missing"}
                             </Badge>
                             <Badge variant="outline" className={`text-[10px] ${account.credentials?.appSecretConfigured ? "border-primary/30 text-primary" : "border-border text-muted-foreground"}`}>
                               signature {account.credentials?.appSecretConfigured ? "on" : "off"}
                             </Badge>
                             {account.catalogId && (
-                              <Badge variant="outline" className={`text-[10px] ${account.credentials?.catalogAccessTokenConfigured ? "border-primary/30 text-primary" : "border-yellow-500/30 text-yellow-400"}`}>
+                              <Badge variant="outline" className={`text-[10px] ${account.credentials?.catalogAccessTokenConfigured ? "border-primary/30 text-primary" : "border-warning/30 text-warning"}`}>
                                 catalog token {account.credentials?.catalogAccessTokenConfigured ? "saved" : "missing"}
                               </Badge>
                             )}
@@ -1498,7 +1498,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
               <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-blue-500/25 bg-blue-500/10 text-blue-300"><ExternalLink size={16} /></span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-info/25 bg-info/10 text-info"><ExternalLink size={16} /></span>
                     <div>
                     <h3 className="text-sm font-medium text-foreground">Outbound webhook</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">Used by automation webhook actions when no URL override is provided.</p>
@@ -1611,7 +1611,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
               <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-purple-500/25 bg-purple-500/10 text-purple-300"><Sparkles size={16} /></span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-chart-3/25 bg-chart-3/10 text-chart-3"><Sparkles size={16} /></span>
                   <div>
                     <h3 className="text-sm font-medium text-foreground">AI providers</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">API keys used by the automation OpenAI/Claude/Gemini nodes - read from workspace settings, never stored in flow config.</p>
@@ -1664,7 +1664,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
               <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-sky-500/25 bg-sky-500/10 text-sky-300"><Send size={16} /></span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-info/25 bg-info/10 text-info"><Send size={16} /></span>
                     <div>
                       <h3 className="text-sm font-medium text-foreground">Email (SendGrid)</h3>
                       <p className="text-xs text-muted-foreground mt-0.5">Used by the automation email node to reply outside WhatsApp.</p>
@@ -1732,7 +1732,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
               <Card className={`p-4 ${cardClass} space-y-4`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300"><MessageCircle size={16} /></span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md border border-success/25 bg-success/10 text-success"><MessageCircle size={16} /></span>
                     <div>
                       <h3 className="text-sm font-medium text-foreground">SMS (Twilio)</h3>
                       <p className="text-xs text-muted-foreground mt-0.5">Same Twilio account as the Twilio WhatsApp channel, if connected - used by the automation SMS node.</p>
@@ -1797,7 +1797,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                 <SectionSaveRow section="sms" />
               </Card>
 
-              <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+              <div className="rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
                 Integration secrets are stored through the existing settings API and should be rotated from the provider console if exposed. Each
                 section above saves independently - an issue in one won&apos;t block the others.
               </div>
@@ -1884,7 +1884,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                 )}
               </div>
               {notificationsForm.enabled && !integrationForm.email.enabled && (
-                <div className="rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-[11px] text-yellow-200">
+                <div className="rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
                   Email delivery isn&apos;t configured yet - set it up on the Integrations tab first, otherwise these alerts won&apos;t actually send.
                 </div>
               )}

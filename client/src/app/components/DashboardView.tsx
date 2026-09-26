@@ -95,8 +95,8 @@ function MetricCard({
     info: "from-info/18 text-info ring-info/20",
     warning: "from-warning/18 text-warning ring-warning/20",
     muted: "from-secondary/70 text-muted-foreground ring-border",
-    violet: "from-violet-500/18 text-violet-400 ring-violet-500/20",
-    cyan: "from-cyan-500/18 text-cyan-400 ring-cyan-500/20",
+    violet: "from-chart-3/18 text-chart-3 ring-chart-3/20",
+    cyan: "from-primary/18 text-primary ring-primary/20",
   }[tone];
 
   return (
@@ -272,7 +272,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 lg:gap-5">
         <div className="overflow-hidden rounded-xl border border-border/80 bg-card/70 shadow-2xl shadow-black/20">
           <div className="relative p-4 sm:p-5">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(47,168,118,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(79,140,255,0.1),transparent_22rem)]" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(47,111,176,0.1),transparent_22rem)]" />
             <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <Badge variant="success" className="mb-3">
@@ -337,8 +337,8 @@ export function DashboardView({ userName }: DashboardViewProps) {
                         <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="dashboardOutbound" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4f8cff" stopOpacity={0.22} />
-                        <stop offset="95%" stopColor="#4f8cff" stopOpacity={0} />
+                        <stop offset="5%" stopColor="var(--info)" stopOpacity={0.22} />
+                        <stop offset="95%" stopColor="var(--info)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -346,7 +346,7 @@ export function DashboardView({ userName }: DashboardViewProps) {
                     <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={chartTooltip} />
                     <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#dashboardInbound)" />
-                    <Area type="monotone" dataKey="outbound" stroke="#4f8cff" strokeWidth={2} fill="url(#dashboardOutbound)" />
+                    <Area type="monotone" dataKey="outbound" stroke="var(--info)" strokeWidth={2} fill="url(#dashboardOutbound)" />
                   </AreaChart>
                 </ResponsiveContainer>
                 </div>
