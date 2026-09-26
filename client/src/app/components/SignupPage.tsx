@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { AlertCircle, Chrome, Facebook, Instagram, Loader2, MessageCircle, ShieldCheck } from "lucide-react";
+import { AlertCircle, Chrome, Facebook, Instagram, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { register, sendWhatsAppOtp, verifyWhatsAppOtp, completeOauthSignup, type AuthSession } from "../lib/api";
 import { usePopupOAuth, type OAuthIdentity } from "../hooks/usePopupOAuth";
+import { AuthShell } from "./shell/AuthShell";
 
 interface SignupPageProps {
   onSignup: (session: AuthSession) => void;
@@ -93,9 +94,8 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
 
   if (pendingIdentity) {
     return (
-      <div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 text-foreground">
-        <div className="w-full max-w-sm rounded-xl border border-border/90 bg-card/88 p-6 shadow-2xl">
-          <h1 className="text-lg font-semibold text-foreground">One more thing</h1>
+      <AuthShell>
+          <h1 className="text-xl font-semibold text-foreground">One more thing</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {pendingIdentity.provider === "instagram" ? "Instagram" : "This provider"} doesn't share an email address - what's
             yours?
@@ -115,33 +115,48 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
               {loading ? "Finishing up..." : "Continue"}
             </Button>
           </form>
-        </div>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="relative flex min-h-dvh w-full min-w-0 items-center justify-center overflow-x-hidden bg-background px-4 py-8 text-foreground sm:px-6">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(11,116,128,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(47,111,176,0.12),transparent_28rem)]" />
+    <AuthShell
+      footer={
+        <>
+        <p className="mt-5 text-center text-xs text-muted-foreground">
+            Already have an account?{" "}
+            <button type="button" onClick={onBackToLogin} className="font-medium text-primary transition-colors hover:text-primary/80">
+              Sign in
+            </button>
+          </p>
 
-      <div className="relative z-10 w-full max-w-md">
-        <div className="rounded-xl border border-border/90 bg-card/88 p-5 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-7">
-          <div className="mb-6 space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <ShieldCheck size={13} />
-              Create your workspace
-            </div>
-            <h1 className="text-2xl font-semibold leading-tight text-foreground">Get started with WhatsCRM</h1>
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            By creating an account you agree to our{" "}
+            <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
+              Privacy Policy
+            </a>
+            .
+          </p>
+        </>
+      }
+    >
+          <div className="mb-6 space-y-1">
+            <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">Create your workspace</h1>
+            <p className="text-sm text-muted-foreground">Set up in a few minutes. Connect your WhatsApp number when you're ready.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <Button type="button" variant="outline" className="h-10 border-border" onClick={() => startOAuth("google")} disabled={connectingProvider !== ""}>
+            <Button type="button" variant="outline" className="h-10 border-border" aria-label="Sign up with Google" title="Sign up with Google" onClick={() => startOAuth("google")} disabled={connectingProvider !== ""}>
               {connectingProvider === "google" ? <Loader2 size={16} className="animate-spin" /> : <Chrome size={16} />}
             </Button>
-            <Button type="button" variant="outline" className="h-10 border-border" onClick={() => startOAuth("facebook")} disabled={connectingProvider !== ""}>
+            <Button type="button" variant="outline" className="h-10 border-border" aria-label="Sign up with Facebook" title="Sign up with Facebook" onClick={() => startOAuth("facebook")} disabled={connectingProvider !== ""}>
               {connectingProvider === "facebook" ? <Loader2 size={16} className="animate-spin" /> : <Facebook size={16} />}
             </Button>
-            <Button type="button" variant="outline" className="h-10 border-border" onClick={() => startOAuth("instagram")} disabled={connectingProvider !== ""}>
+            <Button type="button" variant="outline" className="h-10 border-border" aria-label="Sign up with Instagram" title="Sign up with Instagram" onClick={() => startOAuth("instagram")} disabled={connectingProvider !== ""}>
               {connectingProvider === "instagram" ? <Loader2 size={16} className="animate-spin" /> : <Instagram size={16} />}
             </Button>
           </div>
@@ -213,32 +228,12 @@ export function SignupPage({ onSignup, onBackToLogin }: SignupPageProps) {
           )}
 
           {notice && (
-            <div className="mt-4 flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-sm text-warning" role="alert">
+            <div className="mt-4 flex items-start gap-2 rounded-lg bg-problem-soft px-3 py-2 text-sm text-destructive" role="alert">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <span>{notice}</span>
             </div>
           )}
-        </div>
-
-        <p className="mt-5 text-center text-xs text-muted-foreground">
-          Already have an account?{" "}
-          <button type="button" onClick={onBackToLogin} className="font-medium text-primary transition-colors hover:text-primary/80">
-            Sign in
-          </button>
-        </p>
-
-        <p className="mt-3 text-center text-xs text-muted-foreground">
-          By creating an account you agree to our{" "}
-          <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="/legal/privacy" target="_blank" rel="noreferrer" className="font-medium text-primary transition-colors hover:text-primary/80">
-            Privacy Policy
-          </a>
-          .
-        </p>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
+

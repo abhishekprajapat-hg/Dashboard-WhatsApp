@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { EmbeddedSignupButton } from "./EmbeddedSignupButton";
+import { BrandMark } from "./shell/BrandMark";
 import { getOnboardingIndustryPacks, provisionIndustryPack, type OnboardingIndustryPack } from "../lib/api";
 
 interface OnboardingWizardProps {
@@ -51,7 +52,7 @@ function IndustryPickerStep({ onDone }: { onDone: () => void }) {
   return (
     <div className="w-full max-w-2xl space-y-4">
       <div className="text-center">
-        <h1 className="text-xl font-semibold text-foreground">Set up your workspace</h1>
+        <h1 className="font-serif text-[30px] leading-tight text-foreground">Set up your workspace</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Pick the closest match to your business and we'll pre-load your pipeline stages, custom fields, and starter
           message templates.
@@ -128,7 +129,7 @@ function WhatsAppConnectStep({ workspaceName, onDone }: { workspaceName: string;
   return (
     <div className="w-full max-w-md space-y-4">
       <div className="text-center">
-        <h1 className="text-xl font-semibold text-foreground">Welcome to {workspaceName}</h1>
+        <h1 className="font-serif text-[30px] leading-tight text-foreground">Welcome to {workspaceName}</h1>
         <p className="mt-1 text-sm text-muted-foreground">Connect your WhatsApp Business number to start receiving conversations.</p>
       </div>
       <EmbeddedSignupButton onConnected={onDone} />
@@ -143,11 +144,20 @@ export function OnboardingWizard({ workspaceName, onFinish }: OnboardingWizardPr
   const [step, setStep] = useState<1 | 2>(1);
 
   return (
-    <div className="flex h-dvh w-screen items-center justify-center bg-background px-4 text-foreground">
+    <div className="flex min-h-dvh w-full justify-center overflow-y-auto bg-background px-4 py-10 text-foreground sm:py-14">
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {step === 1 ? "Step 1 of 2 · Industry setup" : "Step 2 of 2 · Connect WhatsApp"}
-        </p>
+        <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <BrandMark className="size-6" />
+        </span>
+        <div className="grid w-full max-w-xs gap-2 text-center">
+          <p className="text-[12px] font-medium text-muted-foreground">
+            {step === 1 ? "Step 1 of 2 · Your industry" : "Step 2 of 2 · Connect WhatsApp"}
+          </p>
+          <div className="grid grid-cols-2 gap-1.5" aria-hidden>
+            <span className="h-1 rounded-full bg-primary" />
+            <span className={`h-1 rounded-full ${step === 2 ? "bg-primary" : "bg-secondary"}`} />
+          </div>
+        </div>
         {step === 1 ? (
           <IndustryPickerStep onDone={() => setStep(2)} />
         ) : (

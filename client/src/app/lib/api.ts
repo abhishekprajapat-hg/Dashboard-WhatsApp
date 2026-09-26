@@ -44,6 +44,27 @@ const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const TOKEN_KEY = "whatscrm_token";
 const SESSION_KEY = "whatscrm_session";
 
+// The server's PLAN_LIMIT message names the internal capability key ("...does not include
+// automationBuilder."); show people the feature's real name instead. Mirrors the labels in
+// server/services/entitlements.js.
+const CAPABILITY_NAMES: Record<string, string> = {
+  messaging: "messaging",
+  campaigns: "campaigns and templates",
+  automationBuilder: "the automation builder",
+  invoicing: "customer invoicing",
+  shipping: "shipment tracking",
+  support: "support tickets",
+  analytics: "the analytics dashboard",
+  aiAssistant: "the AI assistant",
+  ads: "Meta Ads (Click-to-WhatsApp)",
+  marketing: "marketing tools",
+};
+
+function friendlyPlanLimitMessage(message?: string) {
+  if (!message) return message;
+  return message.replace(/does not include ([A-Za-z]+)\.?$/, (_match, key: string) => `doesn't include ${CAPABILITY_NAMES[key] || key}.`);
+}
+
 export function getStoredToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -106,7 +127,8 @@ async function request<T>(path: string, options: RequestInit = {}, actionPasswor
   }
 
   if (!response.ok) {
-    const error = new Error(payload.message || "Request failed.") as ApiError;
+    const message = payload.error === "PLAN_LIMIT" ? friendlyPlanLimitMessage(payload.message) : payload.message;
+    const error = new Error(message || "Request failed.") as ApiError;
     error.status = response.status;
     error.code = payload.error;
     error.meta = payload.meta;

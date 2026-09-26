@@ -1,41 +1,16 @@
 import { useState } from "react";
-import {
-  AlertCircle,
-  BarChart3,
-  Bot,
-  Chrome,
-  Eye,
-  EyeOff,
-  Loader2,
-  Megaphone,
-  MessageCircle,
-  ShieldCheck,
-  Sparkles,
-  Workflow,
-} from "lucide-react";
+import { AlertCircle, Chrome, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { forgotPassword, login, completeOauthSignup, type AuthSession } from "../lib/api";
 import { usePopupOAuth, type OAuthIdentity } from "../hooks/usePopupOAuth";
+import { AuthShell } from "./shell/AuthShell";
 
 interface LoginPageProps {
   onLogin: (session: AuthSession) => void;
   onRequestAccess: () => void;
 }
-
-const productPillars = [
-  { label: "WhatsApp CRM", icon: MessageCircle },
-  { label: "Automation", icon: Workflow },
-  { label: "Campaigns", icon: Megaphone },
-  { label: "Analytics", icon: BarChart3 },
-];
-
-const trustStats = [
-  { label: "First response automation", value: "80%" },
-  { label: "Campaign delivery tracking", value: "Live" },
-  { label: "Workspace roles", value: "RBAC" },
-];
 
 export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
   const [email, setEmail] = useState("");
@@ -107,9 +82,8 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
 
   if (pendingIdentity) {
     return (
-      <div className="flex min-h-dvh w-full items-center justify-center bg-background px-4 text-foreground">
-        <div className="w-full max-w-sm rounded-xl border border-border/90 bg-card/88 p-6 shadow-2xl">
-          <h1 className="text-lg font-semibold text-foreground">One more thing</h1>
+      <AuthShell>
+          <h1 className="text-xl font-semibold text-foreground">One more thing</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {pendingIdentity.provider === "instagram" ? "Instagram" : "This provider"} doesn't share an email address - what's
             yours?
@@ -129,93 +103,42 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
               {loading ? "Finishing up..." : "Continue"}
             </Button>
           </form>
-        </div>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="relative flex min-h-dvh w-full min-w-0 overflow-x-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(11,116,128,0.16),transparent_30rem),radial-gradient(circle_at_82%_0%,rgba(47,111,176,0.12),transparent_28rem),linear-gradient(135deg,rgba(255,255,255,0.035),transparent_32%)]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(180deg,transparent,rgba(0,0,0,0.32))]" />
+    <AuthShell
+      footer={
+        <>
+          <p className="mt-5 text-center text-[13px] text-muted-foreground">
+            Don't have an account?{" "}
+            <button type="button" onClick={onRequestAccess} className="font-medium text-primary transition-colors hover:text-primary/80">
+              Create one
+            </button>
+          </p>
 
-      <section className="relative z-10 hidden min-h-dvh w-[52%] flex-col justify-between border-r border-border/80 bg-surface/55 p-10 backdrop-blur-xl lg:flex xl:p-12">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative flex size-11 items-center justify-center rounded-xl border border-primary/25 bg-primary text-primary-foreground shadow-[0_18px_44px_rgba(11,116,128,0.2)]">
-              <MessageCircle size={20} />
-              <span className="absolute -right-1 -top-1 size-3 rounded-full border border-surface bg-primary" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold">WhatsCRM</div>
-              <div className="text-xs text-muted-foreground">WhatsApp Business command center</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-            <ShieldCheck size={13} />
-            Secure workspace
-          </div>
-        </div>
-
-        <div className="max-w-2xl space-y-8">
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/70 px-3 py-1 text-xs text-muted-foreground">
-              <Sparkles size={13} className="text-primary" />
-              Built for operators, sales teams, and support desks
-            </div>
-            <div className="space-y-4">
-              <h1 className="max-w-xl text-4xl font-semibold leading-tight tracking-normal text-foreground xl:text-5xl">
-                Run every WhatsApp conversation from one premium CRM.
-              </h1>
-              <p className="max-w-xl text-sm leading-6 text-muted-foreground xl:text-base">
-                Manage WhatsApp CRM, automation, campaigns, templates, analytics, and team handoffs without losing customer context.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid max-w-xl grid-cols-2 gap-3">
-            {productPillars.map((pillar) => {
-              const Icon = pillar.icon;
-              return (
-                <div key={pillar.label} className="flex items-center gap-3 rounded-lg border border-border/80 bg-card/70 p-3 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                    <Icon size={17} />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">{pillar.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {trustStats.map((stat) => (
-            <div key={stat.label} className="rounded-lg border border-border/80 bg-card/55 p-4">
-              <div className="text-xl font-semibold text-primary">{stat.value}</div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">{stat.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <main className="relative z-10 flex min-h-dvh flex-1 items-center justify-center px-4 py-8 sm:px-6 lg:px-10">
-        <div className="w-full max-w-md">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <MessageCircle size={18} />
-            </div>
-            <div>
-              <div className="text-sm font-semibold">WhatsCRM</div>
-              <div className="text-xs text-muted-foreground">WhatsApp CRM and automation</div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/90 bg-card/88 p-5 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-7">
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Privacy Policy
+            </a>
+            <span className="mx-2 opacity-50">&middot;</span>
+            <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Terms
+            </a>
+            <span className="mx-2 opacity-50">&middot;</span>
+            <a href="/legal/data-deletion" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
+              Data Deletion
+            </a>
+          </p>
+        </>
+      }
+    >
             {mode === "forgot" ? (
               <>
                 <div className="mb-6 space-y-2">
                   <div>
-                    <h1 className="text-2xl font-semibold leading-tight text-foreground">Reset your password</h1>
+                    <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">Reset your password</h1>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
                       Enter your account email and we'll send a reset link if it's registered.
                     </p>
@@ -224,7 +147,7 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
 
                 {forgotSent ? (
                   <div className="space-y-4">
-                    <div className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2.5 text-sm text-foreground">
+                    <div className="rounded-lg bg-success/12 px-3 py-2.5 text-sm text-foreground">
                       If that email is registered, a reset link is on its way. Check your inbox.
                     </div>
                     <Button type="button" variant="outline" size="xl" className="w-full" onClick={backToLogin}>
@@ -251,7 +174,7 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
                     </div>
 
                     {notice && (
-                      <div className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-sm text-warning" role="alert">
+                      <div className="flex items-start gap-2 rounded-lg bg-problem-soft px-3 py-2 text-sm text-destructive" role="alert">
                         <AlertCircle size={16} className="mt-0.5 shrink-0" />
                         <span>{notice}</span>
                       </div>
@@ -270,14 +193,10 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
             ) : (
               <>
                 <div className="mb-6 space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                    <Bot size={13} />
-                    Automation-ready dashboard
-                  </div>
                   <div>
-                    <h1 className="text-2xl font-semibold leading-tight text-foreground">Sign in to your workspace</h1>
+                    <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.01em] text-foreground">Sign in</h1>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Access your WhatsApp CRM, automations, campaigns, and analytics.
+                      Welcome back. Your inbox, leads and automations are waiting.
                     </p>
                   </div>
                 </div>
@@ -352,7 +271,7 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
                   </div>
 
                   {notice && (
-                    <div className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-sm text-warning" role="alert">
+                    <div className="flex items-start gap-2 rounded-lg bg-problem-soft px-3 py-2 text-sm text-destructive" role="alert">
                       <AlertCircle size={16} className="mt-0.5 shrink-0" />
                       <span>{notice}</span>
                     </div>
@@ -366,40 +285,6 @@ export function LoginPage({ onLogin, onRequestAccess }: LoginPageProps) {
               </>
             )}
 
-            <div className="mt-6 grid grid-cols-1 gap-2 text-xs text-muted-foreground min-[380px]:grid-cols-2">
-              <div className="rounded-lg border border-border/70 bg-surface-subtle/70 p-3">
-                <div className="font-medium text-foreground">Protected access</div>
-                <div className="mt-1 leading-5">Workspace roles and permissions stay enforced.</div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-surface-subtle/70 p-3">
-                <div className="font-medium text-foreground">Live operations</div>
-                <div className="mt-1 leading-5">Inbox, campaigns, and analytics in one view.</div>
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-5 text-center text-xs text-muted-foreground">
-            Don't have an account?{" "}
-            <button type="button" onClick={onRequestAccess} className="font-medium text-primary transition-colors hover:text-primary/80">
-              Create one
-            </button>
-          </p>
-
-          <p className="mt-3 text-center text-xs text-muted-foreground">
-            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
-              Privacy Policy
-            </a>
-            <span className="mx-2 opacity-50">&middot;</span>
-            <a href="/legal/terms-of-service" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
-              Terms
-            </a>
-            <span className="mx-2 opacity-50">&middot;</span>
-            <a href="/legal/data-deletion" target="_blank" rel="noreferrer" className="transition-colors hover:text-foreground">
-              Data Deletion
-            </a>
-          </p>
-        </div>
-      </main>
-    </div>
+    </AuthShell>
   );
 }

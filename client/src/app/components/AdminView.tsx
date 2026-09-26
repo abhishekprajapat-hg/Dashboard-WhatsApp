@@ -1280,7 +1280,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                           <KeyRound size={18} />
                         </div>
                         <div>
-                          <div className="text-sm font-medium">{branding.brandName || "WhatsCRM"}</div>
+                          <div className="text-sm font-medium">{branding.brandName || "Nemnidhi"}</div>
                           <div className="text-xs text-muted-foreground">{branding.customDomain || "No custom domain configured"}</div>
                         </div>
                         <Badge className="sm:ml-auto" variant="outline">

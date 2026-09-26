@@ -1,25 +1,7 @@
-﻿import { useEffect, useState } from "react";
+﻿import { lazy, Suspense, useEffect, useState } from "react";
 import { LoginPage } from "./components/LoginPage";
-import { SignupPage } from "./components/SignupPage";
-import { OnboardingWizard } from "./components/OnboardingWizard";
 import { DashboardView } from "./components/DashboardView";
 import { InboxView } from "./components/InboxView";
-import { ContactsView } from "./components/ContactsView";
-import { LeadsView } from "./components/LeadsView";
-import { AutomationView } from "./components/AutomationView";
-import { TemplatesView } from "./components/TemplatesView";
-import { CampaignsView } from "./components/CampaignsView";
-import { AnalyticsView } from "./components/AnalyticsView";
-import { MarketingView } from "./components/MarketingView";
-import { DocumentsView } from "./components/DocumentsView";
-import { InvoicingView } from "./components/InvoicingView";
-import { ShippingView } from "./components/ShippingView";
-import { SupportView } from "./components/SupportView";
-import { TeamView } from "./components/TeamView";
-import { TasksView } from "./components/TasksView";
-import { AssistantView } from "./components/AssistantView";
-import { AdminView } from "./components/AdminView";
-import { SettingsView } from "./components/SettingsView";
 import { ActionPasswordDialog } from "./components/ActionPasswordDialog";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
@@ -30,6 +12,38 @@ import { MobileNav } from "./components/shell/MobileNav";
 import { CommandPalette } from "./components/shell/CommandPalette";
 import { ShortcutsDialog, useGlobalShortcuts } from "./components/shell/shortcuts";
 import type { ViewId } from "./components/shell/nav";
+
+// Today, Inbox and sign-in ship in the main bundle (they're where people land); every other screen
+// loads the first time it's opened, so the charting, flow-canvas and admin code isn't downloaded
+// by someone who only ever answers chats.
+const SignupPage = lazy(() => import("./components/SignupPage").then((m) => ({ default: m.SignupPage })));
+const OnboardingWizard = lazy(() => import("./components/OnboardingWizard").then((m) => ({ default: m.OnboardingWizard })));
+const ContactsView = lazy(() => import("./components/ContactsView").then((m) => ({ default: m.ContactsView })));
+const LeadsView = lazy(() => import("./components/LeadsView").then((m) => ({ default: m.LeadsView })));
+const AutomationView = lazy(() => import("./components/AutomationView").then((m) => ({ default: m.AutomationView })));
+const TemplatesView = lazy(() => import("./components/TemplatesView").then((m) => ({ default: m.TemplatesView })));
+const CampaignsView = lazy(() => import("./components/CampaignsView").then((m) => ({ default: m.CampaignsView })));
+const AnalyticsView = lazy(() => import("./components/AnalyticsView").then((m) => ({ default: m.AnalyticsView })));
+const MarketingView = lazy(() => import("./components/MarketingView").then((m) => ({ default: m.MarketingView })));
+const DocumentsView = lazy(() => import("./components/DocumentsView").then((m) => ({ default: m.DocumentsView })));
+const InvoicingView = lazy(() => import("./components/InvoicingView").then((m) => ({ default: m.InvoicingView })));
+const ShippingView = lazy(() => import("./components/ShippingView").then((m) => ({ default: m.ShippingView })));
+const SupportView = lazy(() => import("./components/SupportView").then((m) => ({ default: m.SupportView })));
+const TeamView = lazy(() => import("./components/TeamView").then((m) => ({ default: m.TeamView })));
+const TasksView = lazy(() => import("./components/TasksView").then((m) => ({ default: m.TasksView })));
+const AssistantView = lazy(() => import("./components/AssistantView").then((m) => ({ default: m.AssistantView })));
+const AdminView = lazy(() => import("./components/AdminView").then((m) => ({ default: m.AdminView })));
+const SettingsView = lazy(() => import("./components/SettingsView").then((m) => ({ default: m.SettingsView })));
+
+function ScreenLoading() {
+  return (
+    <div className="grid w-full content-start gap-3 p-6" aria-busy="true" aria-label="Loading">
+      <div className="h-5 w-40 animate-pulse rounded bg-secondary" />
+      <div className="h-24 w-full animate-pulse rounded-xl bg-secondary/70" />
+      <div className="h-64 w-full animate-pulse rounded-xl bg-secondary/50" />
+    </div>
+  );
+}
 
 const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "marketing", "invoicing", "shipping", "documents", "support", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
@@ -252,14 +266,20 @@ export default function App() {
 
   if (!session) {
     return authView === "signup" ? (
-      <SignupPage onSignup={handleLogin} onBackToLogin={() => setAuthView("login")} />
+      <Suspense fallback={<div className="h-dvh w-screen bg-background" />}>
+        <SignupPage onSignup={handleLogin} onBackToLogin={() => setAuthView("login")} />
+      </Suspense>
     ) : (
       <LoginPage onLogin={handleLogin} onRequestAccess={() => setAuthView("signup")} />
     );
   }
 
   if (showWhatsAppOnboarding) {
-    return <OnboardingWizard workspaceName={session.workspace.name} onFinish={() => setShowWhatsAppOnboarding(false)} />;
+    return (
+      <Suspense fallback={<div className="h-dvh w-screen bg-background" />}>
+        <OnboardingWizard workspaceName={session.workspace.name} onFinish={() => setShowWhatsAppOnboarding(false)} />
+      </Suspense>
+    );
   }
 
   return (
@@ -295,6 +315,7 @@ export default function App() {
             activeView === "inbox" ? "flex overflow-hidden" : "flex overflow-x-hidden overflow-y-auto"
           }`}
         >
+          <Suspense fallback={<ScreenLoading />}>
           {!canAccessView(session, activeView) && (
             <div className="flex h-full flex-1 items-center justify-center p-6">
               <div className="rounded-xl border border-border bg-card px-5 py-4 text-sm text-muted-foreground shadow-card">
@@ -333,6 +354,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}
           {canAccessView(session, activeView) && activeView === "admin" && <AdminView isPlatformOwner={isPlatformOwnerSession} />}
           {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} initialTab={settingsTarget} />}
+          </Suspense>
         </div>
       </main>
 
