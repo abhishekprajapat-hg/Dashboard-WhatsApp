@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { getNotifications, markAllNotificationsRead, markNotificationRead } from "../lib/api";
 
 interface NotificationItem {
@@ -75,29 +74,23 @@ export function NotificationsBell() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              aria-label="Notifications"
-              className="relative hidden size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-sidebar-accent hover:text-foreground md:flex"
-              type="button"
-            >
-              <Bell size={18} />
-              {unreadCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-sidebar bg-destructive px-1 text-[9px] font-bold leading-4 text-white">
-                  {unreadLabel}
-                </span>
-              )}
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="right" className="border-border bg-popover text-popover-foreground">
-          Notifications
-        </TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <button
+          aria-label="Notifications"
+          title="Notifications"
+          className="relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          type="button"
+        >
+          <Bell size={18} />
+          {unreadCount > 0 && (
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-destructive px-1 text-[9px] font-bold leading-3 text-white tabular-nums">
+              {unreadLabel}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
 
-      <PopoverContent side="right" align="end" className="w-80 p-0">
+      <PopoverContent side="bottom" align="end" className="w-[min(20rem,calc(100vw-1.5rem))] p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-sm font-semibold text-foreground">Notifications</span>
           {unreadCount > 0 && (

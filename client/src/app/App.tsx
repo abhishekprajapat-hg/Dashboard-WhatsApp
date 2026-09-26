@@ -2,7 +2,6 @@
 import { LoginPage } from "./components/LoginPage";
 import { SignupPage } from "./components/SignupPage";
 import { OnboardingWizard } from "./components/OnboardingWizard";
-import { ActivityBar, type ViewId } from "./components/ActivityBar";
 import { DashboardView } from "./components/DashboardView";
 import { InboxView } from "./components/InboxView";
 import { ContactsView } from "./components/ContactsView";
@@ -25,52 +24,15 @@ import { ActionPasswordDialog } from "./components/ActionPasswordDialog";
 import { clearToken, getEventStreamUrl, getStoredSession, getStoredToken, getUnreadCount, restoreSession, type ApiError, type AuthSession } from "./lib/api";
 import { allowedViews, canAccessView, hasPermission, isPlatformOwner } from "./lib/permissions";
 import { useTheme } from "./hooks/useTheme";
-import { Moon, Sun } from "lucide-react";
+import { Sidebar } from "./components/shell/Sidebar";
+import { TopBar } from "./components/shell/TopBar";
+import { MobileNav } from "./components/shell/MobileNav";
+import { CommandPalette } from "./components/shell/CommandPalette";
+import { ShortcutsDialog, useGlobalShortcuts } from "./components/shell/shortcuts";
+import type { ViewId } from "./components/shell/nav";
 
 const APP_VIEWS: ViewId[] = ["dashboard", "inbox", "contacts", "leads", "automation", "templates", "campaigns", "analytics", "marketing", "invoicing", "shipping", "documents", "support", "team", "tasks", "assistant", "admin", "settings"];
 const ACTIVE_VIEW_KEY = "whatscrm_active_view";
-const VIEW_LABELS: Record<ViewId, string> = {
-  dashboard: "Dashboard",
-  inbox: "Inbox",
-  contacts: "CRM",
-  leads: "Pipeline",
-  automation: "Automation",
-  templates: "Templates",
-  campaigns: "Campaigns",
-  analytics: "Analytics",
-  marketing: "Marketing",
-  invoicing: "Invoicing",
-  shipping: "Shipping",
-  documents: "Documents",
-  support: "Support",
-  team: "Team",
-  tasks: "Tasks",
-  assistant: "AI Assistant",
-  admin: "Admin",
-  settings: "Settings",
-};
-
-const VIEW_DESCRIPTIONS: Record<ViewId, string> = {
-  dashboard: "Workspace command center",
-  inbox: "Live WhatsApp conversations",
-  contacts: "Customer records and lifecycle",
-  leads: "Kanban pipeline across every lead stage",
-  automation: "Flows, triggers, and routing",
-  templates: "Approved message templates",
-  campaigns: "Broadcasts and audience sends",
-  analytics: "Reports and performance",
-  marketing: "Your Google Analytics, SEO audits, and AI growth recommendations",
-  invoicing: "Invoices and payments for your customers",
-  shipping: "Order dispatch tracking for your customers",
-  documents: "AI-drafted proposals for your customers",
-  support: "Customer support tickets from your WhatsApp inbox",
-  team: "Members, roles, and workload",
-  tasks: "Tasks and calendar for your team",
-  assistant: "AI tools and conversation insights",
-  admin: "Platform controls",
-  settings: "Workspace and integrations",
-};
-
 function isAppView(value: string | null): value is ViewId {
   return APP_VIEWS.includes(value as ViewId);
 }
@@ -82,7 +44,23 @@ function getInitialView(): ViewId {
   const savedView = localStorage.getItem(ACTIVE_VIEW_KEY);
   if (isAppView(savedView)) return savedView;
 
-  return "dashboard";
+  return startViewForRole(getStoredSession()?.user.roleKey);
+}
+
+// First screen for someone with no saved view: agents live in the inbox, everyone else starts on
+// Today. After that, the app remembers the last screen as before.
+function startViewForRole(roleKey?: string): ViewId {
+  return roleKey === "agent" ? "inbox" : "dashboard";
+}
+
+const SIDEBAR_KEY = "nemnidhi_sidebar_collapsed";
+
+function readSidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function formatRole(role: string) {
@@ -99,6 +77,9 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView);
   const [contactChatTarget, setContactChatTarget] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
     function handleInvalidAuth() {
@@ -165,10 +146,26 @@ export default function App() {
   const canWriteSettings = hasPermission(session, "settings:write");
   const isPlatformOwnerSession = isPlatformOwner(session);
   const workspaceName = session?.workspace?.name || "Workspace";
-  const activeLabel = VIEW_LABELS[activeView];
-  const activeDescription = VIEW_DESCRIPTIONS[activeView];
   const roleLabel = formatRole(session?.user.roleKey || session?.user.role || "User");
-  const userInitial = (session?.user.name || session?.user.email || "U").trim().charAt(0).toUpperCase();
+
+  useGlobalShortcuts({
+    onOpenPalette: () => setPaletteOpen(true),
+    onShowShortcuts: () => setShortcutsOpen(true),
+    onNavigate: (view) => changeView(view),
+    visibleViews: session ? visibleViews : [],
+  });
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
+      } catch {
+        // just won't be remembered
+      }
+      return next;
+    });
+  }
 
   function changeView(view: ViewId) {
     setActiveView(view);
@@ -207,6 +204,7 @@ export default function App() {
     // login) gets the "connect your WhatsApp number" prompt - this is also the first real chance to
     // exercise Embedded Signup's success path against a genuinely unclaimed number.
     if (nextSession.isNewAccount) setShowWhatsAppOnboarding(true);
+    if (!localStorage.getItem(ACTIVE_VIEW_KEY)) changeView(startViewForRole(nextSession.user.roleKey));
   }
 
   function handleLogout() {
@@ -243,68 +241,42 @@ export default function App() {
   }
 
   return (
-    <div className="relative flex h-dvh w-screen max-w-[100vw] flex-col overflow-hidden bg-background font-[Inter,system-ui,sans-serif] text-foreground md:flex-row">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_-10%,rgba(11,116,128,0.12),transparent_28rem),radial-gradient(circle_at_86%_0%,rgba(47,111,176,0.1),transparent_26rem)]" />
-      <div className="pointer-events-none absolute inset-y-0 left-[72px] hidden w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent md:block" />
-      <ActivityBar
+    <div className="relative flex h-dvh w-screen max-w-[100vw] overflow-hidden bg-background text-foreground">
+      <Sidebar
         activeView={activeView}
         onViewChange={changeView}
-        onLogout={handleLogout}
-        unreadCount={unreadCount}
         visibleViews={visibleViews}
+        unreadCount={unreadCount}
+        workspaceName={workspaceName}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={toggleSidebar}
+        onOpenSearch={() => setPaletteOpen(true)}
       />
 
       <main className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
-        <div className="flex min-h-[64px] shrink-0 items-center gap-3 border-b border-border/80 bg-surface/72 px-3 backdrop-blur-xl sm:px-4 lg:px-5">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2 text-[11px] font-medium text-muted-foreground">
-              <span className="max-w-[44vw] truncate sm:max-w-xs">{workspaceName}</span>
-              <span className="text-border">/</span>
-              <span className="truncate text-foreground">{activeLabel}</span>
-            </div>
-            <div className="mt-1 flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-base font-semibold leading-none text-foreground sm:text-lg">{activeLabel}</h1>
-              <span className="hidden rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary sm:inline-flex">
-                Live workspace
-              </span>
-              <p className="hidden truncate text-xs text-muted-foreground md:block">{activeDescription}</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-card/70 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-          >
-            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-
-          <div className="hidden min-w-0 items-center gap-3 rounded-lg border border-border/80 bg-card/70 px-3 py-2 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] sm:flex">
-            <div className="min-w-0 text-right">
-              <div className="truncate text-xs font-medium text-foreground">{session.user.name}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{roleLabel}</div>
-            </div>
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">
-              {userInitial}
-            </div>
-          </div>
-
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-card text-xs font-semibold text-primary sm:hidden">
-            {userInitial}
-          </div>
-        </div>
+        <TopBar
+          activeView={activeView}
+          userName={session.user.name}
+          userEmail={session.user.email}
+          roleLabel={roleLabel}
+          theme={theme}
+          canOpenSettings={visibleViews.includes("settings")}
+          onToggleTheme={toggleTheme}
+          onOpenSearch={() => setPaletteOpen(true)}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+          onOpenSettings={() => changeView("settings")}
+          onLogout={handleLogout}
+        />
 
         <div
-          className={`min-h-0 flex-1 bg-[linear-gradient(180deg,rgba(255,255,255,0.018),transparent_220px)] ${
+          className={`min-h-0 flex-1 ${
             activeView === "inbox" ? "flex overflow-hidden" : "flex overflow-x-hidden overflow-y-auto"
           }`}
         >
           {!canAccessView(session, activeView) && (
             <div className="flex h-full flex-1 items-center justify-center p-6">
-              <div className="rounded-lg border border-border/80 bg-card/80 px-5 py-4 text-sm text-muted-foreground shadow-2xl shadow-black/20">
-                You do not have access to this workspace view.
+              <div className="rounded-xl border border-border bg-card px-5 py-4 text-sm text-muted-foreground shadow-card">
+                Your role doesn't include this screen. Ask a workspace admin if you need it.
               </div>
             </div>
           )}
@@ -328,6 +300,20 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} />}
         </div>
       </main>
+
+      <MobileNav activeView={activeView} onViewChange={changeView} visibleViews={visibleViews} unreadCount={unreadCount} onLogout={handleLogout} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        visibleViews={visibleViews}
+        onNavigate={changeView}
+        onOpenContact={handleOpenContactChat}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onShowShortcuts={() => setShortcutsOpen(true)}
+        onLogout={handleLogout}
+      />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} visibleViews={visibleViews} />
       {/* Mounted once at the root: api.ts triggers it on any 428 ACTION_PASSWORD_REQUIRED, whichever
           view the request came from, so no individual screen needs to know about it. */}
       <ActionPasswordDialog />

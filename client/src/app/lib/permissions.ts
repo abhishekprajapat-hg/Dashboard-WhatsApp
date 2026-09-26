@@ -1,5 +1,5 @@
 import type { AuthSession } from "./api";
-import type { ViewId } from "../components/ActivityBar";
+import type { ViewId } from "../components/shell/nav";
 
 export type RoleKey = "super_admin" | "admin" | "manager" | "agent" | "viewer";
 
