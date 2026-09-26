@@ -668,7 +668,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false, canSeeTasks 
           })}
         </div>
 
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-secondary/70 px-2.5 text-muted-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/30 sm:max-w-xs">
+        <label className="order-last flex h-9 min-w-0 basis-full items-center gap-2 rounded-lg bg-secondary/70 px-2.5 text-muted-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/30 sm:order-none sm:max-w-xs sm:flex-1 sm:basis-auto">
           <Search size={15} className="shrink-0" />
           <input
             value={search}
