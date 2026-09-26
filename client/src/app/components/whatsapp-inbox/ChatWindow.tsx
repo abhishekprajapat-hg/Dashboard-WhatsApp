@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef } from "react";
-import { AnimatePresence } from "framer-motion";
-import { ArrowLeft, CheckCircle2, Facebook, Info, Instagram, MoreVertical, Phone, Search, Star, Video } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, CheckCircle2, FlaskConical, MoreVertical, PanelRight, Search, Star, UserPlus, X } from "lucide-react";
 import { Composer } from "./Composer";
+import { ContactAvatar } from "./ContactAvatar";
 import { MessageBubble } from "./MessageBubble";
 import type { Conversation, PendingMedia, UploadState, WhatsAppMessage } from "./types";
-import { cn, initials, messageTimestamp } from "./utils";
+import { cn, messageTimestamp } from "./utils";
+import { BrandMark } from "../shell/BrandMark";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui/dropdown-menu";
 
 interface ChatWindowProps {
   conversation?: Conversation;
@@ -25,6 +27,8 @@ interface ChatWindowProps {
   typing: boolean;
   crmSaving: boolean;
   isInCrm: boolean;
+  profileOpen?: boolean;
+  onToggleProfile?: () => void;
   onBack: () => void;
   onMessageSearchChange: (value: string) => void;
   onInputChange: (value: string) => void;
@@ -36,7 +40,7 @@ interface ChatWindowProps {
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
-  onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
+  onQuickReplySelect?: (template: { id: string; name: string; body: string }, options?: { replace?: boolean }) => void;
   onSuggestReply?: () => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAddToCrm: (stage?: string) => void;
@@ -59,12 +63,24 @@ function dateLabel(message: WhatsAppMessage, previous?: WhatsAppMessage) {
   yesterday.setDate(yesterday.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
 
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString("en-IN", {
     day: "numeric",
-    month: "short",
+    month: "long",
     year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
   });
 }
+
+// Same side and within five minutes of the previous message = same run (no tail, tighter spacing).
+function startsRun(message: WhatsAppMessage, previous?: WhatsAppMessage) {
+  if (!previous) return true;
+  if (previous.from !== message.from || Boolean(previous.internal) !== Boolean(message.internal)) return true;
+  const a = messageTimestamp(previous);
+  const b = messageTimestamp(message);
+  if (!a || !b) return false;
+  return b.getTime() - a.getTime() > 5 * 60 * 1000;
+}
+
+const headerIcon = "flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground";
 
 export function ChatWindow({
   conversation,
@@ -85,6 +101,8 @@ export function ChatWindow({
   typing,
   crmSaving,
   isInCrm,
+  profileOpen,
+  onToggleProfile,
   onBack,
   onMessageSearchChange,
   onInputChange,
@@ -105,12 +123,23 @@ export function ChatWindow({
   onResetForTesting,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const lastConversationIdRef = useRef<string | undefined>(conversation?.id);
+  const [searchOpen, setSearchOpen] = useState(false);
   const filteredMessages = useMemo(
     () => messages.filter((message) => (messageSearch ? message.content.toLowerCase().includes(messageSearch.toLowerCase()) : true)),
-    [messages, messageSearch]
+    [messages, messageSearch],
   );
   const pinned = messages.filter((message) => message.pinned || message.starred).slice(-2);
+  const showSearch = searchOpen || Boolean(messageSearch);
+
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [conversation?.id]);
+
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -144,123 +173,173 @@ export function ChatWindow({
     onLoadOlder();
   }
 
+  function closeSearch() {
+    onMessageSearchChange("");
+    setSearchOpen(false);
+  }
+
   if (!conversation) {
     return (
-      <section className="hidden min-w-0 flex-1 items-center justify-center bg-surface text-muted-foreground md:flex">
-        <div className="rounded-xl border border-border/80 bg-card/80 px-5 py-4 text-sm shadow-2xl shadow-black/20">
-          Select a conversation
+      <section className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-chat-wallpaper text-center md:flex">
+        <BrandMark className="size-10 text-primary/35" />
+        <div>
+          <p className="text-sm font-medium text-foreground">Pick a conversation</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Use <kbd className="rounded border border-border bg-card px-1">J</kbd> and <kbd className="rounded border border-border bg-card px-1">K</kbd> to move between chats.
+          </p>
         </div>
       </section>
     );
   }
 
+  const resolved = conversation.status === "resolved";
+  const subline = typing
+    ? "typing…"
+    : [
+        conversation.channel === "instagram" ? "Instagram" : conversation.channel === "facebook" ? "Facebook" : conversation.phone,
+        conversation.agent ? `Assigned to ${conversation.agent}` : "Unassigned",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
   return (
-    <section className="relative flex min-w-0 flex-1 flex-col bg-surface">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_24rem),linear-gradient(135deg,rgba(255,255,255,0.018),transparent_38%)]" />
-      <header className="relative z-10 flex min-h-[76px] shrink-0 items-center gap-3 border-b border-border/80 bg-card/82 px-3 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] backdrop-blur-xl md:px-4">
-        <button className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden" onClick={onBack}>
+    <section className="@container relative flex min-w-0 flex-1 flex-col bg-chat-wallpaper">
+      <header className="relative z-10 flex h-[60px] shrink-0 items-center gap-2.5 border-b border-border bg-card px-2 md:px-4">
+        <button type="button" aria-label="Back to chats" className={cn(headerIcon, "md:hidden")} onClick={onBack}>
           <ArrowLeft size={19} />
         </button>
-        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#075a63] text-sm font-semibold text-primary-foreground shadow-[0_12px_26px_rgba(11,116,128,0.16)]">
-          {initials(conversation.name)}
-          {conversation.channel === "instagram" ? (
-            <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-card bg-gradient-to-br from-fuchsia-500 to-amber-400 text-white">
-              <Instagram size={8} />
-            </span>
-          ) : conversation.channel === "facebook" ? (
-            <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-card bg-blue-500 text-white">
-              <Facebook size={8} />
+        <button type="button" onClick={onToggleProfile} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-label="Customer details">
+          <ContactAvatar name={conversation.name} channel={conversation.channel} />
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] font-semibold leading-tight text-foreground">{conversation.name}</span>
+            <span className={cn("block truncate text-[12px]", typing ? "font-medium text-primary" : "text-muted-foreground")}>{subline}</span>
+          </span>
+        </button>
+
+        <div className="hidden shrink-0 items-center gap-1.5 @[560px]:flex">
+          {isInCrm ? (
+            <span className="flex h-8 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-success">
+              <CheckCircle2 size={14} /> In CRM
             </span>
           ) : (
-            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card bg-primary" />
+            <button type="button" className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-[12.5px] font-medium text-foreground hover:bg-secondary disabled:opacity-60" onClick={() => onAddToCrm()} disabled={crmSaving}>
+              <UserPlus size={14} />
+              {crmSaving ? "Saving…" : "Add to CRM"}
+            </button>
           )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-foreground">{conversation.name}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {typing
-              ? "typing..."
-              : conversation.agent
-                ? `Assigned to ${conversation.agent}`
-                : conversation.channel === "instagram"
-                  ? "Instagram DM"
-                  : conversation.channel === "facebook"
-                    ? "Facebook DM"
-                    : conversation.phone || "Online on WhatsApp"}
-          </div>
-        </div>
-        <button className="hidden h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/15 px-2 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-60 sm:flex" onClick={() => onAddToCrm()} disabled={crmSaving || isInCrm}>
-          {isInCrm ? <CheckCircle2 size={14} /> : null}
-          {isInCrm ? "In CRM" : crmSaving ? "Saving" : "Add CRM"}
-        </button>
-        <button className="hidden h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_10px_24px_rgba(11,116,128,0.16)] hover:bg-primary/90 sm:block" onClick={onResolve}>
-          Resolve
-        </button>
-        {onResetForTesting ? (
           <button
-            className="hidden h-8 items-center rounded-md border border-warning/30 bg-warning/10 px-2 text-xs font-medium text-warning hover:bg-warning/15 sm:flex"
-            title="Delete this contact/conversation so the same phone number can message in fresh as a brand-new lead"
-            onClick={onResetForTesting}
+            type="button"
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold transition-colors",
+              resolved ? "bg-success/12 text-success" : "bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
+            onClick={onResolve}
+            disabled={resolved}
           >
-            Reset for testing
+            <CheckCircle2 size={14} />
+            {resolved ? "Resolved" : "Resolve"}
           </button>
-        ) : null}
-        {[Search, Phone, Video, Info, MoreVertical].map((Icon, index) => (
-          <button key={index} className={`${index > 0 ? "hidden sm:flex" : "flex"} h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground`}>
-            <Icon size={18} />
+        </div>
+
+        <button type="button" aria-label="Search in this chat" aria-pressed={showSearch} className={cn(headerIcon, showSearch && "bg-secondary text-foreground")} onClick={() => (showSearch ? closeSearch() : setSearchOpen(true))}>
+          <Search size={17} />
+        </button>
+        {onToggleProfile && (
+          <button type="button" aria-label={profileOpen ? "Hide customer details" : "Show customer details"} aria-pressed={profileOpen} className={cn(headerIcon, "hidden md:flex", profileOpen && "bg-secondary text-foreground")} onClick={onToggleProfile}>
+            <PanelRight size={17} />
           </button>
-        ))}
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="More actions" className={headerIcon}>
+              <MoreVertical size={17} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuItem onSelect={onResolve} disabled={resolved}>
+              <CheckCircle2 /> {resolved ? "Resolved" : "Resolve chat"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onAddToCrm()} disabled={crmSaving || isInCrm}>
+              <UserPlus /> {isInCrm ? "Already in CRM" : "Add to CRM"}
+            </DropdownMenuItem>
+            {onToggleProfile && (
+              <DropdownMenuItem onSelect={onToggleProfile} className="md:hidden">
+                <PanelRight /> Customer details
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={() => setSearchOpen(true)}>
+              <Search /> Search in this chat
+            </DropdownMenuItem>
+            {onResetForTesting ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={onResetForTesting}>
+                  <FlaskConical />
+                  <span className="grid">
+                    Reset for testing
+                    <span className="text-[11px] font-normal text-muted-foreground">Deletes this contact so the number can message in as a new lead</span>
+                  </span>
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
+      {showSearch && (
+        <div className="relative z-10 flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2 md:px-4">
+          <Search size={15} className="shrink-0 text-muted-foreground" />
+          <input
+            ref={searchRef}
+            value={messageSearch}
+            onChange={(event) => onMessageSearchChange(event.target.value)}
+            onKeyDown={(event) => event.key === "Escape" && closeSearch()}
+            placeholder="Search in this chat"
+            aria-label="Search in this chat"
+            className="h-7 min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          {messageSearch && <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">{filteredMessages.length} found</span>}
+          <button type="button" aria-label="Close search" className="rounded-full p-1 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={closeSearch}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {pinned.length > 0 ? (
-        <div className="relative z-10 flex shrink-0 items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning">
-          <Star size={14} className="fill-warning text-warning" />
+        <div className="relative z-10 flex shrink-0 items-center gap-2 border-b border-border bg-card/90 px-4 py-1.5 text-[12.5px] text-muted-foreground backdrop-blur">
+          <Star size={13} className="shrink-0 fill-money text-money" />
           <span className="min-w-0 truncate">{pinned[pinned.length - 1]?.content || "Starred attachment"}</span>
         </div>
       ) : null}
 
-      <div className="relative z-10 shrink-0 border-b border-border/80 bg-card/65 px-4 py-2 backdrop-blur">
-        <input
-          value={messageSearch}
-          onChange={(event) => onMessageSearchChange(event.target.value)}
-          placeholder="Search in conversation"
-          className="h-8 w-full rounded-md border border-input/80 bg-input-background px-3 text-xs text-foreground outline-none placeholder:text-muted-foreground/75 focus:border-ring focus:ring-2 focus:ring-ring/20"
-        />
-      </div>
-
-      <div ref={scrollRef} className="relative z-10 no-scrollbar min-h-0 flex-1 overflow-y-auto px-1 py-4" onScroll={handleScroll}>
-        <AnimatePresence initial={false}>
-          {filteredMessages.map((message, index) => {
-            const label = dateLabel(message, filteredMessages[index - 1]);
-            const replyLabel = message.replyToMessageId
-              ? messages.find((item) => item.id === message.replyToMessageId)?.content || "Reply"
-              : "";
-            return (
-              <div key={message.id}>
-                {label ? (
-                  <div className="my-3 flex justify-center">
-                    <span className="rounded-full border border-border/80 bg-card/90 px-3 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
-                      {label}
-                    </span>
-                  </div>
-                ) : null}
-                <MessageBubble message={message} replyLabel={replyLabel} onAction={onMessageAction} />
-              </div>
-            );
-          })}
-        </AnimatePresence>
+      <div ref={scrollRef} className="relative z-0 min-h-0 flex-1 overflow-y-auto pb-3 pt-2" onScroll={handleScroll}>
+        {filteredMessages.map((message, index) => {
+          const previous = filteredMessages[index - 1];
+          const label = dateLabel(message, previous);
+          const replyLabel = message.replyToMessageId ? messages.find((item) => item.id === message.replyToMessageId)?.content || "Reply" : "";
+          return (
+            <div key={message.id}>
+              {label ? (
+                <div className="flex justify-center py-2">
+                  <span className="rounded-lg bg-card/90 px-2.5 py-1 text-[11.5px] font-medium text-muted-foreground shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">{label}</span>
+                </div>
+              ) : null}
+              <MessageBubble message={message} replyLabel={replyLabel} first={Boolean(label) || startsRun(message, previous)} onAction={onMessageAction} />
+            </div>
+          );
+        })}
         {filteredMessages.length === 0 && !typing ? (
-          <div className="flex min-h-[280px] items-center justify-center px-6 text-center">
-            <div className="rounded-lg border border-border/80 bg-card/90 px-4 py-3 text-sm text-muted-foreground shadow-sm backdrop-blur">
-              {messageSearch ? "No messages match this search." : "No messages in this conversation yet."}
+          <div className="flex min-h-[240px] items-center justify-center px-6 text-center">
+            <div className="rounded-lg bg-card/90 px-4 py-3 text-[13px] text-muted-foreground shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+              {messageSearch ? "No messages match this search." : "No messages yet. Say hello."}
             </div>
           </div>
         ) : null}
         {typing ? (
-          <div className="px-4 py-2">
-            <div className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-card px-3 py-2 shadow-sm">
+          <div className="px-3 pt-2 sm:px-[6%]">
+            <div className="inline-flex items-center gap-1 rounded-lg rounded-tl-none bg-bubble-in px-3 py-2.5 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]" aria-label="Customer is typing">
               {[0, 1, 2].map((item) => (
-                <span key={item} className={cn("h-1.5 w-1.5 rounded-full bg-primary", item === 1 && "animate-pulse")} />
+                <span key={item} className="size-1.5 animate-bounce rounded-full bg-muted-foreground/60" style={{ animationDelay: `${item * 120}ms` }} />
               ))}
             </div>
           </div>

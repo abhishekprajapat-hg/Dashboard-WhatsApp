@@ -58,6 +58,15 @@
   --node-logic: #5c626a;
   --node-connect: #b86e14;
   --node-money: #9a7426;
+
+  /* Conversation surfaces: a warm paper wallpaper, jewel-tinted outgoing bubbles, WhatsApp's own
+     blue for "read" ticks (people read that colour as "seen"), amber for internal notes. */
+  --chat-wallpaper: #efe9e0;
+  --bubble-in: #ffffff;
+  --bubble-out: #d6eeec;
+  --bubble-out-foreground: #0d2b2e;
+  --bubble-note: #fbf0d9;
+  --tick-read: #1d9bd1;
   --radius: 0.75rem;
   --sidebar: #efebe5;
   --sidebar-foreground: #1d2126;
@@ -120,6 +129,13 @@
   --node-logic: #9aa3ab;
   --node-connect: #e0a63f;
   --node-money: #d8ad55;
+
+  --chat-wallpaper: #0b0e12;
+  --bubble-in: #1a1f25;
+  --bubble-out: #0f4a4f;
+  --bubble-out-foreground: #e6f4f3;
+  --bubble-note: #3a2f17;
+  --tick-read: #53bdeb;
   --sidebar: #0b0e12;
   --sidebar-foreground: #dfe4e6;
   --sidebar-primary: #3fb6c2;
@@ -139,6 +155,12 @@
   --color-money-soft: var(--money-soft);
   --color-problem-soft: var(--problem-soft);
   --color-jewel-soft: var(--jewel-soft);
+  --color-chat-wallpaper: var(--chat-wallpaper);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-foreground: var(--bubble-out-foreground);
+  --color-bubble-note: var(--bubble-note);
+  --color-tick-read: var(--tick-read);
   --shadow-card: var(--shadow-card);
   --shadow-float: var(--shadow-float);
   --color-background: var(--background);

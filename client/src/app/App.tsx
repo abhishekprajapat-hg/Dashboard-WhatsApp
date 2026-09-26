@@ -37,8 +37,24 @@ function isAppView(value: string | null): value is ViewId {
   return APP_VIEWS.includes(value as ViewId);
 }
 
+// Deep links: "#inbox/<contactId>" opens that customer's chat, "#leads/<leadId>" opens that lead.
+// Plain "#view" works exactly as before.
+function parseHash(hash = window.location.hash) {
+  const [view = "", param = ""] = hash.replace(/^#\/?/, "").split("/");
+  return { view, param: decodeURIComponent(param) };
+}
+
+function hashViewIs(view: ViewId) {
+  return parseHash().view === view;
+}
+
+function initialHashParam(view: ViewId) {
+  const parsed = parseHash();
+  return parsed.view === view && parsed.param ? parsed.param : null;
+}
+
 function getInitialView(): ViewId {
-  const hashView = window.location.hash.replace(/^#\/?/, "");
+  const hashView = parseHash().view;
   if (isAppView(hashView)) return hashView;
 
   const savedView = localStorage.getItem(ACTIVE_VIEW_KEY);
@@ -75,7 +91,8 @@ export default function App() {
   const [authView, setAuthView] = useState<"login" | "signup">("login");
   const [showWhatsAppOnboarding, setShowWhatsAppOnboarding] = useState(false);
   const [activeView, setActiveView] = useState<ViewId>(getInitialView);
-  const [contactChatTarget, setContactChatTarget] = useState<string | null>(null);
+  const [contactChatTarget, setContactChatTarget] = useState<string | null>(() => initialHashParam("inbox"));
+  const [leadTarget, setLeadTarget] = useState<string | null>(() => initialHashParam("leads"));
   const [unreadCount, setUnreadCount] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -170,7 +187,7 @@ export default function App() {
   function changeView(view: ViewId) {
     setActiveView(view);
     localStorage.setItem(ACTIVE_VIEW_KEY, view);
-    if (window.location.hash !== `#${view}`) {
+    if (!hashViewIs(view)) {
       window.history.replaceState(null, "", `#${view}`);
     }
   }
@@ -182,15 +199,18 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_VIEW_KEY, activeView);
-    if (window.location.hash !== `#${activeView}`) {
+    if (!hashViewIs(activeView)) {
       window.history.replaceState(null, "", `#${activeView}`);
     }
   }, [activeView]);
 
   useEffect(() => {
     function handleHashChange() {
-      const nextView = window.location.hash.replace(/^#\/?/, "");
-      if (isAppView(nextView)) setActiveView(nextView);
+      const { view: nextView, param } = parseHash();
+      if (!isAppView(nextView)) return;
+      setActiveView(nextView);
+      if (param && nextView === "inbox") setContactChatTarget(param);
+      if (param && nextView === "leads") setLeadTarget(param);
     }
 
     window.addEventListener("hashchange", handleHashChange);
@@ -280,7 +300,14 @@ export default function App() {
               </div>
             </div>
           )}
-          {canAccessView(session, activeView) && activeView === "dashboard" && <DashboardView userName={session.user.name} />}
+          {canAccessView(session, activeView) && activeView === "dashboard" && <DashboardView
+              userName={session.user.name}
+              workspaceName={workspaceName}
+              visibleViews={visibleViews}
+              unreadCount={unreadCount}
+              onNavigate={changeView}
+              onOpenContact={handleOpenContactChat}
+            />}
           {canAccessView(session, activeView) && activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} canWrite={canWriteInbox} onUnreadCountChange={setUnreadCount} />}
           {canAccessView(session, activeView) && activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} canWrite={canWriteContacts} />}
           {canAccessView(session, activeView) && activeView === "leads" && <LeadsView canWrite={canWriteContacts} />}

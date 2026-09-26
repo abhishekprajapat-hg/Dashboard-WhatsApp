@@ -28,6 +28,7 @@ interface DemoTeamWorkloadMember {
   name: string;
   role: string;
   lastActive: string;
+  status?: string;
   open: number;
   resolvedToday: number;
 }

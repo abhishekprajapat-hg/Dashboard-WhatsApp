@@ -1,535 +1,517 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Activity,
-  AlertCircle,
-  ArrowUpRight,
-  BarChart3,
+  AlertTriangle,
+  ArrowRight,
+  CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Clock3,
-  Flame,
-  Megaphone,
+  FileWarning,
   MessageCircle,
-  Radio,
-  Sparkles,
-  Target,
-  TrendingUp,
+  ReceiptIndianRupee,
   Users,
-  Workflow,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Badge } from "./ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { EmptyState } from "./ui/empty-state";
-import { LoadingSkeleton } from "./ui/loading-skeleton";
-import { getDashboardSummary } from "../lib/api";
+import { Skeleton } from "./ui/skeleton";
+import { cn } from "./ui/utils";
+import { getConversations, getDashboardSummary, getInvoices, getLeads, getSettings, getTasks, getWhatsAppConsole } from "../lib/api";
 import { demoDashboard } from "../lib/demoData";
+import { formatMoneyShort, initialsOf, listNames } from "../lib/format";
+import type { ViewId } from "./shell/nav";
 
 type DashboardSummary = typeof demoDashboard;
-type DashboardKpi = DashboardSummary["kpis"][number];
-type RecentConversation = DashboardSummary["recentConversations"][number];
 
-const statusColor: Record<string, string> = {
-  open: "border-primary/30 bg-primary/10 text-primary",
-  waiting: "border-warning/30 bg-warning/10 text-warning",
-  pending: "border-warning/30 bg-warning/10 text-warning",
-  resolved: "border-border bg-secondary/60 text-muted-foreground",
-  archived: "border-border bg-secondary/40 text-muted-foreground",
+type ConversationLite = { id: string; contactId: string; name: string; phone: string; preview: string; time: string; unread: number; status: string; agent?: string; channel?: string };
+type LeadLite = { id: string; contactName: string; stage: string; status: string; dealValue: number | null; dealCurrency: string; followUpAt: string | null; createdAt: string };
+type TaskLite = { id: string; title: string; status: string; dueAt: string | null };
+type InvoiceLite = { id: string; invoiceNumber: string; status: string; balanceDue: number; currency: string; dueDate: string | null; contact?: { name: string } };
+type ConsoleLite = {
+  health: { status: "healthy" | "attention" | "offline"; connectedAccounts: number; needsAttention: number };
+  messageStats: { sent: number; delivered: number; failed: number };
+  templateStats: { pending: number; rejected: number };
 };
-
-const chartTooltip = {
-  background: "hsl(var(--popover))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--popover-foreground))",
-  fontSize: 12,
-};
+type Stage = { key: string; label: string; type?: string };
 
 interface DashboardViewProps {
   userName: string;
+  workspaceName: string;
+  visibleViews: ViewId[];
+  unreadCount: number;
+  onNavigate: (view: ViewId) => void;
+  onOpenContact: (contactId: string) => void;
+}
+
+type Tone = "problem" | "warning" | "info" | "money";
+
+interface AttentionItem {
+  key: string;
+  tone: Tone;
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  action: () => void;
+  actionLabel: string;
+}
+
+const toneClass: Record<Tone, string> = {
+  problem: "bg-problem-soft text-destructive",
+  warning: "bg-warning/12 text-warning",
+  info: "bg-jewel-soft text-primary",
+  money: "bg-money-soft text-money",
+};
+
+function greeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || "there";
 }
 
-function kpiByLabel(kpis: DashboardKpi[], labels: string[]) {
-  return kpis.find((kpi) => labels.some((label) => kpi.label.toLowerCase().includes(label)));
+function endOfToday() {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
-function numericValue(value: unknown) {
-  const number = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
-  return Number.isFinite(number) ? number : 0;
+function prettyStage(key: string) {
+  return key.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function sumVolume(summary: DashboardSummary, key: "inbound" | "outbound") {
-  return (summary.messageVolume || []).reduce((total, item) => total + numericValue(item[key]), 0);
+function plural(n: number, one: string, many = `${one}s`) {
+  return `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`;
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon,
-  tone = "primary",
-  unavailable = false,
-}: {
-  label: string;
-  value: ReactNode;
-  detail?: ReactNode;
-  icon: ReactNode;
-  tone?: "primary" | "info" | "warning" | "muted" | "violet" | "cyan";
-  unavailable?: boolean;
-}) {
-  const toneClass = {
-    primary: "from-primary/18 text-primary ring-primary/20",
-    info: "from-info/18 text-info ring-info/20",
-    warning: "from-warning/18 text-warning ring-warning/20",
-    muted: "from-secondary/70 text-muted-foreground ring-border",
-    violet: "from-chart-3/18 text-chart-3 ring-chart-3/20",
-    cyan: "from-primary/18 text-primary ring-primary/20",
-  }[tone];
-
-  return (
-    <Card className="group relative overflow-hidden border-border/80 bg-card/85 transition-all duration-200 hover:-translate-y-0.5 hover:border-border">
-      <div className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${tone === "muted" ? "from-transparent via-border to-transparent" : "from-transparent via-current to-transparent"} opacity-50`} />
-      <CardContent className="relative p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-            <div className={`mt-3 truncate text-2xl font-semibold leading-none ${unavailable ? "text-muted-foreground" : "text-foreground"}`}>{value}</div>
-          </div>
-          <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${toneClass} ring-1`}>
-            {icon}
-          </div>
-        </div>
-        {detail && (
-          <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-            {!unavailable && <ArrowUpRight size={12} className="text-primary" />}
-            <span className="truncate">{detail}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+// Settled promise helper: every section of Today is optional, so one failed or forbidden request
+// must never blank the page.
+function settle<T>(enabled: boolean, load: () => Promise<T>): Promise<T | null> {
+  return enabled ? load().catch(() => null) : Promise.resolve(null);
 }
 
-function SectionTitle({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {description && <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>}
-      </div>
-      {action && <div className="shrink-0">{action}</div>}
-    </div>
-  );
-}
-
-function ConversationRow({ conversation }: { conversation: RecentConversation }) {
-  const initials = conversation.name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || "WA";
-
-  return (
-    <div className="flex items-start gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary/45 sm:items-center">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-secondary text-xs font-semibold text-foreground">
-        {initials}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-          <span className="truncate text-sm font-medium text-foreground">{conversation.name || "Unknown contact"}</span>
-          {conversation.phone && <span className="truncate text-xs text-muted-foreground">{conversation.phone}</span>}
-        </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{conversation.preview || "No messages yet"}</p>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <Badge variant="outline" className={`capitalize ${statusColor[conversation.status] || statusColor.open}`}>
-          {conversation.status}
-        </Badge>
-        <span className="text-[11px] text-muted-foreground">{conversation.time}</span>
-      </div>
-    </div>
-  );
-}
-
-export function DashboardView({ userName }: DashboardViewProps) {
-  const [summary, setSummary] = useState<DashboardSummary>(demoDashboard);
+/**
+ * Today: what needs the person's attention right now, one headline figure, then the day's pulse.
+ * Everything is read from existing endpoints, and only the ones this person's role and plan
+ * already allow (visibleViews). Nothing on this screen changes data; rows just take you there.
+ */
+export function DashboardView({ userName, workspaceName, visibleViews, unreadCount, onNavigate, onOpenContact }: DashboardViewProps) {
+  // App rebuilds visibleViews on every render; key on its contents so Today fetches once.
+  const viewsKey = visibleViews.join(",");
+  const can = useMemo(() => new Set(viewsKey.split(",") as ViewId[]), [viewsKey]);
   const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<DashboardSummary>(demoDashboard);
+  const [waiting, setWaiting] = useState<ConversationLite[] | null>(null);
+  const [recent, setRecent] = useState<ConversationLite[] | null>(null);
+  const [leads, setLeads] = useState<LeadLite[] | null>(null);
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [tasks, setTasks] = useState<TaskLite[] | null>(null);
+  const [invoices, setInvoices] = useState<InvoiceLite[] | null>(null);
+  const [whatsapp, setWhatsapp] = useState<ConsoleLite | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getDashboardSummary<DashboardSummary>()
-      .then((response) => {
-        if (active) setSummary({ ...demoDashboard, ...response });
-      })
-      .catch(() => {
-        if (active) setSummary(demoDashboard);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
+    Promise.all([
+      getDashboardSummary<DashboardSummary>().catch(() => null),
+      settle(can.has("inbox"), () => getConversations<{ data: ConversationLite[] }>({ status: "waiting", limit: 20 })),
+      settle(can.has("inbox"), () => getConversations<{ data: ConversationLite[] }>({ limit: 6 })),
+      settle(can.has("leads"), () => getLeads<{ data: LeadLite[] }>({ limit: 200 })),
+      settle(can.has("leads"), () => getSettings<{ crm?: { pipelineStages?: Stage[] } }>()),
+      settle(can.has("tasks"), () => getTasks<{ data: TaskLite[] }>({ status: "open" })),
+      settle(can.has("invoicing"), () => getInvoices<{ data: InvoiceLite[] }>()),
+      settle(can.has("settings"), () => getWhatsAppConsole<ConsoleLite>()),
+    ]).then(([summaryRes, waitingRes, recentRes, leadsRes, settingsRes, tasksRes, invoicesRes, consoleRes]) => {
+      if (!active) return;
+      if (summaryRes) setSummary({ ...demoDashboard, ...summaryRes });
+      setWaiting(waitingRes?.data ?? null);
+      setRecent(recentRes?.data ?? null);
+      setLeads(leadsRes?.data ?? null);
+      setStages(settingsRes?.crm?.pipelineStages ?? []);
+      setTasks(tasksRes?.data ?? null);
+      setInvoices(invoicesRes?.data ?? null);
+      setWhatsapp(consoleRes ?? null);
+      setLoading(false);
+    });
     return () => {
       active = false;
     };
-  }, []);
+  }, [can]);
 
-  const openConversationKpi = kpiByLabel(summary.kpis || [], ["open conversation"]);
-  const leadKpi = kpiByLabel(summary.kpis || [], ["total lead", "new contact", "lead"]);
-  const responseKpi = kpiByLabel(summary.kpis || [], ["response"]);
-  const conversionKpi = kpiByLabel(summary.kpis || [], ["conversion", "resolution rate"]);
-  const inboundMessages = sumVolume(summary, "inbound");
-  const outboundMessages = sumVolume(summary, "outbound");
-  const hotLeads = useMemo(
-    () => (summary.recentConversations || []).filter((conversation) => ["open", "waiting", "pending"].includes(conversation.status)).slice(0, 4),
-    [summary.recentConversations],
+  const now = Date.now();
+  const todayEnd = endOfToday().getTime();
+
+  const openLeads = useMemo(() => (leads || []).filter((lead) => lead.status === "open"), [leads]);
+  const followUpsDue = openLeads.filter((lead) => lead.followUpAt && new Date(lead.followUpAt).getTime() <= todayEnd);
+  const overdueTasks = (tasks || []).filter((task) => task.status === "open" && task.dueAt && new Date(task.dueAt).getTime() < now);
+  const dueTodayTasks = (tasks || []).filter((task) => {
+    if (task.status !== "open" || !task.dueAt) return false;
+    const due = new Date(task.dueAt).getTime();
+    return due >= now && due <= todayEnd;
+  });
+  const overdueInvoices = (invoices || []).filter(
+    (invoice) =>
+      invoice.balanceDue > 0 &&
+      (invoice.status === "overdue" || (["sent", "partially_paid"].includes(invoice.status) && invoice.dueDate && new Date(invoice.dueDate).getTime() < now)),
   );
-  const recentActivity = useMemo(() => {
-    const items = [
-      {
-        title: `${inboundMessages.toLocaleString()} inbound messages tracked`,
-        detail: "From existing message volume data",
-        icon: <MessageCircle size={15} />,
-      },
-      {
-        title: `${outboundMessages.toLocaleString()} outbound messages sent`,
-        detail: "Includes team replies and business sends",
-        icon: <Megaphone size={15} />,
-      },
-      {
-        title: `${(summary.teamWorkload || []).reduce((total, member) => total + numericValue(member.resolvedToday), 0)} conversations resolved today`,
-        detail: "Based on visible team workload",
-        icon: <CheckCircle2 size={15} />,
-      },
-    ];
-    return items.filter((item) => !item.title.startsWith("0 ") || item.title.includes("resolved"));
-  }, [inboundMessages, outboundMessages, summary.teamWorkload]);
+  const overdueAmount = overdueInvoices.reduce((total, invoice) => total + (invoice.balanceDue || 0), 0);
 
-  const kpiCards = [
-    {
-      label: "Total Leads",
-      value: leadKpi?.value ?? "0",
-      detail: leadKpi ? `${leadKpi.label} ${leadKpi.delta || ""}`.trim() : "Lead count not available yet",
-      icon: <Users size={18} />,
-      tone: "violet" as const,
-      unavailable: !leadKpi,
+  const attention: AttentionItem[] = [];
+  if (whatsapp && whatsapp.health.status !== "healthy") {
+    const offline = whatsapp.health.status === "offline";
+    attention.push({
+      key: "whatsapp",
+      tone: "problem",
+      icon: <AlertTriangle size={17} />,
+      title: offline ? "WhatsApp isn't connected" : "A WhatsApp number needs attention",
+      detail: offline ? "Customers can't reach you on WhatsApp until a number is connected." : "Messages may not send until it's fixed in Settings.",
+      action: () => onNavigate("settings"),
+      actionLabel: offline ? "Connect" : "Fix",
+    });
+  }
+  if (waiting?.length) {
+    attention.push({
+      key: "waiting",
+      tone: "warning",
+      icon: <Clock3 size={17} />,
+      title: `${plural(waiting.length, "chat")} waiting for a reply`,
+      detail: listNames(waiting.map((c) => c.name)),
+      action: () => (waiting.length === 1 && waiting[0].contactId ? onOpenContact(waiting[0].contactId) : onNavigate("inbox")),
+      actionLabel: waiting.length === 1 ? "Reply" : "Open inbox",
+    });
+  } else if (unreadCount > 0 && can.has("inbox")) {
+    attention.push({
+      key: "unread",
+      tone: "info",
+      icon: <MessageCircle size={17} />,
+      title: `${plural(unreadCount, "unread message")}`,
+      detail: "New messages in your inbox.",
+      action: () => onNavigate("inbox"),
+      actionLabel: "Open inbox",
+    });
+  }
+  if (followUpsDue.length) {
+    attention.push({
+      key: "followups",
+      tone: "info",
+      icon: <CalendarClock size={17} />,
+      title: `${plural(followUpsDue.length, "follow-up")} due today`,
+      detail: listNames(followUpsDue.map((lead) => lead.contactName)),
+      action: () => onNavigate("leads"),
+      actionLabel: "Pipeline",
+    });
+  }
+  if (overdueTasks.length || dueTodayTasks.length) {
+    attention.push({
+      key: "tasks",
+      tone: overdueTasks.length ? "problem" : "info",
+      icon: <CheckCircle2 size={17} />,
+      title: overdueTasks.length ? `${plural(overdueTasks.length, "task")} overdue` : `${plural(dueTodayTasks.length, "task")} due today`,
+      detail: listNames((overdueTasks.length ? overdueTasks : dueTodayTasks).map((task) => task.title)),
+      action: () => onNavigate("tasks"),
+      actionLabel: "Tasks",
+    });
+  }
+  if (overdueInvoices.length) {
+    attention.push({
+      key: "invoices",
+      tone: "money",
+      icon: <ReceiptIndianRupee size={17} />,
+      title: `${formatMoneyShort(overdueAmount, overdueInvoices[0]?.currency)} overdue on ${plural(overdueInvoices.length, "invoice")}`,
+      detail: listNames(overdueInvoices.map((invoice) => invoice.contact?.name || invoice.invoiceNumber)),
+      action: () => onNavigate("invoicing"),
+      actionLabel: "Collect",
+    });
+  }
+  if (whatsapp && (whatsapp.templateStats.rejected > 0 || whatsapp.templateStats.pending > 0) && can.has("templates")) {
+    const { rejected, pending } = whatsapp.templateStats;
+    attention.push({
+      key: "templates",
+      tone: rejected ? "problem" : "info",
+      icon: <FileWarning size={17} />,
+      title: rejected ? `${plural(rejected, "template")} rejected by WhatsApp` : `${plural(pending, "template")} waiting for approval`,
+      detail: rejected ? "Edit and resubmit so campaigns can use them." : "WhatsApp usually reviews templates within a day.",
+      action: () => onNavigate("templates"),
+      actionLabel: "Templates",
+    });
+  }
+
+  // Headline figure: open pipeline value when this person can see leads, otherwise open chats.
+  const stageLabel = (key: string) => stages.find((s) => s.key === key)?.label || prettyStage(key);
+  const pipelineCurrency = openLeads.find((lead) => lead.dealCurrency)?.dealCurrency || "INR";
+  const pipelineValue = openLeads.reduce((total, lead) => total + (lead.dealValue || 0), 0);
+  const weekAgo = now - 7 * 864e5;
+  const newThisWeek = (leads || []).filter((lead) => new Date(lead.createdAt).getTime() >= weekAgo).length;
+  const byStage = useMemo(() => {
+    const order = stages.length ? stages.map((s) => s.key) : [];
+    const map = new Map<string, { count: number; value: number }>();
+    for (const lead of openLeads) {
+      const entry = map.get(lead.stage) || { count: 0, value: 0 };
+      entry.count += 1;
+      entry.value += lead.dealValue || 0;
+      map.set(lead.stage, entry);
+    }
+    return [...map.entries()]
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => {
+        const ia = order.indexOf(a.key);
+        const ib = order.indexOf(b.key);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      });
+  }, [openLeads, stages]);
+  const maxStageValue = Math.max(1, ...byStage.map((s) => s.value));
+
+  const kpi = (needle: string) => summary.kpis?.find((k) => k.label.toLowerCase().includes(needle))?.value;
+  const pulse = [
+    can.has("inbox") && { label: "Open chats", value: kpi("open conversation") ?? "0" },
+    { label: "New contacts today", value: kpi("new contact") ?? "0" },
+    can.has("inbox") && { label: "Resolution rate", value: kpi("resolution") ?? "0%" },
+    whatsapp && whatsapp.messageStats.sent + whatsapp.messageStats.delivered > 0 && {
+      label: "Delivered",
+      value: `${Math.round((whatsapp.messageStats.delivered / Math.max(1, whatsapp.messageStats.sent + whatsapp.messageStats.delivered + whatsapp.messageStats.failed)) * 100)}%`,
     },
-    {
-      label: "Open Conversations",
-      value: openConversationKpi?.value ?? "0",
-      detail: openConversationKpi?.delta || "Live inbox workload",
-      icon: <MessageCircle size={18} />,
-      tone: "primary" as const,
-    },
-    {
-      label: "Unread Messages",
-      value: inboundMessages.toLocaleString(),
-      detail: "Inbound volume from summary",
-      icon: <Radio size={18} />,
-      tone: inboundMessages > 0 ? ("warning" as const) : ("muted" as const),
-    },
-    {
-      label: "Campaign Sent",
-      value: "—",
-      detail: "Not included in dashboard summary",
-      icon: <Megaphone size={18} />,
-      tone: "muted" as const,
-      unavailable: true,
-    },
-    {
-      label: "Automation Runs",
-      value: "—",
-      detail: "Not included in dashboard summary",
-      icon: <Workflow size={18} />,
-      tone: "muted" as const,
-      unavailable: true,
-    },
-    {
-      label: "Conversion Rate",
-      value: conversionKpi?.value ?? "0%",
-      detail: conversionKpi?.delta || conversionKpi?.label || "Resolution/conversion signal",
-      icon: <Target size={18} />,
-      tone: "cyan" as const,
-    },
-  ];
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  const team = summary.teamWorkload || [];
+  const maxOpen = Math.max(1, ...team.map((m) => m.open + m.resolvedToday));
+  const dateLine = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   return (
-    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 lg:gap-5">
-        <div className="overflow-hidden rounded-xl border border-border/80 bg-card/70 shadow-2xl shadow-black/20">
-          <div className="relative p-4 sm:p-5">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.12),transparent_24rem),radial-gradient(circle_at_88%_10%,rgba(47,111,176,0.1),transparent_22rem)]" />
-            <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0">
-                <Badge variant="success" className="mb-3">
-                  <Sparkles size={12} />
-                  CEO overview
-                </Badge>
-                <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl">Good morning, {firstName(userName)}</h1>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  A live CRM snapshot of conversations, leads, campaigns, automation, and WhatsApp health.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                <Badge variant={summary.health?.whatsapp === "connected" ? "success" : "warning"} className="justify-center px-3 py-1.5">
-                  <span className="size-1.5 rounded-full bg-current" />
-                  WhatsApp {summary.health?.whatsapp || "unknown"}
-                </Badge>
-                <Badge variant="outline" className="justify-center px-3 py-1.5">
-                  {summary.health?.onlineAgents || 0} agents online
-                </Badge>
-              </div>
+    <div className="w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[12.5px] text-muted-foreground">
+              {dateLine} · {workspaceName}
+            </p>
+            <h2 className="mt-1 font-serif text-[34px] leading-[1.05] tracking-[-0.01em] text-foreground sm:text-[40px]">
+              {greeting()}, {firstName(userName)}
+            </h2>
+          </div>
+          {whatsapp && (
+            <Badge variant={whatsapp.health.status === "healthy" ? "success" : whatsapp.health.status === "attention" ? "warning" : "destructive"} className="px-2.5 py-1">
+              <span className="size-1.5 rounded-full bg-current" />
+              {whatsapp.health.status === "healthy"
+                ? `WhatsApp live · ${plural(whatsapp.health.connectedAccounts, "number")}`
+                : whatsapp.health.status === "attention"
+                  ? "WhatsApp needs attention"
+                  : "WhatsApp not connected"}
+            </Badge>
+          )}
+        </header>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+          <section className="rounded-xl border border-border bg-card shadow-card" aria-labelledby="needs-you">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+              <h3 id="needs-you" className="text-sm font-semibold text-foreground">
+                Needs you now
+              </h3>
+              {!loading && attention.length > 0 && <span className="text-xs text-muted-foreground tabular-nums">{attention.length} to look at</span>}
             </div>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <Card key={index} className="xl:col-span-1">
-                <CardContent className="p-4">
-                  <LoadingSkeleton rows={2} showHeader={false} />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            {kpiCards.map((kpi) => (
-              <MetricCard key={kpi.label} {...kpi} />
-            ))}
-          </div>
-        )}
-
-        <div className="grid gap-4 xl:grid-cols-[1.65fr_1fr]">
-          <Card className="overflow-hidden">
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle
-                title="Message Volume"
-                description="Inbound and outbound WhatsApp activity from the current summary"
-                action={<Badge variant="outline">Last 7 days</Badge>}
-              />
-            </CardHeader>
-            <CardContent className="overflow-x-auto px-4 pb-4">
-              {loading ? (
-                <LoadingSkeleton rows={4} />
-              ) : summary.messageVolume?.length ? (
-                <div className="min-w-[300px]">
-                <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart data={summary.messageVolume} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="dashboardInbound" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#25D366" stopOpacity={0.28} />
-                        <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="dashboardOutbound" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--info)" stopOpacity={0.22} />
-                        <stop offset="95%" stopColor="var(--info)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="day" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#dashboardInbound)" />
-                    <Area type="monotone" dataKey="outbound" stroke="var(--info)" strokeWidth={2} fill="url(#dashboardOutbound)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-                </div>
-              ) : (
-                <EmptyState icon={<BarChart3 size={18} />} title="No message activity yet" description="Inbound and outbound volume will appear here once WhatsApp messages start syncing." />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle title="WhatsApp & System Health" description="Operational signals for today" />
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4">
-              <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/10 p-3">
-                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-primary" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">WhatsApp API {summary.health?.whatsapp || "unknown"}</p>
-                  <p className="text-xs leading-5 text-muted-foreground">Connection status from dashboard health.</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 rounded-lg border border-border/80 bg-surface-subtle/70 p-3">
-                <Activity size={17} className="mt-0.5 shrink-0 text-info" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{summary.health?.onlineAgents || 0} agents online</p>
-                  <p className="text-xs leading-5 text-muted-foreground">Available operators visible to this workspace.</p>
-                </div>
-              </div>
-              <div className={`flex items-start gap-3 rounded-lg border p-3 ${summary.health?.slaWarnings ? "border-warning/25 bg-warning/10" : "border-border/80 bg-surface-subtle/70"}`}>
-                <AlertCircle size={17} className={`mt-0.5 shrink-0 ${summary.health?.slaWarnings ? "text-warning" : "text-muted-foreground"}`} />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{summary.health?.slaWarnings || 0} conversations waiting</p>
-                  <p className="text-xs leading-5 text-muted-foreground">Pending conversations that may need attention.</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Card className="xl:col-span-1">
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle title="Recent Activity" description="Derived from current message and team summary" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {loading ? (
-                <LoadingSkeleton rows={3} showHeader={false} />
-              ) : recentActivity.length ? (
-                <div className="space-y-2">
-                  {recentActivity.map((item) => (
-                    <div key={item.title} className="flex gap-3 rounded-lg border border-border/70 bg-surface-subtle/60 p-3">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">{item.icon}</div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{item.title}</p>
-                        <p className="text-xs leading-5 text-muted-foreground">{item.detail}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={<Clock3 size={18} />} title="No recent activity" description="Activity appears after messages, assignments, or resolutions are recorded." />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="xl:col-span-1">
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle title="Hot Leads" description="Open or waiting recent conversations" action={<Badge variant="warning">{hotLeads.length} active</Badge>} />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {loading ? (
-                <LoadingSkeleton rows={4} showHeader={false} />
-              ) : hotLeads.length ? (
-                <div className="space-y-1">
-                  {hotLeads.map((conversation) => (
-                    <ConversationRow key={`${conversation.phone}-${conversation.time}`} conversation={conversation} />
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={<Flame size={18} />} title="No hot leads right now" description="Open and waiting conversations will be highlighted here." />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="xl:col-span-1">
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle title="Team Monitoring" description="Live assigned workload" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {loading ? (
-                <LoadingSkeleton rows={4} showHeader={false} />
-              ) : summary.teamWorkload?.length ? (
-                <div className="space-y-2">
-                  {summary.teamWorkload.slice(0, 5).map((member) => (
-                    <div key={member.userId} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-border/70 bg-surface-subtle/60 p-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-foreground">{member.name}</span>
-                          <Badge variant="outline" className="capitalize">{member.role}</Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Last active {member.lastActive}</p>
-                      </div>
-                      <div className="text-right text-xs">
-                        <div className="font-semibold text-foreground">{member.open} open</div>
-                        <div className="text-muted-foreground">{member.resolvedToday} resolved</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={<Users size={18} />} title="No team workload available" description="Team monitoring appears for roles with workspace reporting access." />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader className="px-4 pt-4">
-            <SectionTitle
-              title="Recent Conversations"
-              description="Latest customer conversations visible to your role"
-              action={<Badge variant="outline">{summary.recentConversations?.length || 0} shown</Badge>}
-            />
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
             {loading ? (
-              <LoadingSkeleton rows={5} showHeader={false} />
-            ) : summary.recentConversations?.length ? (
-              <div className="divide-y divide-border/70">
-                {summary.recentConversations.map((conversation) => (
-                  <ConversationRow key={`${conversation.phone}-${conversation.time}-${conversation.preview}`} conversation={conversation} />
+              <div className="grid gap-4 p-5">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Skeleton className="size-9 rounded-full" />
+                    <div className="grid flex-1 gap-2">
+                      <Skeleton className="h-3.5 w-1/2" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                  </div>
                 ))}
               </div>
+            ) : attention.length ? (
+              <ul className="divide-y divide-border">
+                {attention.map((item) => (
+                  <li key={item.key}>
+                    <button type="button" onClick={item.action} className="group flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors hover:bg-foreground/[0.03] focus-visible:bg-foreground/[0.04] focus-visible:outline-none">
+                      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", toneClass[item.tone])}>{item.icon}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium text-foreground">{item.title}</span>
+                        {item.detail && <span className="mt-0.5 block truncate text-[12.5px] text-muted-foreground">{item.detail}</span>}
+                      </span>
+                      <span className="hidden shrink-0 items-center gap-1 text-[12.5px] font-medium text-primary sm:flex">
+                        {item.actionLabel}
+                        <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                      <ChevronRight size={16} className="shrink-0 text-muted-foreground sm:hidden" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <EmptyState icon={<MessageCircle size={18} />} title="No recent conversations" description="Customer conversations will appear here after the inbox receives messages." />
+              <div className="flex items-center gap-3.5 px-5 py-6">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/12 text-success">
+                  <CheckCircle2 size={17} />
+                </span>
+                <div>
+                  <p className="text-[14px] font-medium text-foreground">You're all caught up</p>
+                  <p className="text-[12.5px] text-muted-foreground">No waiting chats, overdue tasks or unpaid invoices right now.</p>
+                </div>
+              </div>
             )}
-          </CardContent>
-        </Card>
+          </section>
 
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Card className="xl:col-span-2">
-            <CardHeader className="px-4 pt-4">
-              <SectionTitle title="Agent Performance" description="Resolved conversations from visible team workload" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              {summary.agentPerformance?.length ? (
-                <ResponsiveContainer width="100%" height={190}>
-                  <BarChart data={summary.agentPerformance} layout="vertical" margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis dataKey="name" type="category" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
-                    <Tooltip contentStyle={chartTooltip} />
-                    <Bar dataKey="resolved" fill="#25D366" radius={[0, 5, 5, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          {can.has("leads") ? (
+            <section className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-card" aria-labelledby="pipeline-figure">
+              <p id="pipeline-figure" className="text-[12.5px] font-medium text-muted-foreground">
+                Open pipeline
+              </p>
+              {loading ? (
+                <Skeleton className="mt-2 h-11 w-40" />
               ) : (
-                <EmptyState icon={<TrendingUp size={18} />} title="No performance data yet" description="Resolved conversation metrics will appear as your team works through the inbox." />
+                <p className="mt-1 font-serif text-[44px] leading-none tracking-[-0.01em] text-money tabular-nums">{formatMoneyShort(pipelineValue, pipelineCurrency)}</p>
               )}
-            </CardContent>
-          </Card>
+              <p className="mt-2 text-[12.5px] text-muted-foreground">
+                {plural(openLeads.length, "open lead")}
+                {newThisWeek > 0 && ` · ${newThisWeek} new this week`}
+              </p>
+              {byStage.length > 0 && (
+                <ul className="mt-5 grid gap-2.5">
+                  {byStage.slice(0, 6).map((stage) => (
+                    <li key={stage.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-[12.5px]">
+                      <span className="truncate text-foreground">
+                        {stageLabel(stage.key)} <span className="text-muted-foreground tabular-nums">· {stage.count}</span>
+                      </span>
+                      <span className="text-muted-foreground tabular-nums">{stage.value ? formatMoneyShort(stage.value, pipelineCurrency) : "—"}</span>
+                      <span className="col-span-2 h-1 overflow-hidden rounded-full bg-secondary">
+                        <span className="block h-full rounded-full bg-money/70" style={{ width: `${Math.max(3, (stage.value / maxStageValue) * 100)}%` }} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button type="button" onClick={() => onNavigate("leads")} className="mt-auto flex items-center gap-1 self-start pt-5 text-[12.5px] font-medium text-primary hover:underline">
+                Open pipeline <ArrowRight size={14} />
+              </button>
+            </section>
+          ) : (
+            <section className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-card">
+              <p className="text-[12.5px] font-medium text-muted-foreground">Open chats</p>
+              <p className="mt-1 font-serif text-[44px] leading-none text-foreground tabular-nums">{kpi("open conversation") ?? "0"}</p>
+              <p className="mt-2 text-[12.5px] text-muted-foreground">{plural(unreadCount, "unread message")}</p>
+              {can.has("inbox") && (
+                <button type="button" onClick={() => onNavigate("inbox")} className="mt-auto flex items-center gap-1 self-start pt-5 text-[12.5px] font-medium text-primary hover:underline">
+                  Open inbox <ArrowRight size={14} />
+                </button>
+              )}
+            </section>
+          )}
+        </div>
 
-          <Card>
-            <CardHeader className="px-4 pt-4">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <BarChart3 size={16} />
-                Executive Signals
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Avg response</span>
-                <span className="font-medium text-foreground">{responseKpi?.value || "—"}</span>
+        {pulse.length > 0 && (
+          <section aria-label="Today at a glance" className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card shadow-card sm:grid-cols-4">
+            {pulse.map((item, index) => (
+              <div key={item.label} className={cn("px-5 py-4", index > 0 && "border-l border-border", index === 2 && "max-sm:border-l-0", index >= 2 && "max-sm:border-t")}>
+                <p className="text-[12px] text-muted-foreground">{item.label}</p>
+                {loading ? <Skeleton className="mt-2 h-6 w-12" /> : <p className="mt-1 text-[22px] font-semibold tracking-[-0.02em] text-foreground tabular-nums">{item.value}</p>}
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Outbound messages</span>
-                <span className="font-medium text-foreground">{outboundMessages.toLocaleString()}</span>
+            ))}
+          </section>
+        )}
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
+          {can.has("inbox") && (
+            <section className="rounded-xl border border-border bg-card shadow-card" aria-labelledby="recent-chats">
+              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+                <h3 id="recent-chats" className="text-sm font-semibold text-foreground">
+                  Latest conversations
+                </h3>
+                <button type="button" onClick={() => onNavigate("inbox")} className="text-[12.5px] font-medium text-primary hover:underline">
+                  View all
+                </button>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Open assigned</span>
-                <span className="font-medium text-foreground">{(summary.teamWorkload || []).reduce((total, member) => total + numericValue(member.open), 0)}</span>
+              {loading ? (
+                <div className="grid gap-4 p-5">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="size-9 rounded-full" />
+                      <div className="grid flex-1 gap-2">
+                        <Skeleton className="h-3.5 w-1/3" />
+                        <Skeleton className="h-3 w-2/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : recent?.length ? (
+                <ul className="divide-y divide-border">
+                  {recent.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        disabled={!c.contactId}
+                        onClick={() => c.contactId && onOpenContact(c.contactId)}
+                        className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-foreground/[0.03] focus-visible:bg-foreground/[0.04] focus-visible:outline-none"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-foreground">{initialsOf(c.name)}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline gap-2">
+                            <span className={cn("truncate text-[14px] text-foreground", c.unread > 0 ? "font-semibold" : "font-medium")}>{c.name}</span>
+                            {c.status === "waiting" && <span className="shrink-0 text-[11px] font-medium text-warning">Waiting</span>}
+                          </span>
+                          <span className={cn("mt-0.5 block truncate text-[12.5px]", c.unread > 0 ? "text-foreground" : "text-muted-foreground")}>{c.preview || "No messages yet"}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-1">
+                          <span className="text-[11px] text-muted-foreground tabular-nums">{c.time}</span>
+                          {c.unread > 0 && (
+                            <span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-[10.5px] font-semibold leading-5 text-primary-foreground tabular-nums">{c.unread}</span>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState icon={<MessageCircle size={18} />} title="No conversations yet" description="Chats appear here as soon as a customer messages your WhatsApp number." />
+              )}
+            </section>
+          )}
+
+          {team.length > 0 && (
+            <section className="rounded-xl border border-border bg-card shadow-card" aria-labelledby="team-today">
+              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+                <h3 id="team-today" className="text-sm font-semibold text-foreground">
+                  Team today
+                </h3>
+                {can.has("team") && (
+                  <button type="button" onClick={() => onNavigate("team")} className="text-[12.5px] font-medium text-primary hover:underline">
+                    Team
+                  </button>
+                )}
               </div>
-            </CardContent>
-          </Card>
+              <ul className="grid gap-4 p-5">
+                {team.slice(0, 6).map((member) => (
+                  <li key={member.userId} className="grid gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-[10.5px] font-semibold text-foreground">
+                        {initialsOf(member.name)}
+                        <span className={cn("absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-card", member.status === "online" ? "bg-success" : "bg-muted-foreground/40")} />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{member.name}</span>
+                      <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
+                        {member.open} open · {member.resolvedToday} done
+                      </span>
+                    </div>
+                    <div className="ml-[38px] flex h-1 overflow-hidden rounded-full bg-secondary">
+                      <span className="h-full bg-success/70" style={{ width: `${(member.resolvedToday / maxOpen) * 100}%` }} />
+                      <span className="h-full bg-primary/60" style={{ width: `${(member.open / maxOpen) * 100}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <p className="flex items-center gap-3 border-t border-border px-5 py-2.5 text-[11.5px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-success/70" /> Resolved today
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-primary/60" /> Open
+                </span>
+                <Users size={13} className="ml-auto" />
+              </p>
+            </section>
+          )}
         </div>
       </div>
     </div>

@@ -12,7 +12,7 @@ export function messageTimestamp(message?: Pick<WhatsAppMessage, "sentAt" | "rec
 
 export function displayTime(message: Pick<WhatsAppMessage, "sentAt" | "receivedAt" | "createdAt" | "time">) {
   const date = messageTimestamp(message);
-  if (date) return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  if (date) return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
   return message.time || "";
 }
 
@@ -25,24 +25,24 @@ export function initials(name = "") {
     .toUpperCase();
 }
 
-// A fixed rotation of gradients (not random - the same name always lands on the same one, so a
-// contact's avatar color stays stable across renders/reloads) gives the conversation list visual
-// variety instead of every avatar being an identical green square.
-const AVATAR_GRADIENTS = [
-  "from-primary to-teal-700",
-  "from-violet-500 to-purple-700",
-  "from-blue-500 to-indigo-700",
-  "from-amber-500 to-orange-700",
-  "from-pink-500 to-rose-700",
-  "from-cyan-500 to-sky-700",
+// A fixed rotation of soft tints (not random - the same name always lands on the same one, so a
+// contact's avatar colour stays stable across renders/reloads). Muted on purpose: in a list of forty
+// chats, loud avatars compete with the unread badges that actually matter.
+const AVATAR_TINTS = [
+  "bg-[#d9ecea] text-[#0b5d66] dark:bg-[#14383b] dark:text-[#8fd6dc]",
+  "bg-[#efe3cc] text-[#7a5a1c] dark:bg-[#3a2f1a] dark:text-[#e2c07e]",
+  "bg-[#f1dcd5] text-[#8f3b26] dark:bg-[#3d2520] dark:text-[#eaa792]",
+  "bg-[#dfe3ef] text-[#34466f] dark:bg-[#232a3b] dark:text-[#a9b8e0]",
+  "bg-[#e6dff0] text-[#57407e] dark:bg-[#2e2640] dark:text-[#c3afe6]",
+  "bg-[#dcebdc] text-[#2f6a3a] dark:bg-[#1f3424] dark:text-[#9fd3a8]",
 ];
 
-export function avatarGradient(name = "") {
+export function avatarTint(name = "") {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {
     hash = (hash * 31 + name.charCodeAt(i)) | 0;
   }
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length];
 }
 
 export function cn(...classes: Array<string | false | null | undefined>) {

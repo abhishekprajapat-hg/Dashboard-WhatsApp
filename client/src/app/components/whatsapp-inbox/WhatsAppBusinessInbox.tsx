@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Conversation, InboxFilter, PendingMedia, TeamMember, UploadState, WhatsAppMessage } from "./types";
 import { ChatWindow } from "./ChatWindow";
+import { COMPOSER_ID } from "./Composer";
 import { ConversationList } from "./ConversationList";
 import { CustomerProfileSidebar } from "./CustomerProfileSidebar";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
+import { useIsMobile } from "../ui/use-mobile";
 import { conversationMeta } from "./utils";
 
 interface WhatsAppBusinessInboxProps {
@@ -52,7 +54,7 @@ interface WhatsAppBusinessInboxProps {
   onRemoveMedia: (index: number) => void;
   onClearContext: () => void;
   onToggleRecording: () => void;
-  onQuickReplySelect?: (template: { id: string; name: string; body: string }) => void;
+  onQuickReplySelect?: (template: { id: string; name: string; body: string }, options?: { replace?: boolean }) => void;
   onSuggestReply?: () => void;
   onMessageAction: (action: "reply" | "copy" | "forward" | "star" | "delete" | "retry" | "download", message: WhatsAppMessage) => void;
   onAssign: (userId: string) => void;
@@ -63,223 +65,230 @@ interface WhatsAppBusinessInboxProps {
   onResetForTesting?: () => void;
 }
 
-export function WhatsAppBusinessInbox({
-  conversations,
-  channelCounts,
-  selectedId,
-  filter,
-  search,
-  messageSearch,
-  currentUserId,
-  typingIds,
-  members,
-  inputText,
-  composerMode,
-  replyTo,
-  pendingMedia,
-  uploading,
-  sendError,
-  uploadById,
-  recording,
-  quickReplies = [],
-  suggestingReply,
-  suggestReplyError,
-  sessionExpired,
-  crmSaving,
-  assigning,
-  mobileChatOpen,
-  loading,
-  error,
-  hasMoreConversations,
-  loadingMoreConversations,
-  onLoadMoreConversations,
-  onSearchChange,
-  onMessageSearchChange,
-  onSelectConversation,
-  onRetryLoad,
-  onBackToList,
-  onInputChange,
-  onComposerModeChange,
-  onSend,
-  onPickFiles,
-  onPickProduct,
-  onOpenTemplatePicker,
-  onRemoveMedia,
-  onClearContext,
-  onToggleRecording,
-  onQuickReplySelect,
-  onSuggestReply,
-  onMessageAction,
-  onAssign,
-  onStatusChange,
-  onConversationSetting,
-  onLoadOlderMessages,
-  onAddToCrm,
-  onResetForTesting,
-}: WhatsAppBusinessInboxProps) {
+const PROFILE_KEY = "nemnidhi_inbox_profile";
+
+function readProfilePref() {
+  try {
+    return localStorage.getItem(PROFILE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function isTyping(target: EventTarget | null) {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
+}
+
+export function WhatsAppBusinessInbox(props: WhatsAppBusinessInboxProps) {
+  const {
+    conversations,
+    channelCounts,
+    selectedId,
+    filter,
+    search,
+    currentUserId,
+    typingIds,
+    members,
+    crmSaving,
+    assigning,
+    mobileChatOpen,
+    loading,
+    error,
+    hasMoreConversations,
+    loadingMoreConversations,
+    onLoadMoreConversations,
+    onFilterChange,
+    onSearchChange,
+    onSelectConversation,
+    onRetryLoad,
+    onBackToList,
+    onAssign,
+    onStatusChange,
+    onConversationSetting,
+    onAddToCrm,
+  } = props;
+  const isMobile = useIsMobile();
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const selected = conversations.find((conversation) => conversation.id === selectedId) || conversations[0];
   const selectedMeta = selected ? conversationMeta(selected) : { isInCrm: false };
-  const [showProfile, setShowProfile] = useState(true);
+  const [showProfile, setShowProfile] = useState(readProfilePref);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
 
+  function toggleProfile() {
+    if (isMobile) {
+      setMobileProfileOpen((open) => !open);
+      return;
+    }
+    setShowProfile((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(PROFILE_KEY, next ? "1" : "0");
+      } catch {
+        // just won't be remembered
+      }
+      return next;
+    });
+  }
+
+  // Keyboard triage (desktop): J/K or arrow keys move between chats in the order shown, "/" jumps
+  // to the chat search, R puts the cursor in the reply box. Never while typing or in a dialog.
+  const navState = useRef({ selectedId: selected?.id || "" });
+  navState.current = { selectedId: selected?.id || "" };
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"]')) return;
+      const key = event.key;
+      if (key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+      if (key === "r" || key === "R") {
+        const composer = document.getElementById(COMPOSER_ID);
+        if (composer) {
+          event.preventDefault();
+          composer.focus();
+        }
+        return;
+      }
+      const down = key === "j" || key === "ArrowDown";
+      const up = key === "k" || key === "ArrowUp";
+      if (!down && !up) return;
+      // Walk the rows as rendered, so collapsed channel sections and filters are respected.
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-conversation-id]"));
+      if (!rows.length) return;
+      event.preventDefault();
+      const index = rows.findIndex((row) => row.dataset.conversationId === navState.current.selectedId);
+      const next = rows[Math.max(0, Math.min(rows.length - 1, index === -1 ? 0 : index + (down ? 1 : -1)))];
+      const nextId = next?.dataset.conversationId;
+      if (nextId && nextId !== navState.current.selectedId) {
+        onSelectConversation(nextId);
+        next.scrollIntoView({ block: "nearest" });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onSelectConversation]);
+
+  const list = (
+    <ConversationList
+      ref={searchRef}
+      conversations={conversations}
+      channelCounts={channelCounts}
+      selectedId={selected?.id || ""}
+      filter={filter}
+      search={search}
+      currentUserId={currentUserId}
+      typingIds={typingIds}
+      loading={loading}
+      error={error}
+      hasMore={hasMoreConversations}
+      loadingMore={loadingMoreConversations}
+      onLoadMore={onLoadMoreConversations}
+      onFilterChange={onFilterChange}
+      onSearchChange={onSearchChange}
+      onSelect={onSelectConversation}
+      onRetry={onRetryLoad}
+    />
+  );
+
+  const chat = (
+    <ChatWindow
+      conversation={selected}
+      messages={selected?.messages || []}
+      messageSearch={props.messageSearch}
+      inputText={props.inputText}
+      composerMode={props.composerMode}
+      replyTo={props.replyTo}
+      pendingMedia={props.pendingMedia}
+      uploading={props.uploading}
+      sendError={props.sendError}
+      uploadById={props.uploadById}
+      recording={props.recording}
+      quickReplies={props.quickReplies}
+      suggestingReply={props.suggestingReply}
+      suggestReplyError={props.suggestReplyError}
+      sessionExpired={props.sessionExpired}
+      typing={selected ? typingIds.includes(selected.id) : false}
+      crmSaving={crmSaving}
+      isInCrm={Boolean(selectedMeta.isInCrm)}
+      profileOpen={isMobile ? mobileProfileOpen : showProfile}
+      onToggleProfile={selected ? toggleProfile : undefined}
+      onBack={onBackToList}
+      onMessageSearchChange={props.onMessageSearchChange}
+      onInputChange={props.onInputChange}
+      onComposerModeChange={props.onComposerModeChange}
+      onSend={props.onSend}
+      onPickFiles={props.onPickFiles}
+      onPickProduct={props.onPickProduct}
+      onOpenTemplatePicker={props.onOpenTemplatePicker}
+      onRemoveMedia={props.onRemoveMedia}
+      onClearContext={props.onClearContext}
+      onToggleRecording={props.onToggleRecording}
+      onQuickReplySelect={props.onQuickReplySelect}
+      onSuggestReply={props.onSuggestReply}
+      onMessageAction={props.onMessageAction}
+      onAddToCrm={onAddToCrm}
+      onResolve={() => onStatusChange("resolved")}
+      onResetForTesting={props.onResetForTesting}
+      onLoadOlder={props.onLoadOlderMessages}
+    />
+  );
+
+  const profile = (onClose?: () => void) =>
+    selected ? (
+      <CustomerProfileSidebar
+        conversation={selected}
+        members={members}
+        savingCrm={crmSaving}
+        assigning={assigning}
+        onAssign={onAssign}
+        onStatusChange={onStatusChange}
+        onConversationSetting={onConversationSetting}
+        onAddToCrm={onAddToCrm}
+        onClose={onClose}
+      />
+    ) : null;
+
+  if (isMobile) {
+    // Phone: one pane at a time, list <-> chat, with customer details in a sheet.
+    return (
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-card text-foreground">
+        <div className="flex min-w-0 flex-1">{mobileChatOpen ? chat : list}</div>
+        <Sheet open={mobileProfileOpen && Boolean(selected)} onOpenChange={setMobileProfileOpen}>
+          <SheetContent side="right" className="w-[min(22rem,92vw)] gap-0 p-0 [&>button:last-child]:hidden">
+            <SheetTitle className="sr-only">Customer details</SheetTitle>
+            <SheetDescription className="sr-only">Owner, lead stage and conversation status</SheetDescription>
+            {profile(() => setMobileProfileOpen(false))}
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
+
+  // Desktop: resizable list / chat / customer panes; the customer pane can be hidden (remembered).
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-surface text-foreground">
-      {/* Mobile: single pane at a time, same swap behavior as before - untouched. */}
-      <div className={mobileChatOpen ? "hidden md:hidden" : "flex min-w-0 flex-1 md:hidden"}>
-        <ConversationList
-          conversations={conversations}
-          channelCounts={channelCounts}
-          selectedId={selected?.id || ""}
-          filter={filter}
-          search={search}
-          currentUserId={currentUserId}
-          typingIds={typingIds}
-          loading={loading}
-          error={error}
-          hasMore={hasMoreConversations}
-          loadingMore={loadingMoreConversations}
-          onLoadMore={onLoadMoreConversations}
-          onSearchChange={onSearchChange}
-          onSelect={onSelectConversation}
-          onRetry={onRetryLoad}
-        />
-      </div>
-      <div className={mobileChatOpen ? "flex min-w-0 flex-1 md:hidden" : "hidden md:hidden"}>
-        <ChatWindow
-          conversation={selected}
-          messages={selected?.messages || []}
-          messageSearch={messageSearch}
-          inputText={inputText}
-          composerMode={composerMode}
-          replyTo={replyTo}
-          pendingMedia={pendingMedia}
-          uploading={uploading}
-          sendError={sendError}
-          uploadById={uploadById}
-          recording={recording}
-          quickReplies={quickReplies}
-          suggestingReply={suggestingReply}
-          suggestReplyError={suggestReplyError}
-          sessionExpired={sessionExpired}
-          typing={selected ? typingIds.includes(selected.id) : false}
-          crmSaving={crmSaving}
-          isInCrm={Boolean(selectedMeta.isInCrm)}
-          onBack={onBackToList}
-          onMessageSearchChange={onMessageSearchChange}
-          onInputChange={onInputChange}
-          onComposerModeChange={onComposerModeChange}
-          onSend={onSend}
-          onPickFiles={onPickFiles}
-          onPickProduct={onPickProduct}
-          onOpenTemplatePicker={onOpenTemplatePicker}
-          onRemoveMedia={onRemoveMedia}
-          onClearContext={onClearContext}
-          onToggleRecording={onToggleRecording}
-          onQuickReplySelect={onQuickReplySelect}
-          onSuggestReply={onSuggestReply}
-          onMessageAction={onMessageAction}
-          onAddToCrm={onAddToCrm}
-          onResolve={() => onStatusChange("resolved")}
-          onResetForTesting={onResetForTesting}
-          onLoadOlder={onLoadOlderMessages}
-        />
-      </div>
-
-      {/* Desktop: resizable list/chat/profile panes, profile independently collapsible - the
-          previous layout was a fixed-width flat flex row with no way to reclaim space from any
-          pane. */}
-      <div className="hidden min-h-0 min-w-0 flex-1 md:flex">
-        <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full">
-          <ResizablePanel defaultSize={26} minSize={18} maxSize={40}>
-            <ConversationList
-              conversations={conversations}
-              channelCounts={channelCounts}
-              selectedId={selected?.id || ""}
-              filter={filter}
-              search={search}
-              currentUserId={currentUserId}
-              typingIds={typingIds}
-              loading={loading}
-              error={error}
-              hasMore={hasMoreConversations}
-              loadingMore={loadingMoreConversations}
-              onLoadMore={onLoadMoreConversations}
-              onSearchChange={onSearchChange}
-              onSelect={onSelectConversation}
-              onRetry={onRetryLoad}
-            />
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={showProfile ? 52 : 74} minSize={30}>
-            <div className="relative flex h-full min-w-0 flex-1">
-              <ChatWindow
-                conversation={selected}
-                messages={selected?.messages || []}
-                messageSearch={messageSearch}
-                inputText={inputText}
-                composerMode={composerMode}
-                replyTo={replyTo}
-                pendingMedia={pendingMedia}
-                uploading={uploading}
-                sendError={sendError}
-                uploadById={uploadById}
-                recording={recording}
-                quickReplies={quickReplies}
-                suggestingReply={suggestingReply}
-                suggestReplyError={suggestReplyError}
-                sessionExpired={sessionExpired}
-                typing={selected ? typingIds.includes(selected.id) : false}
-                crmSaving={crmSaving}
-                isInCrm={Boolean(selectedMeta.isInCrm)}
-                onBack={onBackToList}
-                onMessageSearchChange={onMessageSearchChange}
-                onInputChange={onInputChange}
-                onComposerModeChange={onComposerModeChange}
-                onSend={onSend}
-                onPickFiles={onPickFiles}
-                onPickProduct={onPickProduct}
-                onOpenTemplatePicker={onOpenTemplatePicker}
-                onRemoveMedia={onRemoveMedia}
-                onClearContext={onClearContext}
-                onToggleRecording={onToggleRecording}
-                onQuickReplySelect={onQuickReplySelect}
-                onSuggestReply={onSuggestReply}
-                onMessageAction={onMessageAction}
-                onAddToCrm={onAddToCrm}
-                onResolve={() => onStatusChange("resolved")}
-                onResetForTesting={onResetForTesting}
-                onLoadOlder={onLoadOlderMessages}
-              />
-              {selected ? (
-                <button
-                  type="button"
-                  onClick={() => setShowProfile((current) => !current)}
-                  title={showProfile ? "Hide contact details" : "Show contact details"}
-                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground shadow-sm backdrop-blur hover:border-primary/40 hover:text-primary"
-                >
-                  {showProfile ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-                </button>
-              ) : null}
-            </div>
-          </ResizablePanel>
-          {selected && showProfile ? (
-            <>
-              <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={22} minSize={16} maxSize={34}>
-                <CustomerProfileSidebar
-                  conversation={selected}
-                  members={members}
-                  savingCrm={crmSaving}
-                  assigning={assigning}
-                  onAssign={onAssign}
-                  onStatusChange={onStatusChange}
-                  onConversationSetting={onConversationSetting}
-                  onAddToCrm={onAddToCrm}
-                />
-              </ResizablePanel>
-            </>
-          ) : null}
-        </ResizablePanelGroup>
-      </div>
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-card text-foreground">
+      <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full">
+        <ResizablePanel defaultSize={27} minSize={20} maxSize={40}>
+          {list}
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize={showProfile ? 50 : 73} minSize={32}>
+          <div className="flex h-full min-w-0 flex-1">{chat}</div>
+        </ResizablePanel>
+        {selected && showProfile ? (
+          <>
+            <ResizableHandle />
+            <ResizablePanel defaultSize={23} minSize={17} maxSize={34}>
+              {profile()}
+            </ResizablePanel>
+          </>
+        ) : null}
+      </ResizablePanelGroup>
     </div>
   );
 }

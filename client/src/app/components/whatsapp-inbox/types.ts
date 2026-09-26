@@ -55,6 +55,7 @@ export interface WhatsAppMessage {
 
 export interface Conversation {
   id: string;
+  contactId?: string;
   name: string;
   phone: string;
   channel?: "whatsapp" | "instagram" | "facebook";
@@ -103,7 +104,7 @@ export interface PendingMedia {
   kind: "image" | "video" | "audio" | "document";
 }
 
-export type InboxFilter = "all" | "unread" | "assigned" | "open" | "waiting" | "resolved" | "archived" | "labels";
+export type InboxFilter = "all" | "unread" | "assigned" | "unassigned" | "open" | "waiting" | "resolved" | "archived" | "labels";
 
 export interface PageState {
   loading: boolean;

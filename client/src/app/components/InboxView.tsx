@@ -40,14 +40,24 @@ export function InboxView({ openContactId, currentUserId, canWrite = false, onUn
     setSuggestReplyError("");
   }, [engine.selected?.id]);
 
+  // Keep the address bar pointing at the open chat (#inbox/<contactId>) so it can be copied,
+  // bookmarked or reopened after a refresh.
+  const selectedContactId = engine.selected?.contactId;
+  useEffect(() => {
+    if (!selectedContactId || !/^#\/?inbox(\/|$)/.test(window.location.hash)) return;
+    const next = `#inbox/${encodeURIComponent(selectedContactId)}`;
+    if (window.location.hash !== next) window.history.replaceState(null, "", next);
+  }, [selectedContactId]);
+
   function pickFiles(kind: "media" | "document" | "audio") {
     if (kind === "document") documentInputRef.current?.click();
     else if (kind === "audio") audioInputRef.current?.click();
     else mediaInputRef.current?.click();
   }
 
-  function applyQuickReply(template: QuickReplyTemplate) {
-    const nextValue = engine.inputText.trim()
+  // `replace` comes from the composer's "/" shortcut, where the typed "/query" is replaced by the reply.
+  function applyQuickReply(template: QuickReplyTemplate, options?: { replace?: boolean }) {
+    const nextValue = !options?.replace && engine.inputText.trim()
       ? `${engine.inputText.trim()}\n${template.body}`
       : template.body;
     engine.handleTyping(nextValue);

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Activity, BriefcaseBusiness, CalendarClock, CircleUserRound, Edit3, Flag, Megaphone, Tag, UserRoundCheck } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Bell, BellOff, CalendarClock, Megaphone, Pin, PinOff, StickyNote, UserRoundCheck, X } from "lucide-react";
 import type { Conversation, TeamMember } from "./types";
-import { avatarGradient, cn, conversationMeta, initials } from "./utils";
+import { ContactAvatar } from "./ContactAvatar";
+import { cn, conversationMeta } from "./utils";
 
 interface CustomerProfileSidebarProps {
   conversation: Conversation;
@@ -12,6 +13,7 @@ interface CustomerProfileSidebarProps {
   onStatusChange: (status: Conversation["status"]) => void;
   onConversationSetting: (settings: { pinned?: boolean; muted?: boolean }) => void;
   onAddToCrm: (stage?: string) => void;
+  onClose?: () => void;
 }
 
 const leadStages = [
@@ -23,6 +25,29 @@ const leadStages = [
   { id: "lost", label: "Lost" },
 ];
 
+const statuses: { id: Conversation["status"]; label: string }[] = [
+  { id: "open", label: "Open" },
+  { id: "waiting", label: "Waiting" },
+  { id: "resolved", label: "Resolved" },
+  { id: "archived", label: "Archived" },
+];
+
+const selectClass =
+  "h-9 w-full rounded-lg border border-input bg-input-background px-2.5 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:opacity-60";
+
+function Section({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={cn("grid gap-2 border-b border-border px-4 py-4", className)}>
+      <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function prettyStage(value: string) {
+  return value.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
 export function CustomerProfileSidebar({
   conversation,
   members,
@@ -32,159 +57,157 @@ export function CustomerProfileSidebar({
   onStatusChange,
   onConversationSetting,
   onAddToCrm,
+  onClose,
 }: CustomerProfileSidebarProps) {
   const meta = conversationMeta(conversation);
   const [leadStage, setLeadStage] = useState(meta.crmStage === "lead" ? "new_lead" : meta.crmStage || "new_lead");
   useEffect(() => {
     setLeadStage(meta.crmStage === "lead" ? "new_lead" : meta.crmStage || "new_lead");
   }, [conversation.id, meta.crmStage]);
-  const customFields = [
+
+  // The workspace's own stage keys may not be in the default list; keep the current one selectable.
+  const stageOptions = leadStages.some((s) => s.id === leadStage) ? leadStages : [...leadStages, { id: leadStage, label: prettyStage(leadStage) }];
+  const latestNote = [...conversation.messages].reverse().find((message) => message.internal)?.content;
+  const details: [string, string | undefined][] = [
     ["Phone", conversation.phone],
     ["Source", conversation.source || "WhatsApp"],
     ["Campaign", meta.campaign],
     ["Last seen", meta.lastSeen],
+    ["Sheet sync", conversation.syncStatus?.googleSheet?.status || "pending"],
   ];
 
   return (
-    <aside className="flex h-full w-full flex-col overflow-y-auto border-l border-border/80 bg-card/75 backdrop-blur-xl">
-      <div className="border-b border-border/80 p-5 text-center">
-        <div className={cn("mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br text-xl font-semibold text-white shadow-[0_18px_42px_rgba(11,116,128,0.16)]", avatarGradient(conversation.name))}>
-          {initials(conversation.name)}
-        </div>
-        <div className="mt-3 text-base font-semibold text-foreground">{conversation.name}</div>
-        <div className="text-xs text-muted-foreground">{conversation.phone}</div>
-        <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-medium capitalize text-primary">
-          <CircleUserRound size={13} />
-          {conversation.status}
+    <aside className="@container flex h-full w-full flex-col overflow-hidden border-l border-border bg-card">
+      <div className="relative flex flex-col items-center border-b border-border px-4 pb-4 pt-6 text-center">
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close customer details" className="absolute right-2 top-2 rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+            <X size={16} />
+          </button>
+        )}
+        <ContactAvatar name={conversation.name} channel={conversation.channel} size="lg" />
+        <div className="mt-3 text-[16px] font-semibold text-foreground">{conversation.name}</div>
+        {conversation.phone && <div className="text-[12.5px] text-muted-foreground tabular-nums">{conversation.phone}</div>}
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {meta.isInCrm && <span className="rounded-full bg-success/12 px-2 py-0.5 text-[11px] font-medium text-success">{prettyStage(meta.crmStage)}</span>}
+          {(conversation.tags.length ? conversation.tags : []).slice(0, 4).map((tag) => (
+            <span key={tag} className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+              {tag}
+            </span>
+          ))}
         </div>
       </div>
 
-      <div className="no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <Tag size={14} /> Tags
-          </h3>
-          <div className="flex flex-wrap gap-1.5 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            {(conversation.tags.length ? conversation.tags : ["New"]).map((tag) => (
-              <span key={tag} className="rounded-full border border-border bg-secondary/70 px-2 py-1 text-xs text-muted-foreground">
-                {tag}
-              </span>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Section title="Owner">
+          <select value={conversation.agentId || ""} disabled={assigning} onChange={(event) => onAssign(event.target.value)} aria-label="Assigned to" className={selectClass}>
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.userId} value={member.userId}>
+                {member.name}
+              </option>
             ))}
-          </div>
-        </section>
+          </select>
+        </Section>
 
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <BriefcaseBusiness size={14} /> CRM
-          </h3>
-          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-muted-foreground">Lead stage</span>
-              <span className="font-medium capitalize text-foreground">{meta.crmStage}</span>
-            </div>
-            <select
-              value={leadStage}
-              onChange={(event) => setLeadStage(event.target.value)}
-              className="mt-2 h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-            >
-              {leadStages.map((stage) => (
-                <option key={stage.id} value={stage.id}>{stage.label}</option>
-              ))}
-            </select>
-            <div className="mt-2 rounded-md border border-border/60 bg-secondary/50 px-2 py-1 text-[11px] text-muted-foreground">
-              Sheet sync: {conversation.syncStatus?.googleSheet?.status || "pending"}
-            </div>
-            <button className="mt-2 h-8 w-full rounded-md bg-primary text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60" onClick={() => onAddToCrm(leadStage)} disabled={savingCrm}>
-              {savingCrm ? "Saving..." : meta.isInCrm ? "Update lead" : "Mark as lead"}
-            </button>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <UserRoundCheck size={14} /> Assigned Agent
-          </h3>
-          <div className="rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            <select
-              value={conversation.agentId || ""}
-              disabled={assigning}
-              onChange={(event) => onAssign(event.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-            >
-              <option value="">Unassigned</option>
-              {members.map((member) => (
-                <option key={member.userId} value={member.userId}>
-                  {member.name}
+        <Section title="Lead">
+          <div className="flex flex-col gap-2 @[280px]:flex-row">
+            <select value={leadStage} onChange={(event) => setLeadStage(event.target.value)} aria-label="Lead stage" className={selectClass}>
+              {stageOptions.map((stage) => (
+                <option key={stage.id} value={stage.id}>
+                  {stage.label}
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="h-9 shrink-0 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              onClick={() => onAddToCrm(leadStage)}
+              disabled={savingCrm}
+            >
+              {savingCrm ? "Saving…" : meta.isInCrm ? "Update" : "Mark as lead"}
+            </button>
           </div>
-        </section>
+        </Section>
 
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <Flag size={14} /> Conversation
-          </h3>
-          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            <div className="grid grid-cols-2 gap-2">
-              {(["open", "waiting", "resolved", "archived"] as const).map((status) => (
-                <button key={status} className="h-8 rounded-md border border-border text-xs capitalize text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onStatusChange(status)}>
-                  {status}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ pinned: !conversation.pinned })}>
-                {conversation.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button className="h-8 rounded-md border border-border text-xs text-muted-foreground hover:border-primary/40 hover:text-primary" onClick={() => onConversationSetting({ muted: !conversation.muted })}>
-                {conversation.muted ? "Unmute" : "Mute"}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <Edit3 size={14} /> Notes
-          </h3>
-          <div className="rounded-lg border border-dashed border-border bg-surface-subtle/30 p-3 text-xs leading-relaxed text-muted-foreground">
-            {conversation.messages.find((message) => message.internal)?.content || "No internal notes yet."}
-          </div>
-        </section>
-
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-            <Activity size={14} /> Activity Timeline
-          </h3>
-          <div className="space-y-3 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            {[
-              { icon: CalendarClock, label: `Last message ${conversation.time}` },
-              { icon: Megaphone, label: `Source ${conversation.source || "WhatsApp"}` },
-              { icon: UserRoundCheck, label: `Assigned to ${conversation.agent || "Unassigned"}` },
-            ].map((item) => {
-              const Icon = item.icon;
+        <Section title="Conversation">
+          <div role="radiogroup" aria-label="Conversation status" className="grid grid-cols-2 gap-0.5 rounded-lg bg-secondary/70 p-0.5 @[300px]:grid-cols-4">
+            {statuses.map((status) => {
+              const active = conversation.status === status.id;
               return (
-                <div key={item.label} className="flex gap-2 text-xs text-muted-foreground">
-                  <Icon size={14} className="mt-0.5 shrink-0 text-primary" />
-                  <span>{item.label}</span>
-                </div>
+                <button
+                  key={status.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={cn("h-7 rounded-md text-[11.5px] font-medium transition-colors", active ? "bg-card text-foreground shadow-card" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => onStatusChange(status.id)}
+                >
+                  {status.label}
+                </button>
               );
             })}
           </div>
-        </section>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border text-[12.5px] text-foreground hover:bg-secondary"
+              onClick={() => onConversationSetting({ pinned: !conversation.pinned })}
+            >
+              {conversation.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+              {conversation.pinned ? "Unpin" : "Pin"}
+            </button>
+            <button
+              type="button"
+              className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border text-[12.5px] text-foreground hover:bg-secondary"
+              onClick={() => onConversationSetting({ muted: !conversation.muted })}
+            >
+              {conversation.muted ? <Bell size={13} /> : <BellOff size={13} />}
+              {conversation.muted ? "Unmute" : "Mute"}
+            </button>
+          </div>
+        </Section>
 
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Custom Fields</h3>
-          <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-            {customFields.map(([label, value]) => (
-              <div key={label} className="flex items-start justify-between gap-3 text-xs">
-                <span className="text-muted-foreground">{label}</span>
-                <span className="max-w-[160px] text-right text-foreground">{value}</span>
+        <Section title="Details">
+          <dl className="grid gap-1.5 text-[12.5px]">
+            {details.map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="max-w-[60%] truncate text-right text-foreground">{value || "—"}</dd>
               </div>
             ))}
-          </div>
-        </section>
+          </dl>
+        </Section>
+
+        <Section title="Latest note">
+          {latestNote ? (
+            <p className="flex gap-2 rounded-lg bg-bubble-note px-2.5 py-2 text-[12.5px] leading-relaxed text-foreground">
+              <StickyNote size={13} className="mt-0.5 shrink-0 text-warning" />
+              <span className="line-clamp-4">{latestNote}</span>
+            </p>
+          ) : (
+            <p className="text-[12.5px] text-muted-foreground">No internal notes yet. Switch the composer to "Internal note" to leave one.</p>
+          )}
+        </Section>
+
+        <Section title="Activity" className="border-b-0">
+          <ol className="grid gap-2.5">
+            {[
+              { icon: CalendarClock, label: `Last message ${conversation.time}` },
+              { icon: Megaphone, label: `Came from ${conversation.source || "WhatsApp"}` },
+              { icon: UserRoundCheck, label: conversation.agent ? `Assigned to ${conversation.agent}` : "Not assigned yet" },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <li key={item.label} className="flex items-center gap-2.5 text-[12.5px] text-foreground">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+                    <Icon size={12} />
+                  </span>
+                  {item.label}
+                </li>
+              );
+            })}
+          </ol>
+        </Section>
       </div>
     </aside>
   );
