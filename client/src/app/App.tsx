@@ -309,8 +309,14 @@ export default function App() {
               onOpenContact={handleOpenContactChat}
             />}
           {canAccessView(session, activeView) && activeView === "inbox" && <InboxView openContactId={contactChatTarget} currentUserId={session.user.id} canWrite={canWriteInbox} onUnreadCountChange={setUnreadCount} />}
-          {canAccessView(session, activeView) && activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} canWrite={canWriteContacts} />}
-          {canAccessView(session, activeView) && activeView === "leads" && <LeadsView canWrite={canWriteContacts} />}
+          {canAccessView(session, activeView) && activeView === "contacts" && <ContactsView onOpenContactChat={handleOpenContactChat} canWrite={canWriteContacts} canSeeTasks={visibleViews.includes("tasks")} canSeeInvoices={visibleViews.includes("invoicing")} />}
+          {canAccessView(session, activeView) && activeView === "leads" && <LeadsView
+              canWrite={canWriteContacts}
+              currentUserId={session.user.id}
+              openLeadId={leadTarget}
+              onLeadLinkHandled={() => setLeadTarget(null)}
+              onOpenContact={visibleViews.includes("inbox") ? handleOpenContactChat : undefined}
+            />}
           {canAccessView(session, activeView) && activeView === "automation" && <AutomationView canWrite={canWriteAutomation} />}
           {canAccessView(session, activeView) && activeView === "templates" && <TemplatesView canWrite={canWriteTemplates} />}
           {canAccessView(session, activeView) && activeView === "campaigns" && <CampaignsView canWrite={canWriteCampaigns} />}

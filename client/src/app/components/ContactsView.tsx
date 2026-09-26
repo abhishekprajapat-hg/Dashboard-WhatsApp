@@ -1,26 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
   Download,
   Filter,
-  Mail,
   MessageCircle,
   MoreHorizontal,
-  Phone,
+  PanelRight,
   Plus,
   Search,
-  Tag,
+  Trash2,
   Upload,
   UserRound,
   Users,
   X,
 } from "lucide-react";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Card, CardContent } from "./ui/card";
 import { EmptyState } from "./ui/empty-state";
 import { Input } from "./ui/input";
-import { LoadingSkeleton } from "./ui/loading-skeleton";
+import { cn } from "./ui/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./ui/sheet";
+import { avatarTint } from "./whatsapp-inbox/utils";
+import { formatMoney } from "../lib/format";
 import {
   assignContactOwner,
   bulkImportContacts,
@@ -28,7 +44,9 @@ import {
   deleteContact,
   getContactFilterOptions,
   getContacts,
+  getInvoices,
   getSettings,
+  getTasks,
   getTeamMembers,
   type CustomFieldDefinition,
 } from "../lib/api";
@@ -52,18 +70,10 @@ interface Contact {
 
 const fallbackContacts = demoContacts as Contact[];
 
-const lifecycleColors: Record<string, string> = {
-  lead: "border-primary/25 bg-primary/10 text-primary",
-  customer: "border-info/25 bg-info/10 text-info",
-  active: "border-primary/25 bg-primary/10 text-primary",
-  inactive: "border-border bg-secondary/70 text-muted-foreground",
-  blocked: "border-destructive/25 bg-destructive/10 text-destructive",
-};
-
 const statusDot: Record<string, string> = {
   active: "bg-primary",
   lead: "bg-primary",
-  customer: "bg-info",
+  customer: "bg-success",
   inactive: "bg-muted-foreground",
   blocked: "bg-destructive",
 };
@@ -168,6 +178,30 @@ function guessColumn(headers: string[], candidates: string[]) {
 interface ContactsViewProps {
   onOpenContactChat?: (contactId: string) => void;
   canWrite?: boolean;
+  canSeeTasks?: boolean;
+  canSeeInvoices?: boolean;
+}
+
+const selectClass =
+  "h-9 w-full rounded-lg border border-input bg-input-background px-2.5 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20";
+
+function formatDay(value?: string) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// The preview sits beside the table on wide screens (xl) and opens as a sheet below that.
+function useIsWide() {
+  const query = "(min-width: 1280px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setWide(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
 function contactInitials(name = "") {
@@ -189,16 +223,12 @@ function contactLifecycle(contact: Contact) {
 
 function ContactAvatar({ contact, size = "md" }: { contact: Contact; size?: "sm" | "md" | "lg" }) {
   const classes = {
-    sm: "size-8 rounded-lg text-[10px]",
-    md: "size-10 rounded-xl text-xs",
-    lg: "size-16 rounded-2xl text-lg",
+    sm: "size-8 text-[11px]",
+    md: "size-10 text-[12.5px]",
+    lg: "size-16 text-lg",
   };
 
-  return (
-    <div className={`${classes[size]} flex shrink-0 items-center justify-center bg-gradient-to-br from-primary to-[#075a63] font-semibold text-primary-foreground shadow-[0_12px_28px_rgba(11,116,128,0.14)]`}>
-      {contactInitials(contact.name)}
-    </div>
-  );
+  return <div className={cn(classes[size], "flex shrink-0 items-center justify-center rounded-full font-semibold", avatarTint(contact.name))}>{contactInitials(contact.name)}</div>;
 }
 
 interface ImportResult {
@@ -272,21 +302,16 @@ function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onI
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Import contacts</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Upload a CSV, map its columns, then import.</p>
-          </div>
-          <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={onClose}>
-            <X size={17} />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import contacts</DialogTitle>
+          <DialogDescription>Upload a CSV, match its columns, then import.</DialogDescription>
+        </DialogHeader>
 
         {step === "upload" && (
           <div className="space-y-3">
-            <label className="flex h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground">
+            <label className="flex h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-secondary/40 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
               <Upload size={20} />
               Click to choose a CSV file
               <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
@@ -305,7 +330,7 @@ function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onI
                   <select
                     value={columnMap[field.key]}
                     onChange={(e) => setColumnMap((current) => ({ ...current, [field.key]: Number(e.target.value) }))}
-                    className="h-9 w-full rounded-md border border-input bg-input-background px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    className={selectClass}
                   >
                     <option value={-1}>Don't import</option>
                     {headers.map((header, index) => (
@@ -320,7 +345,7 @@ function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onI
 
             <div className="overflow-x-auto rounded-lg border border-border/80">
               <table className="w-full text-xs">
-                <thead className="bg-surface-subtle/70">
+                <thead className="bg-secondary/60">
                   <tr>
                     {IMPORT_FIELDS.map((field) => (
                       <th key={field.key} className="px-3 py-2 text-left font-medium text-muted-foreground">
@@ -357,15 +382,15 @@ function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onI
         {step === "result" && result && (
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-lg border border-primary/25 bg-primary/10 p-3">
-                <p className="text-xl font-semibold text-primary">{result.created}</p>
+              <div className="rounded-lg bg-success/12 p-3">
+                <p className="text-xl font-semibold text-success">{result.created}</p>
                 <p className="text-xs text-muted-foreground">Created</p>
               </div>
-              <div className="rounded-lg border border-border bg-secondary/50 p-3">
+              <div className="rounded-lg bg-secondary p-3">
                 <p className="text-xl font-semibold text-foreground">{result.skipped}</p>
                 <p className="text-xs text-muted-foreground">Skipped (duplicate)</p>
               </div>
-              <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-3">
+              <div className="rounded-lg bg-problem-soft p-3">
                 <p className="text-xl font-semibold text-destructive">{result.errors.length}</p>
                 <p className="text-xs text-muted-foreground">Errors</p>
               </div>
@@ -384,12 +409,15 @@ function ImportContactsModal({ onClose, onImported }: { onClose: () => void; onI
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsViewProps) {
+export function ContactsView({ onOpenContactChat, canWrite = false, canSeeTasks = false, canSeeInvoices = false }: ContactsViewProps) {
+  const isWide = useIsWide();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [search, setSearch] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -571,6 +599,7 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
 
   function openContact(contact: Contact) {
     setSelectedContactId(contact.id);
+    setPreviewOpen(true);
   }
 
   function handleExportCsv() {
@@ -607,56 +636,130 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
     URL.revokeObjectURL(url);
   }
 
-  return (
-    <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
+  const preview = selectedContact ? (
+    <ContactPreview
+      contact={selectedContact}
+      canSeeTasks={canSeeTasks}
+      canSeeInvoices={canSeeInvoices}
+      onOpenChat={onOpenContactChat ? () => onOpenContactChat(selectedContact.id) : undefined}
+    />
+  ) : null;
 
-      <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <Badge variant="success" className="mb-2">
-              <Users size={12} />
-              CRM workspace
-            </Badge>
-            <h1 className="text-2xl font-semibold text-foreground">Contacts</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{leadCount} leads · {customerCount} customers · {total} matching records</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canWrite && (
-              <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => setShowImport(true)}>
-                <Upload size={14} />
-                Import
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className="hidden sm:inline-flex" disabled={filtered.length === 0} onClick={handleExportCsv}>
-              <Download size={14} />
-              Export
-            </Button>
-            {canWrite && (
-              <Button size="sm" onClick={() => setShowCreate(true)}>
-                <Plus size={14} />
-                New lead
-              </Button>
-            )}
-          </div>
+  return (
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3 sm:px-6">
+        <div role="tablist" aria-label="Show" className="flex items-center gap-0.5 rounded-lg bg-secondary/70 p-0.5">
+          {crmFilters.map((filter) => {
+            const active = crmFilter === filter.id;
+            const count = filter.id === "lead" ? leadCount : filter.id === "customer" ? customerCount : null;
+            return (
+              <button
+                key={filter.label}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => changeCrmFilter(filter.id)}
+                className={cn("flex h-7 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors", active ? "bg-card text-foreground shadow-card" : "text-muted-foreground hover:text-foreground")}
+              >
+                {filter.label}
+                {count !== null && <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[
-            { label: "Matching contacts", value: total, icon: <Activity size={16} />, tone: "text-primary" },
-            { label: "Leads", value: leadCount, icon: <UserRound size={16} />, tone: "text-info" },
-            { label: "Selected", value: selectedIds.length, icon: <Filter size={16} />, tone: "text-warning" },
-          ].map((item) => (
-            <Card key={item.label} className="bg-card/75">
-              <CardContent className="flex items-center justify-between p-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="mt-1 text-xl font-semibold text-foreground">{item.value}</p>
-                </div>
-                <div className={`flex size-9 items-center justify-center rounded-lg bg-secondary/70 ${item.tone}`}>{item.icon}</div>
-              </CardContent>
-            </Card>
-          ))}
+        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-secondary/70 px-2.5 text-muted-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/30 sm:max-w-xs">
+          <Search size={15} className="shrink-0" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search this page"
+            aria-label="Search contacts on this page"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="rounded p-0.5 hover:text-foreground">
+              <X size={14} />
+            </button>
+          )}
+        </label>
+
+        <Popover open={showFilterPanel} onOpenChange={setShowFilterPanel}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-9">
+              <Filter size={14} />
+              Filter
+              {activeFilterCount > 0 && (
+                <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">{activeFilterCount}</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="grid w-72 gap-3 p-3">
+            {[
+              {
+                label: "Stage",
+                value: filters.stage,
+                any: "Any stage",
+                onChange: (value: string) => updateFilters({ stage: value }),
+                options: filterOptions.stages.map((stage) => ({ value: stage, label: stage.replace(/_/g, " ") })),
+              },
+              {
+                label: "Source",
+                value: filters.source,
+                any: "Any source",
+                onChange: (value: string) => updateFilters({ source: value }),
+                options: filterOptions.sources.map((source) => ({ value: source, label: source })),
+              },
+              {
+                label: "Owner",
+                value: filters.ownerUserId,
+                any: "Any owner",
+                onChange: (value: string) => updateFilters({ ownerUserId: value }),
+                options: teamMembers.map((member) => ({ value: member.userId, label: member.name })),
+              },
+              {
+                label: "Tag",
+                value: filters.tag,
+                any: "Any tag",
+                onChange: (value: string) => updateFilters({ tag: value }),
+                options: filterOptions.tags.map((tag) => ({ value: tag.id, label: tag.name })),
+              },
+            ].map((field) => (
+              <label key={field.label} className="grid gap-1 text-[12px]">
+                <span className="text-muted-foreground">{field.label}</span>
+                <select value={field.value} onChange={(e) => field.onChange(e.target.value)} className={cn(selectClass, "capitalize")}>
+                  <option value="">{field.any}</option>
+                  {field.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <Button variant="outline" size="sm" className="w-full" disabled={activeFilterCount === 0} onClick={() => updateFilters(EMPTY_CONTACT_FILTERS)}>
+              Clear filters
+            </Button>
+          </PopoverContent>
+        </Popover>
+
+        <div className="ml-auto flex items-center gap-2">
+          {canWrite && (
+            <Button variant="ghost" size="sm" className="hidden h-9 sm:inline-flex" onClick={() => setShowImport(true)}>
+              <Upload size={14} />
+              Import
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="hidden h-9 sm:inline-flex" disabled={filtered.length === 0} onClick={handleExportCsv}>
+            <Download size={14} />
+            Export
+          </Button>
+          {canWrite && (
+            <Button size="sm" className="h-9" onClick={() => setShowCreate(true)}>
+              <Plus size={14} />
+              New lead
+            </Button>
+          )}
         </div>
       </div>
 
@@ -671,48 +774,40 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
         />
       )}
 
-      {showCreate && canWrite && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-          <form onSubmit={handleCreateContact} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Create contact</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Add a lead to your WhatsApp CRM without changing campaign or inbox behavior.</p>
-              </div>
-              <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setShowCreate(false)}>
-                <X size={17} />
-              </button>
-            </div>
-
+      <Dialog open={showCreate && canWrite} onOpenChange={setShowCreate}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+          <form onSubmit={handleCreateContact} className="grid gap-5">
+            <DialogHeader>
+              <DialogTitle>New lead</DialogTitle>
+              <DialogDescription>Adds the person to your CRM. Nothing is sent to them.</DialogDescription>
+            </DialogHeader>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5 text-sm">
-                <span className="text-foreground">Name</span>
+              <label className="grid gap-1.5 text-[13px]">
+                <span className="font-medium text-foreground">Name</span>
                 <Input value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} placeholder="Customer name" required />
               </label>
-              <label className="space-y-1.5 text-sm">
-                <span className="text-foreground">Phone</span>
+              <label className="grid gap-1.5 text-[13px]">
+                <span className="font-medium text-foreground">Phone</span>
                 <Input value={form.phone} onChange={(e) => setForm((current) => ({ ...current, phone: e.target.value }))} placeholder="+91 98765 43210" required />
               </label>
-              <label className="space-y-1.5 text-sm">
-                <span className="text-foreground">Email</span>
+              <label className="grid gap-1.5 text-[13px]">
+                <span className="font-medium text-foreground">Email</span>
                 <Input type="email" value={form.email} onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))} placeholder="customer@company.com" />
               </label>
-              <label className="space-y-1.5 text-sm">
-                <span className="text-foreground">Tags</span>
+              <label className="grid gap-1.5 text-[13px]">
+                <span className="font-medium text-foreground">Tags</span>
                 <Input value={form.tags} onChange={(e) => setForm((current) => ({ ...current, tags: e.target.value }))} placeholder="VIP, Sales, Support" />
               </label>
               {customFieldDefs.map((field) => (
-                <label key={field.key} className="space-y-1.5 text-sm">
-                  <span className="text-foreground">{field.label}</span>
+                <label key={field.key} className="grid gap-1.5 text-[13px]">
+                  <span className="font-medium text-foreground">{field.label}</span>
                   {field.type === "select" ? (
-                    <select
-                      value={customFieldValues[field.key] || ""}
-                      onChange={(e) => setCustomFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
-                      className="flex h-9 w-full min-w-0 rounded-md border border-input/85 bg-input-background px-3 text-sm text-foreground outline-none"
-                    >
+                    <select value={customFieldValues[field.key] || ""} onChange={(e) => setCustomFieldValues((current) => ({ ...current, [field.key]: e.target.value }))} className={selectClass}>
                       <option value="">Select…</option>
                       {field.options.map((option) => (
-                        <option key={option} value={option}>{option}</option>
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
                       ))}
                     </select>
                   ) : (
@@ -725,230 +820,137 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                 </label>
               ))}
             </div>
-
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setShowCreate(false)}>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
                 Cancel
               </Button>
-              <Button type="submit" className="w-full sm:w-auto" disabled={saving}>
-                {saving ? "Saving..." : "Save contact"}
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving…" : "Save lead"}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 p-3 sm:p-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15">
-          <div className="flex flex-col gap-3 border-b border-border/80 p-3 sm:flex-row sm:items-center">
-            <div className="relative min-w-0 flex-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, phone, email, tags, source..." className="h-10 pl-9" />
-            </div>
-            <div className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-subtle/70 p-1">
-              {crmFilters.map((filter) => (
-                <button
-                  key={filter.label}
-                  type="button"
-                  onClick={() => changeCrmFilter(filter.id)}
-                  className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${crmFilter === filter.id ? "bg-primary/12 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <div className="relative">
-              <Button variant="outline" size="sm" className="h-10 w-full sm:w-fit" onClick={() => setShowFilterPanel((current) => !current)}>
-                <Filter size={14} />
-                Filter
-                {activeFilterCount > 0 && (
-                  <span className="ml-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </Button>
-              {showFilterPanel && (
-                <div className="absolute right-0 top-full z-20 mt-1 w-72 space-y-3 rounded-lg border border-border bg-card p-3 shadow-xl">
-                  <label className="block space-y-1 text-xs">
-                    <span className="text-muted-foreground">Stage</span>
-                    <select
-                      value={filters.stage}
-                      onChange={(e) => updateFilters({ stage: e.target.value })}
-                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                    >
-                      <option value="">Any stage</option>
-                      {filterOptions.stages.map((stage) => (
-                        <option key={stage} value={stage}>
-                          {stage.replace(/_/g, " ")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1 text-xs">
-                    <span className="text-muted-foreground">Source</span>
-                    <select
-                      value={filters.source}
-                      onChange={(e) => updateFilters({ source: e.target.value })}
-                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                    >
-                      <option value="">Any source</option>
-                      {filterOptions.sources.map((source) => (
-                        <option key={source} value={source}>
-                          {source}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1 text-xs">
-                    <span className="text-muted-foreground">Owner</span>
-                    <select
-                      value={filters.ownerUserId}
-                      onChange={(e) => updateFilters({ ownerUserId: e.target.value })}
-                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                    >
-                      <option value="">Any owner</option>
-                      {teamMembers.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1 text-xs">
-                    <span className="text-muted-foreground">Tag</span>
-                    <select
-                      value={filters.tag}
-                      onChange={(e) => updateFilters({ tag: e.target.value })}
-                      className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                    >
-                      <option value="">Any tag</option>
-                      {filterOptions.tags.map((tag) => (
-                        <option key={tag.id} value={tag.id}>
-                          {tag.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={activeFilterCount === 0}
-                    onClick={() => updateFilters(EMPTY_CONTACT_FILTERS)}
-                  >
-                    Clear filters
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length} contact{selectedIds.length === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>Their CRM records are removed for everyone in the workspace. This can't be undone from here.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDeleteSelected}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {canWrite && selectedIds.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-border/80 bg-primary/5 px-3 py-2">
-              <span className="text-xs text-muted-foreground">{selectedIds.length} selected</span>
-              <Button variant="outline" size="sm" onClick={() => selectedContact && onOpenContactChat?.(selectedContact.id)}>
+            <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent px-4 py-2 sm:px-6">
+              <span className="text-[12.5px] font-medium text-foreground tabular-nums">{selectedIds.length} selected</span>
+              <Button variant="outline" size="sm" className="h-8 bg-card" disabled={!onOpenContactChat} onClick={() => onOpenContactChat?.(selectedIds.length === 1 ? selectedIds[0] : selectedContact?.id || selectedIds[0])}>
                 <MessageCircle size={13} />
                 Message
               </Button>
-              <div className="relative">
-                <Button variant="outline" size="sm" disabled={assigning || teamMembers.length === 0} onClick={() => setShowAssignMenu((current) => !current)}>
-                  {assigning ? "Assigning..." : "Assign"}
-                </Button>
-                {showAssignMenu && (
-                  <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-border bg-card p-1 shadow-xl">
-                    {teamMembers.map((member) => (
-                      <button
-                        key={member.userId}
-                        type="button"
-                        className="block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-secondary"
-                        onClick={() => handleAssignSelected(member)}
-                      >
-                        {member.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleDeleteSelected}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 bg-card" disabled={assigning || teamMembers.length === 0}>
+                    <UserRound size={13} />
+                    {assigning ? "Assigning…" : "Assign"}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Assign to</DropdownMenuLabel>
+                  {teamMembers.map((member) => (
+                    <DropdownMenuItem key={member.userId} onSelect={() => handleAssignSelected(member)}>
+                      {member.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="outline" size="sm" className="h-8 border-destructive/30 bg-card text-destructive hover:bg-problem-soft" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={13} />
                 Delete
               </Button>
+              <button type="button" onClick={() => setSelectedIds([])} className="ml-auto text-[12.5px] font-medium text-primary hover:underline">
+                Clear selection
+              </button>
             </div>
           )}
 
           {loading ? (
-            <div className="p-4">
-              <LoadingSkeleton rows={8} />
+            <div className="grid gap-3 p-4 sm:px-6">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="size-8 animate-pulse rounded-full bg-secondary" />
+                  <div className="h-3 w-40 animate-pulse rounded bg-secondary" />
+                  <div className="ml-auto h-3 w-24 animate-pulse rounded bg-secondary" />
+                </div>
+              ))}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-1 items-center justify-center p-6">
               <EmptyState
                 icon={<Users size={18} />}
-                title={contacts.length === 0 ? "No contacts yet" : "No contacts match your search"}
-                description={contacts.length === 0 ? "Create your first lead or import contacts to start using CRM workflows." : "Try a different name, phone, tag, source, or lifecycle filter."}
-                action={canWrite && contacts.length === 0 ? <Button onClick={() => setShowCreate(true)}><Plus size={14} /> New lead</Button> : undefined}
+                title={contacts.length === 0 ? "No contacts yet" : "No contacts match"}
+                description={contacts.length === 0 ? "Add your first lead or import a CSV to get started." : "Try a different name, phone, tag or filter."}
+                action={
+                  canWrite && contacts.length === 0 ? (
+                    <Button onClick={() => setShowCreate(true)}>
+                      <Plus size={14} /> New lead
+                    </Button>
+                  ) : undefined
+                }
               />
             </div>
           ) : (
             <>
-              <div className="no-scrollbar flex-1 overflow-y-auto sm:hidden">
-                <div className="divide-y divide-border/70">
+              <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
+                <ul className="divide-y divide-border">
                   {filtered.map((contact) => {
                     const lifecycle = contactLifecycle(contact);
                     return (
-                      <button
-                        key={contact.id}
-                        type="button"
-                        onClick={() => openContact(contact)}
-                        className={`w-full px-3 py-3 text-left transition-colors hover:bg-secondary/35 ${selectedContact?.id === contact.id ? "bg-primary/7" : ""}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          {canWrite && (
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.includes(contact.id)}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={() => toggleSelect(contact.id)}
-                              className="mt-1 rounded"
-                            />
-                          )}
+                      <li key={contact.id} className={cn("flex items-start gap-3 px-4 py-3", selectedContact?.id === contact.id && previewOpen && "bg-accent")}>
+                        {canWrite && (
+                          <input type="checkbox" aria-label={`Select ${contact.name}`} checked={selectedIds.includes(contact.id)} onChange={() => toggleSelect(contact.id)} className="mt-2.5 size-4 rounded accent-[var(--primary)]" />
+                        )}
+                        <button type="button" onClick={() => openContact(contact)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
                           <ContactAvatar contact={contact} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className={`size-1.5 shrink-0 rounded-full ${statusDot[lifecycle] || statusDot.active}`} />
-                              <span className="truncate text-sm font-medium text-foreground">{contact.name}</span>
-                              <Badge variant="outline" className={`capitalize ${lifecycleColors[lifecycle] || lifecycleColors.lead}`}>
-                                {lifecycle}
-                              </Badge>
-                            </div>
-                            <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{contact.phone}</p>
-                            <p className="truncate text-xs text-muted-foreground">{contact.email || contact.source || "WhatsApp"}</p>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {(contact.tags || []).slice(0, 3).map((tag) => (
-                                <Badge key={tag} variant="outline" className="border-border text-[10px] text-muted-foreground">
-                                  {tag}
-                                </Badge>
-                              ))}
-                              <span className="ml-auto text-[11px] text-muted-foreground">{contact.lastActivity || "No activity"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </button>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                              <span className="truncate text-[14px] font-medium text-foreground">{contact.name}</span>
+                              <StageTag contact={contact} lifecycle={lifecycle} />
+                            </span>
+                            <span className="mt-0.5 block truncate text-[12.5px] text-muted-foreground tabular-nums">{contact.phone}</span>
+                            <span className="mt-0.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                              <span className="truncate">{contact.assignedTo || "Unassigned"}</span>
+                              <span className="ml-auto shrink-0">{contact.lastActivity || "No activity"}</span>
+                            </span>
+                          </span>
+                        </button>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </div>
 
-              <div className="hidden flex-1 overflow-x-auto overflow-y-auto sm:block">
-                <table className="w-full min-w-[980px] text-xs">
-                  <thead className="sticky top-0 z-10 border-b border-border bg-surface-subtle/95 backdrop-blur">
-                    <tr>
+              <div className="hidden min-h-0 flex-1 overflow-auto md:block">
+                <table className="w-full min-w-[780px] border-separate border-spacing-0 text-[13px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-background/95 text-left text-[11.5px] text-muted-foreground backdrop-blur">
                       {canWrite && (
-                        <th className="w-8 py-3 pl-4 pr-3 text-left">
-                          <input type="checkbox" checked={selectedIds.length === filtered.length && filtered.length > 0} onChange={toggleAll} className="rounded" />
+                        <th className="w-10 border-b border-border py-2 pl-6 pr-2 font-medium">
+                          <input type="checkbox" aria-label="Select all on this page" checked={selectedIds.length === filtered.length && filtered.length > 0} onChange={toggleAll} className="size-4 rounded accent-[var(--primary)]" />
                         </th>
                       )}
-                      {["Name", "Phone", "Email", "Tags", "Stage", "Assigned", "Source", "Last activity", "Chats", ""].map((column) => (
-                        <th key={column} className="px-3 py-3 text-left font-medium text-muted-foreground">
+                      {["Name", "Phone", "Stage", "Owner", "Source", "Tags", "Last activity", "Chats", ""].map((column, index) => (
+                        <th key={column || index} className={cn("whitespace-nowrap border-b border-border px-3 py-2 font-medium", !canWrite && index === 0 && "pl-6", column === "Chats" && "text-right")}>
                           {column}
                         </th>
                       ))}
@@ -957,74 +959,72 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
                   <tbody>
                     {filtered.map((contact) => {
                       const lifecycle = contactLifecycle(contact);
+                      const active = selectedContact?.id === contact.id;
+                      const checked = selectedIds.includes(contact.id);
                       return (
                         <tr
                           key={contact.id}
                           onClick={() => openContact(contact)}
-                          className={`group cursor-pointer border-b border-border/70 transition-colors hover:bg-secondary/35 ${selectedContact?.id === contact.id ? "bg-primary/7" : ""}`}
+                          aria-selected={active}
+                          className={cn("group cursor-pointer transition-colors", active ? "bg-accent" : checked ? "bg-accent/50" : "hover:bg-foreground/[0.025]")}
                         >
                           {canWrite && (
-                            <td className="py-3 pl-4 pr-3">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(contact.id)}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={() => toggleSelect(contact.id)}
-                                className="rounded"
-                              />
+                            <td className="border-b border-border py-2 pl-6 pr-2" onClick={(event) => event.stopPropagation()}>
+                              <input type="checkbox" aria-label={`Select ${contact.name}`} checked={checked} onChange={() => toggleSelect(contact.id)} className="size-4 rounded accent-[var(--primary)]" />
                             </td>
                           )}
-                          <td className="px-3 py-3">
-                            <div className="flex items-center gap-3">
+                          <td className={cn("border-b border-border px-3 py-2", !canWrite && "pl-6")}>
+                            <div className="flex items-center gap-2.5">
                               <ContactAvatar contact={contact} size="sm" />
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className={`size-1.5 shrink-0 rounded-full ${statusDot[lifecycle] || statusDot.active}`} />
-                                  <span className="truncate font-medium text-foreground">{contact.name}</span>
-                                </div>
-                                <span className="text-[11px] text-muted-foreground">{contact.conversations || 0} conversations</span>
+                                <div className="max-w-[190px] truncate font-medium text-foreground">{contact.name}</div>
+                                <div className="max-w-[190px] truncate text-[11.5px] text-muted-foreground">{contact.email || "No email"}</div>
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-3 font-mono text-muted-foreground">{contact.phone}</td>
-                          <td className="px-3 py-3 text-muted-foreground">{contact.email || "—"}</td>
-                          <td className="px-3 py-3">
-                            <div className="flex max-w-56 flex-wrap gap-1">
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2 text-muted-foreground tabular-nums">{contact.phone}</td>
+                          <td className="border-b border-border px-3 py-2">
+                            <StageTag contact={contact} lifecycle={lifecycle} />
+                          </td>
+                          <td className="max-w-[140px] truncate border-b border-border px-3 py-2 text-foreground">{contact.assignedTo || <span className="text-muted-foreground">Unassigned</span>}</td>
+                          <td className="max-w-[140px] truncate border-b border-border px-3 py-2 text-muted-foreground">{contact.source || "WhatsApp"}</td>
+                          <td className="border-b border-border px-3 py-2">
+                            <div className="flex max-w-[160px] flex-wrap gap-1">
                               {(contact.tags || []).length ? (
-                                contact.tags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="border-border text-[10px] text-muted-foreground">
+                                contact.tags.slice(0, 3).map((tag) => (
+                                  <span key={tag} className="rounded bg-secondary px-1.5 py-px text-[11px] text-secondary-foreground">
                                     {tag}
-                                  </Badge>
+                                  </span>
                                 ))
                               ) : (
                                 <span className="text-muted-foreground">—</span>
                               )}
+                              {(contact.tags || []).length > 3 && <span className="text-[11px] text-muted-foreground">+{contact.tags.length - 3}</span>}
                             </div>
                           </td>
-                          <td className="px-3 py-3">
-                            <Badge variant="outline" className={`capitalize ${lifecycleColors[lifecycle] || lifecycleColors.lead}`}>
-                              {stageLabel(contact)}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-3 text-muted-foreground">{contact.assignedTo || "Unassigned"}</td>
-                          <td className="px-3 py-3 text-muted-foreground">{contact.source || "WhatsApp"}</td>
-                          <td className="px-3 py-3 text-muted-foreground">{contact.lastActivity || "No activity"}</td>
-                          <td className="px-3 py-3 text-muted-foreground">{contact.conversations || 0}</td>
-                          <td className="px-3 py-3">
-                            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                              <button
-                                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-primary"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  onOpenContactChat?.(contact.id);
-                                }}
-                              >
-                                <MessageCircle size={13} />
-                              </button>
-                              <button className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={(event) => event.stopPropagation()}>
-                                <MoreHorizontal size={13} />
-                              </button>
-                            </div>
+                          <td className="whitespace-nowrap border-b border-border px-3 py-2 text-muted-foreground">{contact.lastActivity || "No activity"}</td>
+                          <td className="border-b border-border px-3 py-2 text-right text-muted-foreground tabular-nums">{contact.conversations || 0}</td>
+                          <td className="border-b border-border py-2 pl-1 pr-4" onClick={(event) => event.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button type="button" aria-label={`Actions for ${contact.name}`} className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100">
+                                  <MoreHorizontal size={15} />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem disabled={!onOpenContactChat} onSelect={() => onOpenContactChat?.(contact.id)}>
+                                  <MessageCircle /> Open chat
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => openContact(contact)}>
+                                  <PanelRight /> View details
+                                </DropdownMenuItem>
+                                {canWrite && (
+                                  <DropdownMenuItem onSelect={() => toggleSelect(contact.id)}>
+                                    <CheckSquare /> {checked ? "Unselect" : "Select"}
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </td>
                         </tr>
                       );
@@ -1035,96 +1035,169 @@ export function ContactsView({ onOpenContactChat, canWrite = false }: ContactsVi
             </>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-border/80 px-3 py-3">
-            <span className="text-xs text-muted-foreground">
-              {total === 0 ? "No contacts" : `Showing ${page * PAGE_SIZE + 1}-${Math.min(total, (page + 1) * PAGE_SIZE)} of ${total}`}
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5 sm:px-6">
+            <span className="text-[12px] text-muted-foreground tabular-nums">
+              {total === 0 ? "No contacts" : `${page * PAGE_SIZE + 1}–${Math.min(total, (page + 1) * PAGE_SIZE)} of ${total}`}
             </span>
-            <div className="hidden items-center gap-1 sm:flex">
-              <Button variant="outline" size="sm" className="h-8" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
-                Previous
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" className="h-8" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
+                <ChevronLeft size={15} />
+                <span className="hidden sm:inline">Previous</span>
               </Button>
-              <Button variant="outline" size="sm" className="h-8 bg-primary/10 text-primary">
-                {page + 1}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                disabled={(page + 1) * PAGE_SIZE >= total}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                Next
+              <span className="px-2 text-[12px] font-medium text-foreground tabular-nums">Page {page + 1}</span>
+              <Button variant="ghost" size="sm" className="h-8" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((current) => current + 1)}>
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight size={15} />
               </Button>
             </div>
           </div>
         </div>
 
-        {selectedContact ? (
-          <aside className="hidden min-h-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15 lg:flex">
-            <div className="border-b border-border/80 p-5 text-center">
-              <ContactAvatar contact={selectedContact} size="lg" />
-              <h2 className="mt-3 truncate text-lg font-semibold text-foreground">{selectedContact.name}</h2>
-              <p className="font-mono text-xs text-muted-foreground">{selectedContact.phone}</p>
-              <Badge variant="outline" className={`mt-3 capitalize ${lifecycleColors[contactLifecycle(selectedContact)] || lifecycleColors.lead}`}>
-                {stageLabel(selectedContact)}
-              </Badge>
+        {preview && <aside className="hidden w-[340px] shrink-0 border-l border-border bg-card xl:flex">{preview}</aside>}
+      </div>
+
+      <Sheet open={previewOpen && Boolean(preview) && !isWide} onOpenChange={setPreviewOpen}>
+        <SheetContent side="right" className="w-[min(24rem,92vw)] gap-0 p-0">
+          <SheetTitle className="sr-only">{selectedContact?.name || "Contact"}</SheetTitle>
+          <SheetDescription className="sr-only">Contact details</SheetDescription>
+          {preview}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+function StageTag({ contact, lifecycle }: { contact: Contact; lifecycle: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] capitalize text-foreground">
+      <span className={cn("size-1.5 shrink-0 rounded-full", statusDot[lifecycle] || statusDot.active)} />
+      {stageLabel(contact)}
+    </span>
+  );
+}
+
+type PreviewTask = { id: string; title: string; status: string; dueAt: string | null };
+type PreviewInvoice = { id: string; invoiceNumber: string; status: string; balanceDue: number; total: number; currency: string };
+
+// Right-hand record preview: who they are, what's open with them (tasks, unpaid invoices) and the
+// basics - so you can act without losing your place in the list.
+function ContactPreview({ contact, canSeeTasks, canSeeInvoices, onOpenChat }: { contact: Contact; canSeeTasks: boolean; canSeeInvoices: boolean; onOpenChat?: () => void }) {
+  const [tasks, setTasks] = useState<PreviewTask[] | null>(null);
+  const [invoices, setInvoices] = useState<PreviewInvoice[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setTasks(null);
+    setInvoices(null);
+    if (canSeeTasks) {
+      getTasks<{ data: PreviewTask[] }>({ contactId: contact.id })
+        .then((response) => active && setTasks(response.data))
+        .catch(() => active && setTasks([]));
+    }
+    if (canSeeInvoices) {
+      getInvoices<{ data: PreviewInvoice[] }>({ contactId: contact.id })
+        .then((response) => active && setInvoices(response.data))
+        .catch(() => active && setInvoices([]));
+    }
+    return () => {
+      active = false;
+    };
+  }, [contact.id, canSeeTasks, canSeeInvoices]);
+
+  const openTasks = (tasks || []).filter((task) => task.status !== "completed");
+  const unpaid = (invoices || []).filter((invoice) => invoice.balanceDue > 0 && invoice.status !== "cancelled" && invoice.status !== "draft");
+  const due = unpaid.reduce((sum, invoice) => sum + invoice.balanceDue, 0);
+  const lifecycle = contactLifecycle(contact);
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div className="flex flex-col items-center border-b border-border px-5 pb-4 pt-6 text-center">
+        <ContactAvatar contact={contact} size="lg" />
+        <h2 className="mt-3 max-w-full truncate text-[16px] font-semibold text-foreground">{contact.name}</h2>
+        <p className="text-[12.5px] text-muted-foreground tabular-nums">{contact.phone}</p>
+        <div className="mt-2">
+          <StageTag contact={contact} lifecycle={lifecycle} />
+        </div>
+        {onOpenChat && (
+          <Button className="mt-4 w-full" onClick={onOpenChat}>
+            <MessageCircle size={14} />
+            Open chat
+          </Button>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {canSeeInvoices && (
+          <section className="grid gap-1 border-b border-border px-5 py-4">
+            <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Money</h3>
+            {invoices === null ? (
+              <div className="h-6 w-24 animate-pulse rounded bg-secondary" />
+            ) : unpaid.length ? (
+              <p className="text-[13px] text-foreground">
+                <span className="font-serif text-[22px] text-money tabular-nums">{formatMoney(due, unpaid[0].currency)}</span> due on {unpaid.length} invoice{unpaid.length === 1 ? "" : "s"}
+              </p>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">{invoices.length ? "All invoices paid." : "No invoices yet."}</p>
+            )}
+          </section>
+        )}
+
+        {canSeeTasks && (
+          <section className="grid gap-2 border-b border-border px-5 py-4">
+            <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Open tasks</h3>
+            {tasks === null ? (
+              <div className="h-4 w-40 animate-pulse rounded bg-secondary" />
+            ) : openTasks.length ? (
+              <ul className="grid gap-1.5">
+                {openTasks.slice(0, 4).map((task) => {
+                  const overdue = task.dueAt && new Date(task.dueAt).getTime() < Date.now();
+                  return (
+                    <li key={task.id} className="flex items-start gap-2 text-[13px]">
+                      <Circle size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 text-foreground">{task.title}</span>
+                      {task.dueAt && (
+                        <span className={cn("shrink-0 text-[11.5px]", overdue ? "font-medium text-destructive" : "text-muted-foreground")}>
+                          {new Date(task.dueAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+                {openTasks.length > 4 && <li className="text-[12px] text-muted-foreground">+{openTasks.length - 4} more</li>}
+              </ul>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">Nothing open.</p>
+            )}
+          </section>
+        )}
+
+        <section className="grid gap-2 px-5 py-4">
+          <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Details</h3>
+          <dl className="grid gap-1.5 text-[12.5px]">
+            {[
+              ["Email", contact.email || "—"],
+              ["Owner", contact.assignedTo || "Unassigned"],
+              ["Source", contact.source || "WhatsApp"],
+              ["Chats", String(contact.conversations || 0)],
+              ["Last activity", contact.lastActivity || "No activity"],
+              ["In CRM since", formatDay(contact.crmAddedAt)],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="max-w-[62%] truncate text-right text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {(contact.tags || []).length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {contact.tags.map((tag) => (
+                <span key={tag} className="rounded bg-secondary px-1.5 py-0.5 text-[11.5px] text-secondary-foreground">
+                  {tag}
+                </span>
+              ))}
             </div>
-
-            <div className="no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-              <section>
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                  <Phone size={14} />
-                  Contact
-                </h3>
-                <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground"><Phone size={14} /> {selectedContact.phone}</div>
-                  <div className="flex items-center gap-2 text-muted-foreground"><Mail size={14} /> {selectedContact.email || "No email"}</div>
-                  <div className="flex items-center gap-2 text-muted-foreground"><Activity size={14} /> {selectedContact.lastActivity || "No activity"}</div>
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                  <Tag size={14} />
-                  Tags
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {(selectedContact.tags?.length ? selectedContact.tags : ["New"]).map((tag) => (
-                    <Badge key={tag} variant="outline" className="border-border text-muted-foreground">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">CRM details</h3>
-                <div className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3 text-xs">
-                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">Assigned</span><span className="text-foreground">{selectedContact.assignedTo || "Unassigned"}</span></div>
-                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">Source</span><span className="text-foreground">{selectedContact.source || "WhatsApp"}</span></div>
-                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">Chats</span><span className="text-foreground">{selectedContact.conversations || 0}</span></div>
-                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">CRM added</span><span className="text-foreground">{selectedContact.crmAddedAt || "—"}</span></div>
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Timeline</h3>
-                <div className="space-y-3 text-xs text-muted-foreground">
-                  <div className="flex gap-2"><span className="mt-1 size-1.5 rounded-full bg-primary" /> Last activity: {selectedContact.lastActivity || "No activity yet"}</div>
-                  <div className="flex gap-2"><span className="mt-1 size-1.5 rounded-full bg-info" /> Source: {selectedContact.source || "WhatsApp"}</div>
-                  <div className="flex gap-2"><span className="mt-1 size-1.5 rounded-full bg-warning" /> Assigned to {selectedContact.assignedTo || "Unassigned"}</div>
-                </div>
-              </section>
-            </div>
-
-            <div className="border-t border-border/80 p-4">
-              <Button className="w-full" onClick={() => onOpenContactChat?.(selectedContact.id)}>
-                <MessageCircle size={14} />
-                Open WhatsApp chat
-              </Button>
-            </div>
-          </aside>
-        ) : null}
+          )}
+        </section>
       </div>
     </div>
   );

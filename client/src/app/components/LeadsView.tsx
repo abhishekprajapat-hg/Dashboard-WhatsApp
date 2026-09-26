@@ -1,23 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  ArrowRightLeft,
   CalendarClock,
   CheckCircle2,
   Circle,
   Flag,
   Lock,
-  ListChecks,
   MessageCircle,
   Plus,
+  Search,
   StickyNote,
-  Target,
   UserRoundCheck,
   Wallet,
+  X,
 } from "lucide-react";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { EmptyState } from "./ui/empty-state";
 import { LoadingSkeleton } from "./ui/loading-skeleton";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { cn } from "./ui/utils";
+import { avatarTint } from "./whatsapp-inbox/utils";
+import { formatMoney, formatMoneyShort, initialsOf } from "../lib/format";
 import {
   addLeadInternalComment,
   addLeadNote,
@@ -106,26 +110,26 @@ const DEFAULT_STAGES: PipelineStage[] = [
 
 // A workspace's stored `color` is a generic name (sky/amber/violet/indigo/green/red, etc. - see
 // the industry pack seed data) or already one of this app's own theme tokens - map either onto a
-// real border-t-* class from the design system's actual palette (theme.css), rather than trying
-// to generate arbitrary Tailwind color classes at runtime.
-const COLOR_TO_ACCENT: Record<string, string> = {
-  sky: "border-t-info",
-  info: "border-t-info",
-  blue: "border-t-info",
-  amber: "border-t-warning",
-  warning: "border-t-warning",
-  yellow: "border-t-warning",
-  violet: "border-t-primary",
-  indigo: "border-t-primary",
-  primary: "border-t-primary",
-  green: "border-t-success",
-  success: "border-t-success",
-  red: "border-t-destructive",
-  destructive: "border-t-destructive",
+// real class from the design system's palette (theme.css), rather than generating arbitrary
+// Tailwind colour classes at runtime.
+const COLOR_TO_DOT: Record<string, string> = {
+  sky: "bg-info",
+  info: "bg-info",
+  blue: "bg-info",
+  amber: "bg-warning",
+  warning: "bg-warning",
+  yellow: "bg-warning",
+  violet: "bg-chart-3",
+  indigo: "bg-primary",
+  primary: "bg-primary",
+  green: "bg-success",
+  success: "bg-success",
+  red: "bg-destructive",
+  destructive: "bg-destructive",
 };
 
-function stageAccent(color: string) {
-  return COLOR_TO_ACCENT[color] || "border-t-primary";
+function stageDot(color: string) {
+  return COLOR_TO_DOT[color] || "bg-primary";
 }
 
 function relativeTime(iso?: string | null) {
@@ -146,49 +150,71 @@ function toDateInputValue(iso: string | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-function initials(name = "") {
-  return (
-    name
-      .split(" ")
-      .map((part) => part[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "L"
-  );
-}
-
 function timelineIcon(type: string) {
   switch (type) {
     case "stage_change":
-      return <Flag size={13} className="text-primary" />;
+      return <Flag size={12} className="text-primary" />;
     case "owner_change":
-      return <UserRoundCheck size={13} className="text-info" />;
+      return <UserRoundCheck size={12} className="text-info" />;
     case "follow_up_set":
-      return <CalendarClock size={13} className="text-warning" />;
+      return <CalendarClock size={12} className="text-warning" />;
     case "note":
-      return <StickyNote size={13} className="text-muted-foreground" />;
+      return <StickyNote size={12} className="text-muted-foreground" />;
     case "deal_updated":
-      return <Wallet size={13} className="text-primary" />;
+      return <Wallet size={12} className="text-money" />;
     default:
-      return <MessageCircle size={13} className="text-muted-foreground" />;
+      return <MessageCircle size={12} className="text-muted-foreground" />;
   }
 }
 
-function formatDeal(value: number | null, currency: string) {
-  if (value === null || Number.isNaN(value)) return "";
-  try {
-    return new Intl.NumberFormat("en-IN", { style: "currency", currency: currency || "INR", maximumFractionDigits: 0 }).format(value);
-  } catch {
-    return `${currency} ${value}`;
+// Follow-up signal for a card: overdue (coral), today (amber), or the date.
+function followUpState(iso: string | null) {
+  if (!iso) return null;
+  const due = new Date(iso);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const endToday = startToday + 864e5 - 1;
+  if (due.getTime() < startToday) {
+    const days = Math.max(1, Math.round((startToday - due.getTime()) / 864e5));
+    return { tone: "overdue" as const, label: `Follow-up ${days}d overdue` };
   }
+  if (due.getTime() <= endToday) return { tone: "today" as const, label: "Follow up today" };
+  return { tone: "later" as const, label: `Follow up ${due.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` };
+}
+
+function scoreClass(score: number) {
+  if (score >= 80) return "bg-problem-soft text-destructive";
+  if (score >= 50) return "bg-money-soft text-money";
+  return "bg-secondary text-muted-foreground";
+}
+
+const fieldClass =
+  "h-9 w-full rounded-lg border border-input bg-input-background px-2.5 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:opacity-60";
+
+function PanelSection({ title, icon, children, aside }: { title: string; icon?: ReactNode; children: ReactNode; aside?: ReactNode }) {
+  return (
+    <section className="grid gap-2.5 border-b border-border px-5 py-4 last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {icon}
+          {title}
+        </h3>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 interface LeadsViewProps {
   canWrite?: boolean;
+  currentUserId?: string;
+  openLeadId?: string | null;
+  onLeadLinkHandled?: () => void;
+  onOpenContact?: (contactId: string) => void;
 }
 
-export function LeadsView({ canWrite = false }: LeadsViewProps) {
+export function LeadsView({ canWrite = false, currentUserId, openLeadId, onLeadLinkHandled, onOpenContact }: LeadsViewProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<MemberOption[]>([]);
@@ -207,6 +233,12 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
   const [commentText, setCommentText] = useState("");
   const [savingComment, setSavingComment] = useState(false);
   const [stages, setStages] = useState<PipelineStage[]>(DEFAULT_STAGES);
+  const [search, setSearch] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [dragId, setDragId] = useState("");
+  const [dropStage, setDropStage] = useState("");
+  const [moveError, setMoveError] = useState("");
+  const openedFromLink = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -250,8 +282,25 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
     };
   }, []);
 
+  // Deep link: #leads/<leadId> opens that lead straight away.
+  useEffect(() => {
+    if (openLeadId && openedFromLink.current !== openLeadId) {
+      openedFromLink.current = openLeadId;
+      loadDetail(openLeadId);
+      onLeadLinkHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openLeadId]);
+
+  function setLeadHash(leadId: string) {
+    if (!/^#\/?leads(\/|$)/.test(window.location.hash)) return;
+    const next = leadId ? `#leads/${encodeURIComponent(leadId)}` : "#leads";
+    if (window.location.hash !== next) window.history.replaceState(null, "", next);
+  }
+
   function loadDetail(leadId: string) {
     setSelectedId(leadId);
+    setLeadHash(leadId);
     setDetailLoading(true);
     setDetail(null);
     setTasks([]);
@@ -268,6 +317,7 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
 
   function closeDetail() {
     setSelectedId("");
+    setLeadHash("");
     setDetail(null);
     setTasks([]);
     setNoteText("");
@@ -290,6 +340,21 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
       else setLeads((items) => items.map((lead) => (lead.id === leadId ? { ...lead, stage: response.data.stage, status: response.data.status } : lead)));
     } finally {
       setSavingField(false);
+    }
+  }
+
+  // Board moves (drag or the "Move to" menu) update the card at once and roll back if the save fails.
+  async function moveLead(leadId: string, stage: string) {
+    const lead = leads.find((item) => item.id === leadId);
+    if (!lead || lead.stage === stage || !canWrite) return;
+    const previous = lead.stage;
+    setMoveError("");
+    setLeads((items) => items.map((item) => (item.id === leadId ? { ...item, stage } : item)));
+    try {
+      await handleStageChange(leadId, stage);
+    } catch {
+      setLeads((items) => items.map((item) => (item.id === leadId ? { ...item, stage: previous } : item)));
+      setMoveError(`Couldn't move ${lead.contactName || "that lead"}. Check your connection and try again.`);
     }
   }
 
@@ -379,315 +444,410 @@ export function LeadsView({ canWrite = false }: LeadsViewProps) {
     await updateTask(task.id, { status: nextStatus }).catch(() => undefined);
   }
 
+  const filteredLeads = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return leads.filter((lead) => {
+      if (ownerFilter === "__mine" && lead.ownerUserId !== currentUserId) return false;
+      if (ownerFilter === "__none" && lead.ownerUserId) return false;
+      if (ownerFilter && !ownerFilter.startsWith("__") && lead.ownerUserId !== ownerFilter) return false;
+      if (!q) return true;
+      return `${lead.contactName} ${lead.contactPhone} ${lead.source} ${lead.campaign}`.toLowerCase().includes(q);
+    });
+  }, [leads, search, ownerFilter, currentUserId]);
+
   const columns = useMemo(() => {
-    return stages.map((stage) => ({
-      ...stage,
-      leads: leads
+    return stages.map((stage) => {
+      const stageLeads = filteredLeads
         .filter((lead) => lead.stage === stage.key)
-        .sort((a, b) => new Date(b.lastActivityAt || b.updatedAt).getTime() - new Date(a.lastActivityAt || a.updatedAt).getTime()),
-    }));
-  }, [leads, stages]);
+        .sort((a, b) => new Date(b.lastActivityAt || b.updatedAt).getTime() - new Date(a.lastActivityAt || a.updatedAt).getTime());
+      return {
+        ...stage,
+        leads: stageLeads,
+        total: stageLeads.reduce((sum, lead) => sum + (lead.dealValue || 0), 0),
+        currency: stageLeads.find((lead) => lead.dealCurrency)?.dealCurrency || "INR",
+      };
+    });
+  }, [filteredLeads, stages]);
+
+  const openValue = columns.filter((c) => c.type !== "won" && c.type !== "lost").reduce((sum, c) => sum + c.total, 0);
+  const wonValue = columns.filter((c) => c.type === "won").reduce((sum, c) => sum + c.total, 0);
+  const overdueCount = filteredLeads.filter((lead) => lead.status === "open" && followUpState(lead.followUpAt)?.tone === "overdue").length;
+  const filtering = Boolean(search.trim() || ownerFilter);
 
   return (
-    <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
-
-      <div className="relative z-10 flex flex-col gap-3 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="min-w-0">
-          <Badge variant="success" className="mb-2">
-            <Target size={12} />
-            Pipeline
-          </Badge>
-          <h1 className="text-2xl font-semibold text-foreground">Lead pipeline</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{leads.length} leads across {stages.length} stages</p>
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-border px-4 py-3 sm:px-6">
+        <dl className="flex items-baseline gap-5 text-[12.5px]">
+          <div>
+            <dt className="text-muted-foreground">Open pipeline</dt>
+            <dd className="font-serif text-[26px] leading-tight text-money tabular-nums">{formatMoneyShort(openValue)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Won</dt>
+            <dd className="text-[17px] font-semibold text-foreground tabular-nums">{formatMoneyShort(wonValue)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Leads</dt>
+            <dd className="text-[17px] font-semibold text-foreground tabular-nums">{filteredLeads.length}</dd>
+          </div>
+          {overdueCount > 0 && (
+            <div>
+              <dt className="text-muted-foreground">Overdue</dt>
+              <dd className="text-[17px] font-semibold text-destructive tabular-nums">{overdueCount}</dd>
+            </div>
+          )}
+        </dl>
+        <div className="ml-auto flex w-full items-center gap-2 sm:w-auto">
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-secondary/70 px-2.5 text-muted-foreground focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/30 sm:w-56 sm:flex-none">
+            <Search size={15} className="shrink-0" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Find a lead"
+              aria-label="Find a lead"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="rounded p-0.5 hover:text-foreground">
+                <X size={14} />
+              </button>
+            )}
+          </label>
+          <select value={ownerFilter} onChange={(event) => setOwnerFilter(event.target.value)} aria-label="Owner" className="h-9 w-36 shrink-0 rounded-lg border border-input bg-card px-2 text-[13px] text-foreground outline-none focus:ring-2 focus:ring-ring/20">
+            <option value="">Everyone</option>
+            {currentUserId && <option value="__mine">My leads</option>}
+            <option value="__none">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.userId} value={member.userId}>
+                {member.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
+      {moveError && (
+        <div className="flex items-center gap-2 border-b border-border bg-problem-soft px-4 py-2 text-[12.5px] text-destructive sm:px-6">
+          <span className="flex-1">{moveError}</span>
+          <button type="button" onClick={() => setMoveError("")} aria-label="Dismiss" className="rounded p-0.5 hover:bg-card/60">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {loading ? (
-        <div className="relative z-10 flex-1 p-6">
-          <LoadingSkeleton />
-        </div>
-      ) : leads.length === 0 ? (
-        <div className="relative z-10 flex flex-1 items-center justify-center p-6">
-          <EmptyState
-            title="No leads yet"
-            description="Leads captured from WhatsApp conversations or added manually from CRM will show up here."
-          />
-        </div>
-      ) : (
-        <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 sm:p-4">
-          {columns.map((column) => (
-            <div key={column.key} className="flex h-full w-72 shrink-0 flex-col rounded-xl border border-border/80 bg-card/60">
-              <div className={`flex items-center justify-between border-b border-t-2 ${stageAccent(column.color)} border-border/70 px-3 py-2.5`}>
-                <span className="text-sm font-semibold text-foreground">{column.label}</span>
-                <span className="rounded-full bg-secondary/70 px-2 py-0.5 text-xs text-muted-foreground">{column.leads.length}</span>
-              </div>
-              <div className="no-scrollbar flex-1 space-y-2 overflow-y-auto p-2">
-                {column.leads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    onClick={() => loadDetail(lead.id)}
-                    className={`cursor-pointer rounded-lg border bg-card p-3 shadow-sm transition hover:border-primary/40 ${
-                      selectedId === lead.id ? "border-primary/60 ring-1 ring-primary/30" : "border-border/80"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#075a63] text-[10px] font-semibold text-primary-foreground">
-                        {initials(lead.contactName)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{lead.contactName || "Unknown"}</p>
-                        <p className="truncate text-[11px] text-muted-foreground">{lead.contactPhone}</p>
-                      </div>
-                      <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                        {lead.score}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span className="truncate">{lead.ownerName}</span>
-                      <span className="truncate">{lead.source}</span>
-                    </div>
-                    {lead.dealValue !== null && (
-                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        <Wallet size={10} />
-                        {formatDeal(lead.dealValue, lead.dealCurrency)}
-                      </div>
-                    )}
-                    {canWrite && (
-                      <select
-                        value={lead.stage}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => handleStageChange(lead.id, event.target.value)}
-                        disabled={savingField}
-                        className="mt-2 h-7 w-full rounded-md border border-input bg-input-background px-1.5 text-[11px] text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      >
-                        {stages.map((stage) => (
-                          <option key={stage.key} value={stage.key}>
-                            {stage.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                ))}
-                {column.leads.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-border/70 p-4 text-center text-[11px] text-muted-foreground">
-                    No leads
-                  </div>
-                )}
-              </div>
+        <div className="flex min-h-0 flex-1 gap-3 overflow-hidden p-4 sm:px-6">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="w-[272px] shrink-0 space-y-2">
+              <div className="h-5 w-28 animate-pulse rounded bg-secondary" />
+              {[0, 1, 2].map((j) => (
+                <div key={j} className="h-24 animate-pulse rounded-xl bg-secondary/70" />
+              ))}
             </div>
           ))}
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <EmptyState title="No leads yet" description="Leads captured from WhatsApp conversations or added from the CRM will show up here." />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 snap-x gap-3 overflow-x-auto px-4 pb-4 pt-3 sm:px-6">
+          {columns.map((column) => {
+            const closed = column.type === "won" || column.type === "lost";
+            const isDropTarget = dropStage === column.key && dragId && leads.find((l) => l.id === dragId)?.stage !== column.key;
+            return (
+              <section
+                key={column.key}
+                aria-label={column.label}
+                onDragOver={(event) => {
+                  if (!dragId || !canWrite) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  if (dropStage !== column.key) setDropStage(column.key);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropStage((current) => (current === column.key ? "" : current));
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const id = event.dataTransfer.getData("text/lead-id") || dragId;
+                  setDropStage("");
+                  setDragId("");
+                  if (id) moveLead(id, column.key);
+                }}
+                className={cn(
+                  "flex h-full w-[272px] shrink-0 snap-start flex-col rounded-xl transition-colors",
+                  isDropTarget ? "bg-accent ring-2 ring-primary/40" : closed ? "bg-secondary/40" : "bg-secondary/60",
+                )}
+              >
+                <header className="px-3 pb-2 pt-3">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("size-2 shrink-0 rounded-full", stageDot(column.color))} />
+                    <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{column.label}</h3>
+                    <span className="text-[12px] text-muted-foreground tabular-nums">{column.leads.length}</span>
+                  </div>
+                  <p className={cn("mt-0.5 pl-4 text-[12px] tabular-nums", column.total ? "text-money" : "text-muted-foreground")}>
+                    {column.total ? formatMoneyShort(column.total, column.currency) : "No deal value"}
+                  </p>
+                </header>
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+                  {column.leads.map((lead) => {
+                    const follow = lead.status === "open" ? followUpState(lead.followUpAt) : null;
+                    return (
+                      <article
+                        key={lead.id}
+                        draggable={canWrite}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/lead-id", lead.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          setDragId(lead.id);
+                        }}
+                        onDragEnd={() => {
+                          setDragId("");
+                          setDropStage("");
+                        }}
+                        className={cn(
+                          "group relative rounded-xl border bg-card p-3 shadow-card transition-[box-shadow,opacity,border-color]",
+                          selectedId === lead.id ? "border-primary/50 ring-1 ring-primary/25" : "border-transparent hover:border-border",
+                          dragId === lead.id && "opacity-50",
+                          canWrite && "cursor-grab active:cursor-grabbing",
+                        )}
+                      >
+                        <button type="button" onClick={() => loadDetail(lead.id)} className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" aria-label={`Open ${lead.contactName || "lead"}`} />
+                        <div className="pointer-events-none relative flex items-start gap-2.5">
+                          <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold", avatarTint(lead.contactName))}>{initialsOf(lead.contactName)}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13.5px] font-medium text-foreground">{lead.contactName || "Unknown"}</p>
+                            <p className="truncate text-[11.5px] text-muted-foreground tabular-nums">{lead.contactPhone}</p>
+                          </div>
+                          <span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", scoreClass(lead.score))} title="Lead score">
+                            {lead.score}
+                          </span>
+                        </div>
+                        {lead.dealValue !== null && (
+                          <p className="pointer-events-none relative mt-2 text-[14px] font-semibold text-money tabular-nums">{formatMoney(lead.dealValue, lead.dealCurrency)}</p>
+                        )}
+                        {follow && (
+                          <p
+                            className={cn(
+                              "pointer-events-none relative mt-1.5 flex items-center gap-1 text-[11.5px] font-medium",
+                              follow.tone === "overdue" ? "text-destructive" : follow.tone === "today" ? "text-warning" : "text-muted-foreground",
+                            )}
+                          >
+                            <CalendarClock size={12} />
+                            {follow.label}
+                          </p>
+                        )}
+                        <div className="relative mt-2 flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                          <span className="pointer-events-none min-w-0 flex-1 truncate">
+                            {lead.ownerName || "Unassigned"}
+                            {lead.source ? ` · ${lead.source}` : ""}
+                          </span>
+                          {canWrite && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label={`Move ${lead.contactName || "lead"} to another stage`}
+                                  disabled={savingField}
+                                  className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground opacity-100 transition-opacity hover:bg-secondary hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+                                >
+                                  <ArrowRightLeft size={12} />
+                                  Move
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Move to</DropdownMenuLabel>
+                                {stages.map((stage) => (
+                                  <DropdownMenuItem key={stage.key} disabled={stage.key === lead.stage} onSelect={() => moveLead(lead.id, stage.key)}>
+                                    <span className={cn("size-2 rounded-full", stageDot(stage.color))} />
+                                    {stage.label}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {column.leads.length === 0 && (
+                    <div className={cn("rounded-xl border border-dashed px-3 py-5 text-center text-[12px] text-muted-foreground", isDropTarget ? "border-primary/50" : "border-border")}>
+                      {isDropTarget ? "Drop here" : filtering ? "No matches" : "No leads"}
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 
       <Sheet open={Boolean(selectedId)} onOpenChange={(open) => !open && closeDetail()}>
-        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-md">
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-[440px]">
           {detailLoading || !detail ? (
-            <div className="p-4">
+            <div className="p-5">
               <SheetTitle className="sr-only">Lead details</SheetTitle>
+              <SheetDescription className="sr-only">Loading</SheetDescription>
               <LoadingSkeleton />
             </div>
           ) : (
             <>
-              <SheetHeader className="border-b border-border/80 pb-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#075a63] text-sm font-semibold text-primary-foreground">
-                    {initials(detail.contactName)}
-                  </div>
+              <SheetHeader className="gap-3 border-b border-border px-5 pb-4 pt-5">
+                <div className="flex items-start gap-3 pr-8">
+                  <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold", avatarTint(detail.contactName))}>{initialsOf(detail.contactName)}</span>
                   <div className="min-w-0 flex-1">
-                    <SheetTitle className="truncate text-base">{detail.contactName || "Unknown lead"}</SheetTitle>
-                    <p className="truncate text-xs text-muted-foreground">{detail.contactPhone}{detail.contactEmail ? ` · ${detail.contactEmail}` : ""}</p>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">{detail.source}{detail.campaign ? ` · ${detail.campaign}` : ""}</p>
+                    <SheetTitle className="truncate text-[17px]">{detail.contactName || "Unknown lead"}</SheetTitle>
+                    <SheetDescription className="truncate text-[12.5px] tabular-nums">
+                      {detail.contactPhone}
+                      {detail.contactEmail ? ` · ${detail.contactEmail}` : ""}
+                    </SheetDescription>
+                    <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                      {detail.source}
+                      {detail.campaign ? ` · ${detail.campaign}` : ""} · active {relativeTime(detail.lastActivityAt).toLowerCase()}
+                    </p>
                   </div>
+                </div>
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[11.5px] text-muted-foreground">Deal value</p>
+                    <p className="font-serif text-[28px] leading-none text-money tabular-nums">{detail.dealValue !== null ? formatMoney(detail.dealValue, detail.dealCurrency) : "—"}</p>
+                  </div>
+                  {onOpenContact && detail.contactId && (
+                    <Button size="sm" onClick={() => onOpenContact(detail.contactId)}>
+                      <MessageCircle size={14} />
+                      Open chat
+                    </Button>
+                  )}
                 </div>
               </SheetHeader>
 
-              <div className="flex-1 space-y-5 overflow-y-auto p-4">
-                <section className="space-y-2 rounded-lg border border-border/80 bg-surface-subtle/55 p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">Stage</span>
-                      <select
-                        value={detail.stage}
-                        disabled={!canWrite || savingField}
-                        onChange={(event) => handleStageChange(detail.id, event.target.value)}
-                        className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      >
-                        {stages.map((stage) => (
-                          <option key={stage.key} value={stage.key}>
-                            {stage.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">Owner</span>
-                      <select
-                        value={detail.ownerUserId}
-                        disabled={!canWrite || savingField}
-                        onChange={(event) => handleOwnerChange(detail.id, event.target.value)}
-                        className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      >
-                        <option value="">Unassigned</option>
-                        {members.map((member) => (
-                          <option key={member.userId} value={member.userId}>
-                            {member.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">Follow-up date</span>
-                      <input
-                        type="date"
-                        value={toDateInputValue(detail.followUpAt)}
-                        disabled={!canWrite || savingField}
-                        onChange={(event) => handleFollowUpChange(detail.id, event.target.value)}
-                        className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      />
-                    </label>
-                    <label className="space-y-1 text-xs">
-                      <span className="text-muted-foreground">Deal value ({detail.dealCurrency})</span>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="0"
-                        value={dealValueInput}
-                        disabled={!canWrite || savingDeal}
-                        onChange={(event) => setDealValueInput(event.target.value)}
-                        onBlur={handleSaveDealValue}
-                        className="h-8 w-full rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      />
-                    </label>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">Last activity: {relativeTime(detail.lastActivityAt)}</div>
-                </section>
+              <PanelSection title="Deal">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="grid gap-1 text-[12px]">
+                    <span className="text-muted-foreground">Stage</span>
+                    <select value={detail.stage} disabled={!canWrite || savingField} onChange={(event) => handleStageChange(detail.id, event.target.value)} className={fieldClass}>
+                      {stages.map((stage) => (
+                        <option key={stage.key} value={stage.key}>
+                          {stage.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-[12px]">
+                    <span className="text-muted-foreground">Owner</span>
+                    <select value={detail.ownerUserId} disabled={!canWrite || savingField} onChange={(event) => handleOwnerChange(detail.id, event.target.value)} className={fieldClass}>
+                      <option value="">Unassigned</option>
+                      {members.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-[12px]">
+                    <span className="text-muted-foreground">Follow-up date</span>
+                    <input type="date" value={toDateInputValue(detail.followUpAt)} disabled={!canWrite || savingField} onChange={(event) => handleFollowUpChange(detail.id, event.target.value)} className={fieldClass} />
+                  </label>
+                  <label className="grid gap-1 text-[12px]">
+                    <span className="text-muted-foreground">Deal value ({detail.dealCurrency})</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={dealValueInput}
+                      disabled={!canWrite || savingDeal}
+                      onChange={(event) => setDealValueInput(event.target.value)}
+                      onBlur={handleSaveDealValue}
+                      className={cn(fieldClass, "tabular-nums")}
+                    />
+                  </label>
+                </div>
+              </PanelSection>
 
-                <section>
-                  <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <ListChecks size={14} /> Tasks for this lead
-                  </h3>
-                  <div className="space-y-1.5">
-                    {tasks.length === 0 && <p className="text-xs text-muted-foreground">No tasks yet.</p>}
-                    {tasks.map((task) => (
-                      <button
-                        key={task.id}
-                        type="button"
-                        onClick={() => canWrite && handleToggleTask(task)}
-                        className="flex w-full items-center gap-2 rounded-md border border-border/70 bg-card px-2.5 py-1.5 text-left text-xs hover:border-primary/40"
-                      >
-                        {task.status === "completed" ? (
-                          <CheckCircle2 size={14} className="shrink-0 text-primary" />
-                        ) : (
-                          <Circle size={14} className="shrink-0 text-muted-foreground" />
-                        )}
-                        <span className={`min-w-0 flex-1 truncate ${task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}`}>
-                          {task.title}
-                        </span>
-                        {task.assignedToUserId && (
-                          <span className="shrink-0 truncate text-[10px] text-muted-foreground">{task.assignedToUserId.name}</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  {canWrite && (
-                    <form onSubmit={handleAddTask} className="mt-2 space-y-1.5">
-                      <div className="flex gap-1.5">
-                        <input
-                          value={newTaskTitle}
-                          onChange={(event) => setNewTaskTitle(event.target.value)}
-                          placeholder="Quick add a task..."
-                          className="h-8 flex-1 rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                        />
-                        <Button type="submit" size="sm" disabled={savingTask || !newTaskTitle.trim()}>
-                          <Plus size={13} />
-                        </Button>
-                      </div>
-                      <select
-                        value={newTaskAssigneeId}
-                        onChange={(event) => setNewTaskAssigneeId(event.target.value)}
-                        className="h-7 w-full rounded-md border border-input bg-input-background px-2 text-[11px] text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      >
-                        <option value="">Assign to... (optional)</option>
-                        {members.map((member) => (
-                          <option key={member.userId} value={member.userId}>
-                            {member.name}
-                          </option>
-                        ))}
-                      </select>
-                    </form>
-                  )}
-                </section>
-
-                <section>
-                  <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <StickyNote size={14} /> Activity timeline
-                  </h3>
-                  {canWrite && (
-                    <form onSubmit={handleAddNote} className="mb-3 flex gap-1.5">
-                      <input
-                        value={noteText}
-                        onChange={(event) => setNoteText(event.target.value)}
-                        placeholder="Add a note..."
-                        className="h-8 flex-1 rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      />
-                      <Button type="submit" size="sm" disabled={savingNote || !noteText.trim()}>
-                        Add
+              <PanelSection title="Tasks" aside={<span className="text-[11.5px] text-muted-foreground tabular-nums">{tasks.filter((t) => t.status === "open").length} open</span>}>
+                <div className="grid gap-1">
+                  {tasks.length === 0 && <p className="text-[12.5px] text-muted-foreground">No tasks for this lead yet.</p>}
+                  {tasks.map((task) => (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => canWrite && handleToggleTask(task)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left text-[13px] hover:bg-secondary"
+                    >
+                      {task.status === "completed" ? <CheckCircle2 size={16} className="shrink-0 text-success" /> : <Circle size={16} className="shrink-0 text-muted-foreground" />}
+                      <span className={cn("min-w-0 flex-1 truncate", task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground")}>{task.title}</span>
+                      {task.assignedToUserId && <span className="shrink-0 truncate text-[11px] text-muted-foreground">{task.assignedToUserId.name}</span>}
+                    </button>
+                  ))}
+                </div>
+                {canWrite && (
+                  <form onSubmit={handleAddTask} className="grid gap-1.5">
+                    <div className="flex gap-1.5">
+                      <input value={newTaskTitle} onChange={(event) => setNewTaskTitle(event.target.value)} placeholder="Add a task" aria-label="New task" className={fieldClass} />
+                      <Button type="submit" size="sm" className="h-9" disabled={savingTask || !newTaskTitle.trim()} aria-label="Add task">
+                        <Plus size={14} />
                       </Button>
-                    </form>
-                  )}
-                  <div className="space-y-3 border-l border-border/70 pl-3">
-                    {[...detail.timeline].reverse().map((event, index) => (
-                      <div key={event.id || index} className="relative">
-                        <span className="absolute -left-[19px] top-0.5 flex size-4 items-center justify-center rounded-full border border-border bg-card">
-                          {timelineIcon(event.type)}
-                        </span>
-                        <p className="text-xs text-foreground">
-                          {event.title || event.body || event.type}
-                          {event.from && event.to ? ` (${event.from.replace(/_/g, " ")} → ${event.to.replace(/_/g, " ")})` : ""}
-                        </p>
-                        {event.body && event.title && <p className="mt-0.5 text-xs text-muted-foreground">{event.body}</p>}
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">{relativeTime(event.at)}</p>
-                      </div>
-                    ))}
-                    {detail.timeline.length === 0 && <p className="text-xs text-muted-foreground">No activity yet.</p>}
-                  </div>
-                </section>
+                    </div>
+                    <select value={newTaskAssigneeId} onChange={(event) => setNewTaskAssigneeId(event.target.value)} aria-label="Assign task to" className={cn(fieldClass, "h-8 text-[12px] text-muted-foreground")}>
+                      <option value="">Assign to… (optional)</option>
+                      {members.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </form>
+                )}
+              </PanelSection>
 
-                <section className="rounded-lg border border-dashed border-border/70 bg-secondary/20 p-3">
-                  <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-                    <Lock size={13} /> Internal comments
-                  </h3>
-                  <p className="mb-2 text-[10px] text-muted-foreground">Team-only - never shown to the customer, kept separate from the activity timeline above.</p>
-                  {canWrite && (
-                    <form onSubmit={handleAddComment} className="mb-3 flex gap-1.5">
-                      <input
-                        value={commentText}
-                        onChange={(event) => setCommentText(event.target.value)}
-                        placeholder="Add an internal comment..."
-                        className="h-8 flex-1 rounded-md border border-input bg-input-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
-                      />
-                      <Button type="submit" size="sm" disabled={savingComment || !commentText.trim()}>
-                        Add
-                      </Button>
-                    </form>
-                  )}
-                  <div className="space-y-2">
-                    {[...detail.internalComments].reverse().map((comment, index) => (
-                      <div key={comment.id || index} className="rounded-md border border-border/60 bg-card px-2.5 py-1.5">
-                        <p className="text-xs text-foreground">{comment.text}</p>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          {members.find((member) => member.userId === comment.actorUserId)?.name || "Team member"} · {relativeTime(comment.at)}
-                        </p>
-                      </div>
-                    ))}
-                    {detail.internalComments.length === 0 && <p className="text-xs text-muted-foreground">No internal comments yet.</p>}
-                  </div>
-                </section>
-              </div>
+              <PanelSection title="Timeline">
+                {canWrite && (
+                  <form onSubmit={handleAddNote} className="flex gap-1.5">
+                    <input value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Add a note to the timeline" aria-label="New note" className={fieldClass} />
+                    <Button type="submit" size="sm" className="h-9" disabled={savingNote || !noteText.trim()}>
+                      Add
+                    </Button>
+                  </form>
+                )}
+                <ol className="relative grid gap-3.5 pl-7 before:absolute before:bottom-1 before:left-[11px] before:top-1 before:w-px before:bg-border">
+                  {[...detail.timeline].reverse().map((event, index) => (
+                    <li key={event.id || index} className="relative">
+                      <span className="absolute -left-7 top-0 flex size-[23px] items-center justify-center rounded-full border border-border bg-card">{timelineIcon(event.type)}</span>
+                      <p className="text-[13px] text-foreground">
+                        {event.title || event.body || event.type}
+                        {event.from && event.to ? <span className="text-muted-foreground"> · {event.from.replace(/_/g, " ")} → {event.to.replace(/_/g, " ")}</span> : ""}
+                      </p>
+                      {event.body && event.title && <p className="mt-0.5 text-[12.5px] text-muted-foreground">{event.body}</p>}
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{relativeTime(event.at)}</p>
+                    </li>
+                  ))}
+                  {detail.timeline.length === 0 && <li className="text-[12.5px] text-muted-foreground">No activity yet.</li>}
+                </ol>
+              </PanelSection>
+
+              <PanelSection title="Internal comments" icon={<Lock size={11} />}>
+                <p className="-mt-1 text-[11.5px] text-muted-foreground">Team only. Never shown to the customer, kept apart from the timeline.</p>
+                {canWrite && (
+                  <form onSubmit={handleAddComment} className="flex gap-1.5">
+                    <input value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Add an internal comment" aria-label="New internal comment" className={fieldClass} />
+                    <Button type="submit" size="sm" className="h-9" disabled={savingComment || !commentText.trim()}>
+                      Add
+                    </Button>
+                  </form>
+                )}
+                <div className="grid gap-2">
+                  {[...detail.internalComments].reverse().map((comment, index) => (
+                    <div key={comment.id || index} className="rounded-lg bg-bubble-note px-3 py-2">
+                      <p className="text-[13px] text-foreground">{comment.text}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {members.find((member) => member.userId === comment.actorUserId)?.name || "Team member"} · {relativeTime(comment.at)}
+                      </p>
+                    </div>
+                  ))}
+                  {detail.internalComments.length === 0 && <p className="text-[12.5px] text-muted-foreground">No internal comments yet.</p>}
+                </div>
+              </PanelSection>
             </>
           )}
         </SheetContent>
