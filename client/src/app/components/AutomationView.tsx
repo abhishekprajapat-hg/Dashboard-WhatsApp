@@ -534,7 +534,7 @@ function RunHistoryEntry({
 
   return (
     <div className={depth > 0 ? "ml-4 border-l border-border/50 pl-2" : ""}>
-      <div className="overflow-hidden rounded-md border border-border/70 bg-card/70">
+      <div className="overflow-hidden rounded-md border border-border bg-card">
         <button
           type="button"
           onClick={() => onToggle(run.id)}
@@ -557,13 +557,13 @@ function RunHistoryEntry({
           <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(run.createdAt)}</span>
         </button>
         {expanded ? (
-          <div className="space-y-1 border-t border-border/70 bg-background/60 px-2 py-2">
+          <div className="space-y-1 border-t border-border bg-background/60 px-2 py-2">
             {run.error ? <p className="text-[11px] text-destructive">{run.error}</p> : null}
             {run.history.length ? (
               run.history.map((step, index) => {
                 const item = catalogFor(step.type);
                 return (
-                  <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]">
+                  <div key={`${step.nodeId}-${index}`} className="flex items-start gap-2 rounded border border-border bg-card px-2 py-1.5 text-[11px]">
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded" style={{ backgroundColor: tint(item.color), color: item.color }}>
                       {iconFor(item.icon, 12)}
                     </span>
@@ -1636,7 +1636,7 @@ function BuilderCanvas({
         </Button>
       ) : null}
       {!canvasMaximized && !nodeLibraryCollapsed ? (
-      <aside className="no-scrollbar hidden overflow-y-auto border-r border-border bg-card/60 p-3 lg:block">
+      <aside className="no-scrollbar hidden overflow-y-auto border-r border-border bg-card p-3 lg:block">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-foreground">Node Library</div>
@@ -1666,7 +1666,7 @@ function BuilderCanvas({
       ) : null}
 
       <main className="relative min-h-0 min-w-0 bg-surface-subtle">
-        <div className="absolute left-2 right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-2 rounded-lg border border-border bg-card/90 p-2 shadow-card backdrop-blur sm:left-3 sm:right-auto sm:top-3">
+        <div className="absolute left-2 right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2 shadow-card backdrop-blur sm:left-3 sm:right-auto sm:top-3">
           {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={() => saveCanvas()} disabled={saving}>
             <Save size={13} className="mr-1" /> {saving ? "Saving" : "Save"}
           </Button>}
@@ -1677,7 +1677,7 @@ function BuilderCanvas({
             Debug {debugMode ? "On" : "Off"}
           </Button>
         </div>
-        <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-lg border border-border bg-card/95 shadow-float backdrop-blur sm:left-3">
+        <div className="absolute bottom-3 left-2 z-10 overflow-hidden rounded-lg border border-border bg-card shadow-float backdrop-blur sm:left-3">
           <button
             type="button"
             className={controlButtonClass}
@@ -1889,7 +1889,7 @@ function BuilderCanvas({
                       <div className="space-y-1">
                         {testResult.actions.length ? (
                           testResult.actions.slice(0, 4).map((action, index) => (
-                            <div key={`${action.type}-${index}`} className="rounded border border-border/70 bg-card/70 px-2 py-1 text-muted-foreground">
+                            <div key={`${action.type}-${index}`} className="rounded border border-border bg-card px-2 py-1 text-muted-foreground">
                               <span className="font-medium text-foreground">{action.type.replace(/_/g, " ")}</span>
                               {action.status ? ` - ${action.status}` : ""}
                               {action.tag ? ` - ${action.tag}` : ""}
@@ -1953,7 +1953,7 @@ function BuilderCanvas({
             <div className="space-y-1 rounded-md border border-border bg-background p-2">
               {selectedFlow?.executionLogs?.length ? (
                 selectedFlow.executionLogs.slice(-6).map((log, index) => (
-                  <div key={`${log.at}-${index}`} className="rounded-md border border-border/70 bg-card/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                  <div key={`${log.at}-${index}`} className="rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span className={log.level === "error" ? "font-medium text-destructive" : "font-medium text-primary"}>{log.level}</span>
                       <span>{formatDateTime(log.at)}</span>
@@ -2027,6 +2027,9 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     status: "active" as FlowStatus,
   });
   const [editingSimpleId, setEditingSimpleId] = useState("");
+  // The quick form starts open for a workspace with no flows yet (or while editing one), and
+  // folded away otherwise so the canvas gets the screen.
+  const [simpleOpen, setSimpleOpen] = useState<boolean | null>(null);
   const [creatingSimple, setCreatingSimple] = useState(false);
   const [messageTemplates, setMessageTemplates] = useState<InternalTemplate[]>([]);
   const [loadingFlows, setLoadingFlows] = useState(true);
@@ -2190,21 +2193,20 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
     );
   }
 
+  const simpleShown = Boolean(editingSimpleId) || (simpleOpen ?? flowList.length === 0);
+
   return (
     <ReactFlowProvider>
       <div className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden overflow-y-visible">
-        <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.74),rgba(2,6,23,0.18))] px-3 py-4 sm:px-6">
+        <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Automation</Badge>
-              <span className="text-[11px] text-muted-foreground">{activeCount} active - {pausedCount} paused - {draftCount} draft</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] text-muted-foreground tabular-nums">{activeCount} active · {pausedCount} paused · {draftCount} draft</span>
             </div>
-            <h1 className="text-foreground">Visual Automation Builder</h1>
-            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">Build WhatsApp triggers, CRM actions, templates, and handoff flows while keeping every execution path visible.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={loadFlows} disabled={loadingFlows}>
+            <Button size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={loadFlows} disabled={loadingFlows}>
               <RefreshCcw size={13} className="mr-1.5" /> {loadingFlows ? "Refreshing" : "Refresh"}
             </Button>
             {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground hover:bg-primary/90" onClick={newFlow}>
@@ -2214,28 +2216,23 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
           </div>
         </div>
 
-        <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 sm:grid-cols-3 sm:px-6">
+        <dl className="grid shrink-0 grid-cols-3 border-b border-border">
           {[
-            { label: "Flow runs today", value: summary.runsToday.toLocaleString(), icon: <Zap size={15} />, accent: "from-primary/20 to-success/5" },
-            { label: "Messages automated", value: summary.automatedMessages.toLocaleString(), icon: <MessageCircle size={15} />, accent: "from-info/15 to-primary/5" },
-            { label: "Handoff to agent", value: summary.handoffs.toLocaleString(), icon: <UserRoundPlus size={15} />, accent: "from-chart-3/15 to-chart-3/5" },
-          ].map((item) => (
-            <Card key={item.label} className={`overflow-hidden border-border bg-gradient-to-br ${item.accent} p-3`}>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold text-foreground">{item.value}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">{item.label}</div>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{item.icon}</div>
-              </div>
-            </Card>
+            { label: "Flow runs today", value: summary.runsToday.toLocaleString() },
+            { label: "Messages automated", value: summary.automatedMessages.toLocaleString() },
+            { label: "Handed to an agent", value: summary.handoffs.toLocaleString() },
+          ].map((item, index) => (
+            <div key={item.label} className={`px-4 py-3 sm:px-6 ${index > 0 ? "border-l border-border" : ""}`}>
+              <dt className="truncate text-[12px] text-muted-foreground">{item.label}</dt>
+              <dd className="mt-0.5 text-[20px] font-semibold tracking-[-0.02em] text-foreground tabular-nums">{item.value}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
 
         {canWrite && (
-          <form onSubmit={createSimpleFlow} className="border-b border-border bg-card/35 px-3 py-4 sm:px-6">
-            <Card className="overflow-hidden border-border bg-card/80 shadow-xl shadow-black/10">
-              <div className="flex flex-col gap-3 border-b border-border bg-background/45 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <form onSubmit={createSimpleFlow} className="border-b border-border px-4 py-4 sm:px-6">
+            <Card className="overflow-hidden border-border bg-card shadow-card">
+              <div className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${simpleShown ? "border-b border-border" : ""}`}>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
@@ -2248,18 +2245,23 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {!editingSimpleId && (
+                    <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSimpleOpen(!simpleShown)} aria-expanded={simpleShown}>
+                      {simpleShown ? "Hide" : "Set one up"}
+                    </Button>
+                  )}
                   {editingSimpleId && (
-                    <Button type="button" size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={() => setEditingSimpleId("")}>
+                    <Button type="button" size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={() => setEditingSimpleId("")}>
                       Cancel edit
                     </Button>
                   )}
-                  <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={creatingSimple}>
+                  {simpleShown && <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={creatingSimple}>
                     <Save size={13} className="mr-1.5" /> {creatingSimple ? "Saving" : editingSimpleId ? "Save changes" : "Create automation"}
-                  </Button>
+                  </Button>}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-px bg-border lg:grid-cols-3">
+              {simpleShown && <div className="grid grid-cols-1 gap-px bg-border lg:grid-cols-3">
                 <section className="space-y-3 bg-card p-4">
                   <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary"><Zap size={14} /></span>
@@ -2361,7 +2363,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                     <input type="checkbox" checked={simpleForm.sendToGoogleSheet} onChange={(event) => setSimpleForm((current) => ({ ...current, sendToGoogleSheet: event.target.checked }))} className="h-4 w-4 accent-primary" />
                   </label>
                 </section>
-              </div>
+              </div>}
             </Card>
           </form>
         )}
@@ -2370,8 +2372,8 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
           <aside
             className={
               flowsListCollapsed
-                ? "w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:w-12 lg:border-b-0 lg:border-r"
-                : "max-h-72 w-full shrink-0 overflow-hidden border-b border-border bg-card/70 lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r"
+                ? "w-full shrink-0 overflow-hidden border-b border-border bg-card lg:w-12 lg:border-b-0 lg:border-r"
+                : "max-h-72 w-full shrink-0 overflow-hidden border-b border-border bg-card lg:max-h-none lg:w-80 lg:border-b-0 lg:border-r"
             }
           >
             <div className="border-b border-border bg-background/35 p-3">
@@ -2425,7 +2427,7 @@ export function AutomationView({ canWrite = false }: AutomationViewProps) {
                           </div>
                           <div className="mt-1 flex flex-wrap gap-1.5">
                             <Badge variant="outline" className={`shrink-0 text-[10px] ${statusStyle[flow.status]}`}>{statusLabel[flow.status] || flow.status}</Badge>
-                            <Badge variant="outline" className="border-border bg-card/70 text-[10px] text-muted-foreground">{flowTriggerLabel(flow)}</Badge>
+                            <Badge variant="outline" className="border-border bg-card text-[10px] text-muted-foreground">{flowTriggerLabel(flow)}</Badge>
                           </div>
                         </div>
                         <div className="text-right">

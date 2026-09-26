@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
   Shield,
-  ShieldCheck,
   Trash2,
   UserPlus,
   Users,
@@ -80,7 +79,7 @@ const permissionsByRole: Record<string, string[]> = {
   viewer: ["Read-only", "Reports"],
 };
 
-const fieldClass = "h-9 border-border/80 bg-surface-elevated/45 text-sm";
+const fieldClass = "h-9 border-border bg-surface-elevated/45 text-sm";
 
 interface TeamViewProps {
   canManage?: boolean;
@@ -197,19 +196,11 @@ export function TeamView({ canManage = false }: TeamViewProps) {
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(11,116,128,0.10),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_28%)]">
-      <div className="shrink-0 border-b border-border/70 px-3 py-4 sm:px-6">
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <ShieldCheck size={14} className="text-primary" />
-              <span>Tenant-aware team access</span>
-              <Badge variant="outline" className="hidden sm:inline-flex">
-                RBAC preserved
-              </Badge>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground">Team</h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[13px] text-muted-foreground tabular-nums">
               {members.length} members, {onlineCount} active now, {adminCount} admin seats
             </p>
           </div>
@@ -237,7 +228,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
       <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4">
           {canManage && showInvite && (
-            <Card className="rounded-lg border-border/70 bg-card/90 p-4 shadow-xl shadow-black/10">
+            <Card className="rounded-lg border-border bg-card p-4 shadow-float">
               <form onSubmit={handleInvite} className="space-y-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -296,7 +287,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
               { label: "Resolved today", value: resolvedCount, icon: <BadgeCheck size={16} />, detail: "Across all members", tone: "text-primary" },
               { label: "Admin seats", value: adminCount, icon: <Shield size={16} />, detail: "Elevated access", tone: "text-warning" },
             ].map((item) => (
-              <Card key={item.label} className="rounded-lg border-border/70 bg-card/90 p-4 shadow-xl shadow-black/5">
+              <Card key={item.label} className="rounded-lg border-border bg-card p-4 shadow-float">
                 <div className="flex items-center justify-between gap-3">
                   <div className={`flex size-10 items-center justify-center rounded-md border border-border bg-white/[0.04] ${item.tone}`}>{item.icon}</div>
                   <span className="text-[11px] text-muted-foreground">{item.detail}</span>
@@ -307,11 +298,11 @@ export function TeamView({ canManage = false }: TeamViewProps) {
             ))}
           </div>
 
-          <Card className="rounded-lg border-border/70 bg-card/90 p-3 shadow-xl shadow-black/5">
+          <Card className="rounded-lg border-border bg-card p-3 shadow-float">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="relative w-full lg:max-w-sm">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, email, or role..." className="h-10 border-border/80 bg-surface-elevated/45 pl-9 text-sm" />
+                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, email, or role..." className="h-10 border-border bg-surface-elevated/45 pl-9 text-sm" />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {["online", "busy", "away", "offline"].map((status) => (
@@ -329,7 +320,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
           {loading ? (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {Array.from({ length: 4 }).map((_, index) => (
-                <Card key={index} className="rounded-lg border-border/70 bg-card/80 p-4">
+                <Card key={index} className="rounded-lg border-border bg-card p-4">
                   <div className="flex animate-pulse gap-3">
                     <div className="size-12 rounded-full bg-secondary" />
                     <div className="flex-1 space-y-3">
@@ -345,7 +336,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <Card className="rounded-lg border-border/70 bg-card/85 p-8 text-center">
+            <Card className="rounded-lg border-border bg-card p-8 text-center">
               <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground">
                 <Users size={20} />
               </div>
@@ -357,11 +348,11 @@ export function TeamView({ canManage = false }: TeamViewProps) {
           ) : (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {filtered.map((member) => (
-                <Card key={member.id} className="group rounded-lg border-border/70 bg-card/90 p-4 shadow-xl shadow-black/5 transition-colors hover:border-primary/25 hover:bg-card">
+                <Card key={member.id} className="group rounded-lg border-border bg-card p-4 shadow-float transition-colors hover:border-primary/25 hover:bg-card">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 gap-3">
                       <div className="relative shrink-0">
-                        <div className="flex size-12 items-center justify-center rounded-full border border-border bg-gradient-to-br from-primary/20 via-chart-2/15 to-chart-3/15 text-sm font-semibold text-foreground">
+                        <div className="flex size-12 items-center justify-center rounded-full border border-border bg-jewel-soft text-sm font-semibold text-foreground">
                           {getInitials(member)}
                         </div>
                         <span className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-card ${statusDot[member.status]}`} />
@@ -376,7 +367,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">{member.email}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {(permissionsByRole[member.role] || []).map((permission) => (
-                            <Badge key={permission} variant="outline" className="border-border/70 bg-surface-elevated/35 text-[10px] text-muted-foreground">
+                            <Badge key={permission} variant="outline" className="border-border bg-surface-elevated/35 text-[10px] text-muted-foreground">
                               {permission}
                             </Badge>
                           ))}
@@ -409,7 +400,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                       { label: "Last active", value: member.lastActive },
                       { label: "Joined", value: member.joinedAt },
                     ].map((item) => (
-                      <div key={item.label} className="rounded-md border border-border/70 bg-surface-elevated/30 px-3 py-2">
+                      <div key={item.label} className="rounded-md border border-border bg-surface-elevated/30 px-3 py-2">
                         <div className="text-[11px] text-muted-foreground">{item.label}</div>
                         <div className="mt-1 truncate text-xs font-medium text-foreground">{item.value}</div>
                       </div>
@@ -424,7 +415,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
 
       {editingMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border-border/70 bg-card p-4 shadow-2xl">
+          <Card className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border-border bg-card p-4 shadow-2xl">
             <form onSubmit={handleEdit} className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -446,7 +437,7 @@ export function TeamView({ canManage = false }: TeamViewProps) {
                   {editingMember.role === "super_admin" && <option value="super_admin">Super Admin</option>}
                 </select>
               </label>
-              <div className="rounded-md border border-border/70 bg-surface-elevated/35 p-3">
+              <div className="rounded-md border border-border bg-surface-elevated/35 p-3">
                 <div className="mb-2 text-xs font-medium text-muted-foreground">Permission summary</div>
                 <div className="flex flex-wrap gap-1.5">
                   {(permissionsByRole[editRole] || []).map((permission) => (

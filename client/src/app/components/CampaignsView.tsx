@@ -188,6 +188,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
   const [notice, setNotice] = useState("");
   const [report, setReport] = useState<CampaignReport | null>(null);
   const [csvText, setCsvText] = useState("");
+  const [csvOpen, setCsvOpen] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [audiencePreview, setAudiencePreview] = useState<{ count: number; label: string; sample: { id: string; name: string; phone: string }[] } | null>(null);
   const [uploadingHeaderMedia, setUploadingHeaderMedia] = useState(false);
@@ -423,20 +424,20 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Marketing SaaS</Badge>
-              <span className="text-[11px] text-muted-foreground">{campaigns.length} campaigns - {templates.length} approved WhatsApp templates</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] text-muted-foreground tabular-nums">{campaigns.length} campaigns · {templates.length} approved WhatsApp templates</span>
             </div>
-            <h1 className="text-foreground">Campaign Management</h1>
-            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-              Plan template broadcasts, preview audiences, schedule delivery, and monitor every WhatsApp result.
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={loadCampaigns} disabled={loading}>
+            {canWrite && (
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setCsvOpen((value) => !value)} aria-expanded={csvOpen}>
+                <FileUp size={13} className="mr-1.5" /> Import contacts
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={loadCampaigns} disabled={loading}>
               <RefreshCcw size={13} className="mr-1.5" /> {loading ? "Refreshing" : "Refresh"}
             </Button>
             {canWrite && (
@@ -450,7 +451,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
       {canWrite && showCreate && (
         <form onSubmit={handleCreate} className="shrink-0 border-b border-border bg-card/35 px-3 py-4 sm:px-6">
-          <Card className="overflow-hidden border-border bg-card/85 shadow-xl shadow-black/10">
+          <Card className="overflow-hidden border-border bg-card shadow-float">
             <div className="flex flex-col gap-3 border-b border-border bg-background/45 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
@@ -462,7 +463,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={() => setShowCreate(false)}>Cancel</Button>
                 <Button type="submit" size="sm" className="h-8 bg-primary text-xs text-primary-foreground" disabled={saving || !form.templateId}>
                   {saving ? "Saving" : "Save campaign"}
                 </Button>
@@ -633,34 +634,29 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
         </form>
       )}
 
-      <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-5 sm:px-6">
+      <dl className="grid shrink-0 grid-cols-2 border-b border-border md:grid-cols-5">
         {[
-          ["Total sent", summary.totalSent.toLocaleString(), <Send size={14} />, "from-primary/20 to-success/5"],
-          ["Delivery rate", `${summary.deliveryRate}%`, <CheckCircle2 size={14} />, "from-info/15 to-primary/5"],
-          ["Read rate", `${summary.readRate}%`, <Eye size={14} />, "from-chart-3/15 to-chart-3/5"],
-          ["Reply rate", `${summary.replyRate}%`, <Users size={14} />, "from-primary/15 to-chart-2/5"],
-          ["Failures", summary.failures.toLocaleString(), <AlertTriangle size={14} />, "from-destructive/15 to-warning/5"],
-        ].map(([label, value, icon, accent]) => (
-          <Card key={String(label)} className={`overflow-hidden border-border bg-gradient-to-br ${String(accent)} p-3`}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className={`text-lg font-semibold ${metricTone(String(label))}`}>{String(value)}</div>
-                <div className="text-[11px] text-muted-foreground">{String(label)}</div>
-              </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{icon}</div>
-            </div>
-          </Card>
+          ["Total sent", summary.totalSent.toLocaleString()],
+          ["Delivery rate", `${summary.deliveryRate}%`],
+          ["Read rate", `${summary.readRate}%`],
+          ["Reply rate", `${summary.replyRate}%`],
+          ["Failures", summary.failures.toLocaleString()],
+        ].map(([label, value], index) => (
+          <div key={label} className={`px-4 py-3 sm:px-6 ${index > 0 ? "md:border-l md:border-border" : ""} ${index % 2 === 1 ? "max-md:border-l max-md:border-border" : ""} ${index >= 2 ? "max-md:border-t max-md:border-border" : ""}`}>
+            <dt className="text-[12px] text-muted-foreground">{label}</dt>
+            <dd className={`mt-0.5 text-[20px] font-semibold tracking-[-0.02em] tabular-nums ${metricTone(label)}`}>{value}</dd>
+          </div>
         ))}
-      </div>
+      </dl>
 
-      {canWrite && (
-      <div className="shrink-0 border-b border-border bg-card/35 px-3 py-3 sm:px-6">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
-          <textarea value={csvText} onChange={(event) => setCsvText(event.target.value)} placeholder="CSV import: name,phone,email" className={`${textareaClass} min-h-[44px]`} />
-          <Button size="sm" variant="outline" className="h-11 border-border bg-background/60 text-xs" onClick={importCsv} disabled={!csvText.trim()}>
+      {canWrite && (csvOpen || notice) && (
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+        {csvOpen && <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+          <textarea value={csvText} onChange={(event) => setCsvText(event.target.value)} placeholder={"Paste CSV rows: name,phone,email\nRavi Kumar,919800000000,ravi@example.com"} className={`${textareaClass} min-h-[44px]`} />
+          <Button size="sm" variant="outline" className="h-11" onClick={importCsv} disabled={!csvText.trim()}>
             <FileUp size={13} className="mr-1.5" /> Import contacts
           </Button>
-        </div>
+        </div>}
         {notice && (
           <div className={`mt-2 rounded-md border px-3 py-2 text-xs ${notice.toLowerCase().includes("failed") || notice.toLowerCase().includes("could not") ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/25 bg-primary/10 text-primary"}`}>
             {notice}
@@ -671,7 +667,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
       <div className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-background/20 px-3 pt-3 sm:px-6">
         {tabs.map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-xs capitalize transition-colors ${activeTab === tab ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}>
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-xs capitalize transition-colors ${activeTab === tab ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-card hover:text-foreground"}`}>
             {tab.replace("_", " ")}
           </button>
         ))}
@@ -698,7 +694,6 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
             </div>
           ) : filtered.map((campaign) => (
             <Card key={campaign.id} className="overflow-hidden border-border bg-card transition hover:border-primary/25 hover:shadow-xl hover:shadow-black/10">
-              <div className="h-1 bg-gradient-to-r from-primary/70 via-chart-2/55 to-chart-3/55" />
               <div className="p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
@@ -762,7 +757,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
             </Card>
           ))}
           {!loading && !filtered.length && (
-            <Card className="border-dashed border-border bg-card/70 p-8 text-center">
+            <Card className="border-dashed border-border bg-card p-8 text-center">
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
                 <Send size={18} />
               </div>
@@ -774,7 +769,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
 
         {report && (
           <aside className="max-h-[46dvh] shrink-0 overflow-y-auto border-t border-border bg-card xl:max-h-none xl:w-[450px] xl:border-l xl:border-t-0">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 backdrop-blur">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-4 py-3 backdrop-blur">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-sm font-semibold text-foreground">{report.name}</h2>
@@ -805,7 +800,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                 <div className="space-y-1">
                   {(report.history || []).length ? (
                     (report.history || []).slice(-8).map((event, index) => (
-                      <div key={`${event.at}-${index}`} className="rounded-md border border-border/70 bg-card/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                      <div key={`${event.at}-${index}`} className="rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-foreground">{event.type.replace(/_/g, " ")}</span>
                           <span>{formatDate(event.at)}</span>
@@ -823,7 +818,7 @@ export function CampaignsView({ canWrite = false }: CampaignsViewProps) {
                 <div className="space-y-2">
                   {report.timeline.length ? (
                     report.timeline.slice(0, 10).map((event) => (
-                      <div key={event.id} className="flex gap-2 rounded-md border border-border/70 bg-card/60 p-2">
+                      <div key={event.id} className="flex gap-2 rounded-md border border-border bg-card p-2">
                         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${event.status === "failed" ? "bg-destructive" : "bg-primary"}`} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">

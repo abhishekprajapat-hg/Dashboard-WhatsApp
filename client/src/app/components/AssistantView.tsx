@@ -11,7 +11,6 @@ import {
   Play,
   Search,
   Send,
-  Sparkles,
   Tags,
   Workflow,
 } from "lucide-react";
@@ -92,7 +91,7 @@ function ProviderBadge({ name, enabled }: { name: string; enabled: boolean }) {
 
 function OutputCard({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
-    <Card className="rounded-lg border-border/70">
+    <Card className="rounded-lg border-border">
       <CardHeader className="flex-row items-center gap-2 px-4 pt-4">
         <div className="flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">{icon}</div>
         <CardTitle className="text-sm font-semibold">{title}</CardTitle>
@@ -207,17 +206,10 @@ export function AssistantView() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-muted/20">
+    <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Sparkles size={14} />
-              <span>AI-powered WhatsApp assistant</span>
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal">Assistant Studio</h1>
-            <p className="text-sm text-muted-foreground">Summaries, auto replies, lead qualification, RAG, voice, memory, and workflow-ready tool calls.</p>
-          </div>
+          <p className="text-[13px] text-muted-foreground">Draft replies, summaries and lead qualification, using your workspace's own AI keys.</p>
           <div className="flex flex-wrap gap-2">
             {Object.entries(overview.providers).map(([name, enabled]) => (
               <ProviderBadge key={name} name={name} enabled={enabled} />
@@ -232,7 +224,7 @@ export function AssistantView() {
             ["Automations", overview.metrics.automations, <Workflow size={18} />],
             ["Open Leads", overview.metrics.openLeads, <Tags size={18} />],
           ].map(([label, value, icon]) => (
-            <Card key={String(label)} className="rounded-lg border-border/70">
+            <Card key={String(label)} className="rounded-lg border-border">
               <CardContent className="flex items-center gap-3 p-4">
                 <div className="flex size-10 items-center justify-center rounded-md bg-secondary text-muted-foreground">{icon}</div>
                 <div>
@@ -252,7 +244,7 @@ export function AssistantView() {
         ) : (
         <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
           <section className="space-y-4">
-            <Card className="rounded-lg border-border/70">
+            <Card className="rounded-lg border-border">
               <CardHeader className="px-4 pt-4">
                 <CardTitle className="text-sm font-semibold">Run Assistant</CardTitle>
               </CardHeader>
@@ -293,7 +285,7 @@ export function AssistantView() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-lg border-border/70">
+            <Card className="rounded-lg border-border">
               <CardHeader className="px-4 pt-4">
                 <CardTitle className="text-sm font-semibold">Recent AI Conversations</CardTitle>
               </CardHeader>
@@ -346,7 +338,7 @@ export function AssistantView() {
             </motion.div>
 
             <div className="grid gap-4 xl:grid-cols-3">
-              <Card className="rounded-lg border-border/70 xl:col-span-1">
+              <Card className="rounded-lg border-border xl:col-span-1">
                 <CardHeader className="px-4 pt-4">
                   <CardTitle className="flex items-center gap-2 text-sm font-semibold"><FileUp size={16} /> Knowledge Base / RAG</CardTitle>
                 </CardHeader>
@@ -360,7 +352,7 @@ export function AssistantView() {
                 </CardContent>
               </Card>
 
-              <Card className="rounded-lg border-border/70 xl:col-span-1">
+              <Card className="rounded-lg border-border xl:col-span-1">
                 <CardHeader className="px-4 pt-4">
                   <CardTitle className="flex items-center gap-2 text-sm font-semibold"><Search size={16} /> Conversation Search</CardTitle>
                 </CardHeader>
@@ -380,7 +372,7 @@ export function AssistantView() {
                 </CardContent>
               </Card>
 
-              <Card className="rounded-lg border-border/70 xl:col-span-1">
+              <Card className="rounded-lg border-border xl:col-span-1">
                 <CardHeader className="px-4 pt-4">
                   <CardTitle className="flex items-center gap-2 text-sm font-semibold"><AudioLines size={16} /> Voice and Tools</CardTitle>
                 </CardHeader>

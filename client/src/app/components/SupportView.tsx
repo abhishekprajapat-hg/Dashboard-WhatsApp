@@ -140,43 +140,27 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
 
-      <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="min-w-0">
-          <Badge variant="success" className="mb-2">
-            <Headset size={12} />
-            Support
-          </Badge>
-          <h1 className="text-2xl font-semibold text-foreground">Customer Support</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Track WhatsApp conversations as categorized support tickets, from open through resolved.</p>
-        </div>
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
       </div>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 p-3 sm:p-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <dl className="grid grid-cols-3 overflow-hidden rounded-xl border border-border bg-card shadow-card">
           {[
             { label: "Open", value: openCount, tone: "text-muted-foreground" },
             { label: "Pending", value: pendingCount, tone: "text-warning" },
             { label: "Resolved", value: resolvedCount, tone: "text-primary" },
-          ].map((item) => (
-            <Card key={item.label} className="bg-card/75">
-              <CardContent className="flex items-center justify-between p-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="mt-1 text-xl font-semibold text-foreground">{item.value}</p>
-                </div>
-                <div className={`flex size-9 items-center justify-center rounded-lg bg-secondary/70 ${item.tone}`}>
-                  <LifeBuoy size={16} />
-                </div>
-              </CardContent>
-            </Card>
+          ].map((item, index) => (
+            <div key={item.label} className={`px-4 py-3 sm:px-5 ${index > 0 ? "border-l border-border" : ""}`}>
+              <dt className="text-[12px] text-muted-foreground">{item.label}</dt>
+              <dd className={`mt-0.5 text-[22px] font-semibold tracking-[-0.02em] tabular-nums ${item.tone === "text-destructive" && Number(item.value) > 0 ? "text-destructive" : "text-foreground"}`}>{item.value}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15">
-          <div className="flex flex-col gap-3 border-b border-border/80 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-subtle/70 p-1">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="no-scrollbar flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/70 p-0.5">
               {[
                 { id: "", label: "All" },
                 { id: "open", label: "Open" },
@@ -218,11 +202,11 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
             </div>
           ) : (
             <div className="flex-1 overflow-x-auto overflow-y-auto">
-              <table className="w-full min-w-[860px] text-xs">
-                <thead className="sticky top-0 z-10 border-b border-border bg-surface-subtle/95 backdrop-blur">
+              <table className="w-full min-w-[860px] text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
                   <tr>
                     {["Customer", "Category", "Last message", "Status", "Assigned to", "Activity", "Actions"].map((column) => (
-                      <th key={column} className="px-3 py-3 text-left font-medium text-muted-foreground">
+                      <th key={column} className="whitespace-nowrap px-3 py-2.5 text-left text-[11.5px] font-medium text-muted-foreground">
                         {column}
                       </th>
                     ))}
@@ -232,11 +216,11 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
                   {tickets.map((ticket) => {
                     const badge = STATUS_BADGE[ticket.status] || STATUS_BADGE.open;
                     return (
-                      <tr key={ticket.id} className="group border-b border-border/70 transition-colors hover:bg-secondary/35">
-                        <td className="px-3 py-3 font-medium text-foreground">{ticket.contactName}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{categoryLabel(categories, ticket.category)}</td>
+                      <tr key={ticket.id} className="group border-b border-border transition-colors hover:bg-secondary/35">
+                        <td className="px-3 py-2.5 font-medium text-foreground">{ticket.contactName}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{categoryLabel(categories, ticket.category)}</td>
                         <td className="max-w-[220px] truncate px-3 py-3 text-muted-foreground">{ticket.preview}</td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           {canWrite ? (
                             <select
                               value={ticket.status}
@@ -252,7 +236,7 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
                             <Badge variant={badge.variant}>{badge.label}</Badge>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           {canWrite ? (
                             <select
                               value={ticket.assignedToUserId?.id || ""}
@@ -269,8 +253,8 @@ export function SupportView({ canWrite = false }: SupportViewProps) {
                             <span className="text-muted-foreground">{ticket.assignedToUserId?.name || memberName.get(ticket.assignedToUserId?.id || "") || "Unassigned"}</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 text-muted-foreground">{ticket.lastActivity}</td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5 text-muted-foreground">{ticket.lastActivity}</td>
+                        <td className="px-3 py-2.5">
                           <button
                             type="button"
                             className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"
@@ -341,8 +325,8 @@ function SuggestReplyModal({ ticket, onClose, onLocked }: { ticket: TicketRecord
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-1.5 text-lg font-semibold text-foreground">
             <Sparkles size={16} className="text-primary" />
@@ -356,7 +340,7 @@ function SuggestReplyModal({ ticket, onClose, onLocked }: { ticket: TicketRecord
         {loading ? (
           <LoadingSkeleton rows={3} />
         ) : (
-          <p className="whitespace-pre-wrap rounded-lg border border-border/70 bg-surface-subtle/60 p-3 text-sm text-foreground">{reply}</p>
+          <p className="whitespace-pre-wrap rounded-lg border border-border bg-surface-subtle p-3 text-sm text-foreground">{reply}</p>
         )}
 
         <div className="mt-4 flex justify-end">
@@ -423,8 +407,8 @@ function NewTicketModal({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
         <div className="mb-5 flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold text-foreground">New ticket</h2>
           <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={onClose}>
@@ -449,7 +433,7 @@ function NewTicketModal({
               />
             </div>
             {!conversationId && search.trim() && (
-              <div className="max-h-48 overflow-y-auto rounded-md border border-border/70 bg-surface-subtle/70">
+              <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-surface-subtle">
                 {searching ? (
                   <p className="p-3 text-xs text-muted-foreground">Searching…</p>
                 ) : results.length === 0 ? (

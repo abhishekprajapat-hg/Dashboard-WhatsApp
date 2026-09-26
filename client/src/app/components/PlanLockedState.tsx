@@ -16,7 +16,7 @@ export function PlanLockedState({
   icon?: ReactNode;
 }) {
   return (
-    <Card className="rounded-lg border-dashed border-border/70 bg-card/60">
+    <Card className="rounded-lg border-dashed border-border bg-card">
       <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
         <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
           {icon ?? <Lock size={20} />}

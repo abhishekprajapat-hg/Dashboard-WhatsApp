@@ -127,16 +127,16 @@ const emptyAnalytics: EnterpriseAnalytics = {
 };
 
 const chartTooltip = {
-  background: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
+  background: "var(--card)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
   fontSize: 12,
 };
 
 const fieldClass =
-  "h-9 w-full rounded-md border border-border bg-background/80 px-3 text-xs text-foreground shadow-inner shadow-black/10 outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
+  "h-9 rounded-lg border border-input bg-input-background px-2.5 text-[13px] text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20";
 
-const premiumCard = "rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5";
+const premiumCard = "rounded-xl border-border bg-card shadow-card";
 
 const dayNames: Record<number, string> = {
   1: "Sun",
@@ -165,7 +165,7 @@ function isoDate(offsetDays = 0) {
 function KpiCard({ item, icon }: { item: { label: string; value: string; delta: string; up: boolean }; icon: ReactNode }) {
   return (
     <Card className={`${premiumCard} overflow-hidden`}>
-      <div className={`h-1 ${item.up ? "bg-gradient-to-r from-primary/80 to-success/40" : "bg-gradient-to-r from-warning/70 to-destructive/40"}`} />
+      <div className={`h-0.5 ${item.up ? "bg-success/60" : "bg-destructive/50"}`} />
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <div className="truncate text-xs text-muted-foreground">{item.label}</div>
@@ -268,20 +268,18 @@ export function AnalyticsView() {
   const selectedReport = analytics.customReports.find((item) => item.id === report) || analytics.customReports[0];
 
   return (
-    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))]">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
-        <div className="rounded-lg border border-border bg-card/80 p-4 shadow-xl shadow-black/10">
+        <div className="rounded-xl border border-border bg-card p-4 shadow-card">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary"><BarChart3 size={13} className="mr-1" /> Enterprise analytics</Badge>
               <Badge variant="outline" className="capitalize">{analytics.roleBasedAnalytics.scope.replace("_", " ")}</Badge>
               <span>{fromDate} to {toDate}</span>
             </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal">Analytics Command Center</h1>
-            <p className="text-sm text-muted-foreground">Messages, customers, agents, revenue, campaigns, leads, automations, templates, heat maps, and role-based reporting.</p>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center xl:justify-end">
+          <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
+            <div role="group" aria-label="Period" className="flex items-center gap-0.5 rounded-lg bg-secondary/70 p-0.5">
             {[7, 14, 30, 90].map((period) => (
               <button
                 key={period}
@@ -290,22 +288,27 @@ export function AnalyticsView() {
                   setFromDate(isoDate(-period));
                   setToDate(isoDate(0));
                 }}
-                className={`h-9 rounded-md border px-3 text-xs transition-colors ${days === period ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background/70 text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={days === period}
+                className={`h-8 rounded-md px-3 text-[12.5px] font-medium transition-colors ${days === period ? "bg-card text-foreground shadow-card" : "text-muted-foreground hover:text-foreground"}`}
               >
                 {period}d
               </button>
             ))}
-            <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className={fieldClass} />
-            <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className={fieldClass} />
-            <select value={memberId} onChange={(event) => setMemberId(event.target.value)} className={fieldClass}>
+            </div>
+            <div className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+              <input type="date" aria-label="From" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className={fieldClass} />
+              to
+              <input type="date" aria-label="To" value={toDate} onChange={(event) => setToDate(event.target.value)} className={fieldClass} />
+            </div>
+            <select value={memberId} aria-label="Team member" onChange={(event) => setMemberId(event.target.value)} className={`${fieldClass} w-40`}>
               <option value="all">All team</option>
               {analytics.filters.teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
             </select>
-            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query), "enterprise-analytics.pdf")}>
+            <Button variant="ghost" size="sm" className="h-9" onClick={() => downloadFromUrl(getAnalyticsExportUrl("pdf", query), "enterprise-analytics.pdf")}>
               <Download size={15} />
               PDF
             </Button>
-            <Button variant="outline" size="sm" className="h-9 w-full border-border bg-background/70 sm:w-auto" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query), "enterprise-analytics.csv")}>
+            <Button variant="ghost" size="sm" className="h-9" onClick={() => downloadFromUrl(getAnalyticsExportUrl("excel", query), "enterprise-analytics.csv")}>
               <FileSpreadsheet size={15} />
               Excel
             </Button>
@@ -353,19 +356,19 @@ export function AnalyticsView() {
                 <AreaChart data={analytics.messageVolume} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="analyticsInbound" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#25D366" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#25D366" stopOpacity={0} />
+                      <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="analyticsOutbound" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="var(--info)" stopOpacity={0.2} />
                       <stop offset="95%" stopColor="var(--info)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={chartTooltip} />
-                  <Area type="monotone" dataKey="inbound" stroke="#25D366" strokeWidth={2} fill="url(#analyticsInbound)" />
+                  <Area type="monotone" dataKey="inbound" stroke="var(--chart-1)" strokeWidth={2} fill="url(#analyticsInbound)" />
                   <Area type="monotone" dataKey="outbound" stroke="var(--info)" strokeWidth={2} fill="url(#analyticsOutbound)" />
                   <Line type="monotone" dataKey="resolved" stroke="var(--warning)" strokeWidth={2} dot={false} />
                 </AreaChart>
@@ -382,15 +385,15 @@ export function AnalyticsView() {
               {analytics.sourceBreakdown.length ? <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={analytics.sourceBreakdown} cx="50%" cy="50%" innerRadius={48} outerRadius={78} paddingAngle={3} dataKey="value">
-                    {analytics.sourceBreakdown.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    {analytics.sourceBreakdown.map((entry, index) => <Cell key={entry.name} fill={`var(--chart-${(index % 5) + 1})`} />)}
                   </Pie>
                   <Tooltip contentStyle={chartTooltip} />
                 </PieChart>
               </ResponsiveContainer> : <EmptyChart label="No customer source data yet." />}
               <div className="space-y-1.5">
-                {analytics.sourceBreakdown.map((source) => (
+                {analytics.sourceBreakdown.map((source, index) => (
                   <div key={source.name} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full" style={{ background: source.color }} />{source.name}</span>
+                    <span className="flex items-center gap-2 text-muted-foreground"><span className="size-2 rounded-full" style={{ background: `var(--chart-${(index % 5) + 1})` }} />{source.name}</span>
                     <span className="font-medium text-foreground">{source.value}</span>
                   </div>
                 ))}
@@ -420,7 +423,7 @@ export function AnalyticsView() {
                   <XAxis dataKey="date" hide />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
-                  <Line type="monotone" dataKey="minutes" stroke="#25D366" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="minutes" stroke="var(--chart-1)" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer></div></div> : <EmptyChart label="No response-time trend yet." />}
             </CardContent>
@@ -457,10 +460,10 @@ export function AnalyticsView() {
             <CardContent className="px-4 pb-4">
               {analytics.peakHours.length ? <div className="overflow-x-auto"><div className="min-w-[240px]"><ResponsiveContainer width="100%" height={160}>
                 <BarChart data={analytics.peakHours}>
-                  <XAxis dataKey="hour" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
+                  <XAxis dataKey="hour" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
                   <YAxis hide />
                   <Tooltip contentStyle={chartTooltip} />
-                  <Bar dataKey="messages" fill="#25D366" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="messages" fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer></div></div> : <EmptyChart label="No peak-hour activity yet." />}
             </CardContent>
@@ -486,7 +489,7 @@ export function AnalyticsView() {
               <CardTitle className="text-sm font-semibold">Campaign Analytics</CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto px-4 pb-4">
-              <table className="w-full min-w-[720px] text-left text-xs">
+              <table className="w-full min-w-[720px] text-left text-[13px]">
                 <thead className="border-b border-border text-muted-foreground">
                   <tr>
                     {["Campaign", "Sent", "Delivered", "Read", "Replies", "Clicks", "Conversions", "Failed"].map((column) => <th key={column} className="py-2 font-medium">{column}</th>)}
@@ -615,7 +618,7 @@ export function AnalyticsView() {
               <CardTitle className="text-sm font-semibold">Agent Performance</CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto px-4 pb-4">
-              <table className="w-full min-w-[620px] text-left text-xs">
+              <table className="w-full min-w-[620px] text-left text-[13px]">
                 <thead className="border-b border-border text-muted-foreground">
                   <tr>
                     {["Agent", "Role", "Resolved", "Assigned", "Avg Response"].map((column) => <th key={column} className="py-2 font-medium">{column}</th>)}

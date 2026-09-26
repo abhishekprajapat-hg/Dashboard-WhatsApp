@@ -245,7 +245,7 @@ function statusClass(value: unknown) {
   if (["failed", "error", "inactive", "disabled", "expired", "blocked", "no", "false"].some((item) => normalized.includes(item))) {
     return "border-destructive/25 bg-destructive/10 text-destructive";
   }
-  return "border-border/80 bg-surface-elevated/45 text-muted-foreground";
+  return "border-border bg-surface-elevated/45 text-muted-foreground";
 }
 
 function isStatusColumn(key: string) {
@@ -264,7 +264,7 @@ function StatCard({
   tone?: string;
 }) {
   return (
-    <Card className="group rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5 transition-colors hover:border-primary/25">
+    <Card className="group rounded-lg border-border bg-card shadow-float transition-colors hover:border-primary/25">
       <CardContent className="flex items-center gap-3 p-4">
         <div className={`flex size-10 items-center justify-center rounded-md border border-border bg-white/[0.04] transition-colors group-hover:bg-primary/10 ${tone}`}>
           {icon}
@@ -315,7 +315,7 @@ function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; 
   };
 
   return (
-    <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+    <Card className="rounded-lg border-border bg-card shadow-float">
       <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
         <CardTitle className="text-sm font-semibold">{title}</CardTitle>
         <Badge variant="outline" className="text-[10px]">
@@ -323,7 +323,7 @@ function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; 
         </Badge>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="overflow-x-auto rounded-md border border-border/80">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full min-w-[620px] text-left text-sm">
             <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
               <tr>
@@ -343,7 +343,7 @@ function DataTable({ title, rows, columns }: { title: string; rows: AdminRow[]; 
                 </tr>
               ) : (
                 rows.map((row, index) => (
-                  <tr key={String(row.id || row.name || index)} className="bg-card/70 transition-colors hover:bg-surface-elevated/35">
+                  <tr key={String(row.id || row.name || index)} className="bg-card transition-colors hover:bg-surface-elevated/35">
                     {columns.map((column) => (
                       <td key={column.key} className="max-w-[260px] px-3 py-2 text-foreground">
                         {displayValue(column.key, row[column.key])}
@@ -408,7 +408,7 @@ function ApiKeysPanel({ apiKeys, onChanged }: { apiKeys: AdminRow[]; onChanged: 
   }
 
   return (
-    <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+    <Card className="rounded-lg border-border bg-card shadow-float">
       <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
         <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
         <Badge variant="outline" className="text-[10px]">{apiKeys.length} records</Badge>
@@ -433,7 +433,7 @@ function ApiKeysPanel({ apiKeys, onChanged }: { apiKeys: AdminRow[]; onChanged: 
           </div>
         )}
 
-        <div className="flex flex-col gap-2 rounded-md border border-border/70 bg-background/40 p-3 sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-background/40 p-3 sm:flex-row sm:items-end">
           <label className="min-w-0 flex-1 space-y-1">
             <span className="text-[11px] font-medium text-muted-foreground">Key name</span>
             <input
@@ -465,7 +465,7 @@ function ApiKeysPanel({ apiKeys, onChanged }: { apiKeys: AdminRow[]; onChanged: 
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
 
-        <div className="overflow-x-auto rounded-md border border-border/80">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
               <tr>
@@ -484,7 +484,7 @@ function ApiKeysPanel({ apiKeys, onChanged }: { apiKeys: AdminRow[]; onChanged: 
                 </tr>
               ) : (
                 apiKeys.map((row) => (
-                  <tr key={String(row.id)} className="bg-card/70">
+                  <tr key={String(row.id)} className="bg-card">
                     <td className="px-3 py-2 text-foreground">{text(row.name)}</td>
                     <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{text(row.token)}</td>
                     <td className="px-3 py-2 text-muted-foreground">{text(row.scopes)}</td>
@@ -760,16 +760,11 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
   }
 
   return (
-    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted/20">
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 p-3 md:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ShieldCheck size={14} />
-              <span>Multi-tenant control plane</span>
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground">Enterprise Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[13px] text-muted-foreground">
               {text(currentCompany?.name, "Organization")} - {text(currentCompany?.plan, "starter")} - {text(currentCompany?.billingStatus, "trial")}
             </p>
           </div>
@@ -851,7 +846,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   </div>
 
                   {creatingTenant && (
-                    <Card className="rounded-lg border-border/70 bg-card/90">
+                    <Card className="rounded-lg border-border bg-card">
                       <CardHeader className="px-4 pt-4">
                         <CardTitle className="text-sm font-semibold">New Tenant</CardTitle>
                       </CardHeader>
@@ -925,13 +920,13 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
 
                   {tenantsError && <Badge variant="destructive">{tenantsError}</Badge>}
 
-                  <Card className="rounded-lg border-border/70 bg-card/90 shadow-xl shadow-black/5">
+                  <Card className="rounded-lg border-border bg-card shadow-float">
                     <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
                       <CardTitle className="text-sm font-semibold">Organization Directory</CardTitle>
                       <Badge variant="outline" className="text-[10px]">{tenants.length} organizations</Badge>
                     </CardHeader>
                     <CardContent className="px-4 pb-4">
-                      <div className="overflow-x-auto rounded-md border border-border/80">
+                      <div className="overflow-x-auto rounded-md border border-border">
                         <table className="w-full min-w-[720px] text-left text-sm">
                           <thead className="bg-surface-elevated/55 text-xs uppercase text-muted-foreground">
                             <tr>
@@ -992,7 +987,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   </Card>
 
                   {selectedTenantId && (
-                    <Card className="rounded-lg border-border/70 bg-card/90">
+                    <Card className="rounded-lg border-border bg-card">
                       <CardHeader className="flex flex-row items-center justify-between gap-3 px-4 pt-4">
                         <CardTitle className="text-sm font-semibold">
                           {tenantDetail?.organization.name || "Tenant detail"}
@@ -1024,7 +1019,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Workspaces ({tenantDetail.workspaces.length})</p>
                               <div className="space-y-1.5">
                                 {tenantDetail.workspaces.map((workspace) => (
-                                  <div key={workspace.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                  <div key={workspace.id} className="rounded-md border border-border px-2.5 py-1.5 text-sm">
                                     {workspace.name} <span className="text-xs text-muted-foreground">({workspace.slug})</span>
                                   </div>
                                 ))}
@@ -1035,7 +1030,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Members ({tenantDetail.members.length})</p>
                               <div className="space-y-1.5">
                                 {tenantDetail.members.map((member) => (
-                                  <div key={member.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                  <div key={member.id} className="rounded-md border border-border px-2.5 py-1.5 text-sm">
                                     {member.name} <span className="text-xs text-muted-foreground">{member.email} · {member.role}</span>
                                   </div>
                                 ))}
@@ -1045,19 +1040,19 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                             <div className="md:col-span-2">
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Usage</p>
                               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                <div className="rounded-md border border-border px-3 py-2 text-center">
                                   <div className="text-lg font-semibold">{tenantDetail.usage.templates}</div>
                                   <div className="text-xs text-muted-foreground">Templates</div>
                                 </div>
-                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                <div className="rounded-md border border-border px-3 py-2 text-center">
                                   <div className="text-lg font-semibold">{tenantDetail.usage.automations}</div>
                                   <div className="text-xs text-muted-foreground">Automations</div>
                                 </div>
-                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                <div className="rounded-md border border-border px-3 py-2 text-center">
                                   <div className="text-lg font-semibold">{tenantDetail.usage.campaigns}</div>
                                   <div className="text-xs text-muted-foreground">Campaigns</div>
                                 </div>
-                                <div className="rounded-md border border-border/70 px-3 py-2 text-center">
+                                <div className="rounded-md border border-border px-3 py-2 text-center">
                                   <div className="text-lg font-semibold">{tenantDetail.usage.whatsappAccounts}</div>
                                   <div className="text-xs text-muted-foreground">WhatsApp Numbers</div>
                                 </div>
@@ -1067,7 +1062,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">WhatsApp Numbers ({tenantDetail.whatsappAccounts.length})</p>
                               <div className="space-y-1.5">
                                 {tenantDetail.whatsappAccounts.map((account) => (
-                                  <div key={account.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                  <div key={account.id} className="rounded-md border border-border px-2.5 py-1.5 text-sm">
                                     {account.displayName} <span className="text-xs text-muted-foreground">{account.phoneNumber} · {account.status} · {account.workspace}</span>
                                   </div>
                                 ))}
@@ -1078,7 +1073,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Automation Flows ({tenantDetail.automationFlows.length})</p>
                               <div className="space-y-1.5">
                                 {tenantDetail.automationFlows.map((flow) => (
-                                  <div key={flow.id} className="rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                  <div key={flow.id} className="rounded-md border border-border px-2.5 py-1.5 text-sm">
                                     {flow.name} <span className="text-xs text-muted-foreground">v{flow.version} · {flow.status} · {flow.nodeCount} nodes · {flow.workspace}</span>
                                   </div>
                                 ))}
@@ -1089,7 +1084,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                               <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Recent Webhook Logs ({tenantDetail.recentLogs.length})</p>
                               <div className="space-y-1.5">
                                 {tenantDetail.recentLogs.map((log) => (
-                                  <div key={log.id} className="flex items-center justify-between rounded-md border border-border/70 px-2.5 py-1.5 text-sm">
+                                  <div key={log.id} className="flex items-center justify-between rounded-md border border-border px-2.5 py-1.5 text-sm">
                                     <span>{log.eventType} <span className="text-xs text-muted-foreground">({log.provider})</span></span>
                                     <span className={`text-xs ${log.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
                                       {log.status}{log.error ? ` · ${log.error}` : ""} · {formatDate(log.createdAt)}
@@ -1133,7 +1128,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                     <DataTable title="Roles" rows={overview.roles} columns={[{ key: "name", label: "Role" }, { key: "key", label: "Key" }, { key: "tenant", label: "Workspace" }, { key: "permissions", label: "Permissions" }, { key: "isSystemRole", label: "System" }]} />
                     <ApiKeysPanel apiKeys={overview.apiKeys} onChanged={loadOverview} />
                     <DataTable title="API Tokens" rows={overview.apiTokens} columns={[{ key: "name", label: "Token" }, { key: "token", label: "Value" }, { key: "expiresAt", label: "Expires" }, { key: "status", label: "Status" }]} />
-                    <Card className="rounded-lg border-border/70">
+                    <Card className="rounded-lg border-border">
                       <CardHeader className="px-4 pt-4">
                         <CardTitle className="text-sm font-semibold">Permission Catalog</CardTitle>
                       </CardHeader>
@@ -1180,7 +1175,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
               {activeTab === "Security" && (
                 <>
                   <SectionHeader icon={<ShieldCheck size={17} />} title="Security and Compliance" detail="Tenant security posture, session policy, retention, and network controls." />
-                  <Card className="rounded-lg border-border/70">
+                  <Card className="rounded-lg border-border">
                     <CardContent className="grid gap-4 p-4 md:grid-cols-2">
                       <label className="flex items-center justify-between gap-3 rounded-md border border-border p-3 opacity-60">
                         <span>
@@ -1262,7 +1257,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                 <>
                   <SectionHeader icon={<Palette size={17} />} title="White Label Branding and Settings" detail="Customer-facing brand identity and tenant domain controls." />
                   <Badge variant="outline" className="text-[10px]">Coming soon - not applied anywhere in the app yet</Badge>
-                  <Card className="rounded-lg border-border/70 opacity-60">
+                  <Card className="rounded-lg border-border opacity-60">
                     <CardContent className="grid gap-4 p-4 md:grid-cols-2">
                       <label className="space-y-1">
                         <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><BadgeCheck size={14} /> Brand Name</span>
@@ -1306,13 +1301,13 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   />
                   {entitlementsError && <Badge variant="destructive">{entitlementsError}</Badge>}
                   {entitlementsLoading && !entitlements && (
-                    <Card className="rounded-lg border-border/70">
+                    <Card className="rounded-lg border-border">
                       <CardContent className="p-4 text-sm text-muted-foreground">Loading plan...</CardContent>
                     </Card>
                   )}
                   {entitlements && (
                     <>
-                      <Card className="rounded-lg border-border/70 bg-card/90">
+                      <Card className="rounded-lg border-border bg-card">
                         <CardContent className="flex flex-col gap-3 p-4">
                           <div className="flex flex-wrap items-center gap-2">
                             {PACK_TIERS.map((tier) => (
@@ -1337,7 +1332,7 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                       </Card>
                       <div className="grid gap-3">
                         {entitlements.capabilities.map((capability) => (
-                          <Card key={capability.key} className="rounded-lg border-border/70 bg-card/90">
+                          <Card key={capability.key} className="rounded-lg border-border bg-card">
                             <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -1371,17 +1366,17 @@ export function AdminView({ isPlatformOwner = false }: { isPlatformOwner?: boole
                   {flagsError && <Badge variant="destructive">{flagsError}</Badge>}
                   <div className="grid gap-3">
                     {flagsLoading && featureFlags.length === 0 && (
-                      <Card className="rounded-lg border-border/70">
+                      <Card className="rounded-lg border-border">
                         <CardContent className="p-4 text-sm text-muted-foreground">Loading feature flags...</CardContent>
                       </Card>
                     )}
                     {featureFlags.map((flag) => (
-                      <Card key={flag.key} className="rounded-lg border-border/70 bg-card/90">
+                      <Card key={flag.key} className="rounded-lg border-border bg-card">
                         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-medium">{flag.label}</span>
-                              <Badge variant="outline" className={flag.gatesRealBehavior ? "border-primary/25 bg-primary/10 text-primary" : "border-border/80 bg-surface-elevated/45 text-muted-foreground"}>
+                              <Badge variant="outline" className={flag.gatesRealBehavior ? "border-primary/25 bg-primary/10 text-primary" : "border-border bg-surface-elevated/45 text-muted-foreground"}>
                                 {flag.gatesRealBehavior ? "Live" : "No current effect"}
                               </Badge>
                               <Badge variant="outline" className={statusClass(flag.effective)}>

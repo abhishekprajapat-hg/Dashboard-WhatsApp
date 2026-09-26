@@ -16,8 +16,8 @@ import {
   getSeoAudits,
 } from "../lib/api";
 
-const cardClass = "rounded-lg border-border/80 bg-card/90 shadow-xl shadow-black/5";
-const chartTooltip = { background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 };
+const cardClass = "rounded-lg border-border bg-card shadow-float";
+const chartTooltip = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 };
 
 interface GoogleMarketingAccount {
   id: string;
@@ -91,7 +91,7 @@ const SEVERITY_BADGE: Record<Finding["severity"], "destructive" | "warning" | "o
 
 function FindingRow({ finding }: { finding: Finding }) {
   return (
-    <div className="flex items-start gap-2 border-b border-border/60 py-2 last:border-0">
+    <div className="flex items-start gap-2 border-b border-border py-2 last:border-0">
       <Badge variant={SEVERITY_BADGE[finding.severity]} className="mt-0.5 shrink-0 uppercase">
         {finding.severity}
       </Badge>
@@ -139,8 +139,8 @@ function RecommendationModal({ audit, onClose, onGenerated, onLocked }: { audit:
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-1.5 text-lg font-semibold text-foreground">
             <Sparkles size={16} className="text-primary" />
@@ -158,7 +158,7 @@ function RecommendationModal({ audit, onClose, onGenerated, onLocked }: { audit:
             <p className="text-sm text-foreground">{recommendation.summary}</p>
             <div className="space-y-2">
               {recommendation.actions.map((action, index) => (
-                <div key={index} className="rounded-lg border border-border/70 bg-surface-subtle/60 p-3">
+                <div key={index} className="rounded-lg border border-border bg-surface-subtle p-3">
                   <div className="flex items-center gap-2">
                     <Badge variant={action.priority === "high" ? "destructive" : action.priority === "medium" ? "warning" : "outline"} className="uppercase">
                       {action.priority}
@@ -268,17 +268,8 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
 
-      <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="min-w-0">
-          <Badge variant="success" className="mb-2">
-            <TrendingUp size={12} />
-            Marketing
-          </Badge>
-          <h1 className="text-2xl font-semibold text-foreground">Marketing</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Your own Google Analytics, Search Console, and AI-drafted SEO recommendations for your own website.</p>
-        </div>
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
       </div>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-4 p-3 sm:p-4">
@@ -326,15 +317,15 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
                       <AreaChart data={analytics.dailySessions}>
                         <defs>
                           <linearGradient id="marketingSessions" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                            <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
+                            <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                        <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                        <YAxis tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
                         <Tooltip contentStyle={chartTooltip} />
-                        <Area type="monotone" dataKey="sessions" stroke="hsl(var(--primary))" fill="url(#marketingSessions)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="sessions" stroke="var(--primary)" fill="url(#marketingSessions)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : (
@@ -351,11 +342,11 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
                   {analytics?.topChannels.length ? (
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={analytics.topChannels} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                        <YAxis dataKey="channel" type="category" width={110} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis type="number" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
+                        <YAxis dataKey="channel" type="category" width={110} tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" />
                         <Tooltip contentStyle={chartTooltip} />
-                        <Bar dataKey="sessions" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                        <Bar dataKey="sessions" fill="var(--primary)" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
@@ -372,7 +363,7 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
                 <h3 className="mb-3 text-sm font-medium text-foreground">Top search queries</h3>
                 {searchConsole?.topQueries.length ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-left text-[13px]">
                       <thead className="text-muted-foreground">
                         <tr>
                           <th className="pb-2 pr-3 font-normal">Query</th>
@@ -431,7 +422,7 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
             <div className="mt-4 space-y-3">
               {audits.length === 0 && <p className="text-xs text-muted-foreground">No audits run yet.</p>}
               {audits.map((audit) => (
-                <div key={audit.id} className="rounded-lg border border-border/70 bg-surface-subtle/50 p-3">
+                <div key={audit.id} className="rounded-lg border border-border bg-surface-subtle p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-foreground">{audit.url}</div>
@@ -449,7 +440,7 @@ export function MarketingView({ canWrite = false }: MarketingViewProps) {
                   </div>
                   {audit.status === "failed" && <p className="mt-2 text-xs text-destructive">{audit.error}</p>}
                   {audit.findings.length > 0 && (
-                    <div className="mt-2 border-t border-border/60 pt-2">
+                    <div className="mt-2 border-t border-border pt-2">
                       {audit.findings.slice(0, 5).map((finding, index) => (
                         <FindingRow key={index} finding={finding} />
                       ))}

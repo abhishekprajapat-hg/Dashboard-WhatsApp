@@ -85,22 +85,13 @@ export function DocumentsView({ canWrite = false }: DocumentsViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
 
-      <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="min-w-0">
-          <Badge variant="success" className="mb-2">
-            <FileText size={12} />
-            Documentation
-          </Badge>
-          <h1 className="text-2xl font-semibold text-foreground">Documents</h1>
-          <p className="mt-1 text-sm text-muted-foreground">AI-drafted proposals for your customers - generate, review, and download as PDF.</p>
-        </div>
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
       </div>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col p-3 sm:p-4">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15">
-          <div className="flex items-center justify-end border-b border-border/80 p-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div className="flex items-center justify-end border-b border-border p-3">
             {canWrite && (
               <Button size="sm" onClick={() => setShowForm(true)} disabled={contacts.length === 0}>
                 <Sparkles size={14} />
@@ -124,11 +115,11 @@ export function DocumentsView({ canWrite = false }: DocumentsViewProps) {
             </div>
           ) : (
             <div className="flex-1 overflow-x-auto overflow-y-auto">
-              <table className="w-full min-w-[720px] text-xs">
-                <thead className="sticky top-0 z-10 border-b border-border bg-surface-subtle/95 backdrop-blur">
+              <table className="w-full min-w-[720px] text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
                   <tr>
                     {["Title", "Customer", "Status", "Created", "Actions"].map((column) => (
-                      <th key={column} className="px-3 py-3 text-left font-medium text-muted-foreground">
+                      <th key={column} className="whitespace-nowrap px-3 py-2.5 text-left text-[11.5px] font-medium text-muted-foreground">
                         {column}
                       </th>
                     ))}
@@ -136,18 +127,18 @@ export function DocumentsView({ canWrite = false }: DocumentsViewProps) {
                 </thead>
                 <tbody>
                   {documents.map((document) => (
-                    <tr key={document.id} className="group border-b border-border/70 transition-colors hover:bg-secondary/35">
-                      <td className="px-3 py-3">
+                    <tr key={document.id} className="group border-b border-border transition-colors hover:bg-secondary/35">
+                      <td className="px-3 py-2.5">
                         <button className="text-left font-medium text-foreground hover:underline" onClick={() => setOpenDocument(document)}>
                           {document.title}
                         </button>
                       </td>
-                      <td className="px-3 py-3 text-muted-foreground">{document.contact?.name || contactName.get(document.contactId) || "—"}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-2.5 text-muted-foreground">{document.contact?.name || contactName.get(document.contactId) || "—"}</td>
+                      <td className="px-3 py-2.5">
                         <Badge variant={document.status === "finalized" ? "success" : "outline"}>{document.status === "finalized" ? "Finalized" : "Draft"}</Badge>
                       </td>
-                      <td className="px-3 py-3 text-muted-foreground">{formatDate(document.createdAt)}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-2.5 text-muted-foreground">{formatDate(document.createdAt)}</td>
+                      <td className="px-3 py-2.5">
                         <button
                           className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100 disabled:opacity-40"
                           title="Download PDF"
@@ -226,8 +217,8 @@ function DraftProposalModal({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
         <div className="mb-5 flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold text-foreground">Draft a proposal</h2>
           <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={onClose}>
@@ -315,8 +306,8 @@ function DocumentDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+    <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-foreground">Proposal</h2>

@@ -115,7 +115,7 @@ export function NotificationsBell() {
               key={item.id}
               type="button"
               onClick={() => !item.read && handleMarkRead(item.id)}
-              className={`flex w-full flex-col gap-0.5 border-b border-border/60 px-3 py-2.5 text-left last:border-b-0 hover:bg-sidebar-accent ${
+              className={`flex w-full flex-col gap-0.5 border-b border-border px-3 py-2.5 text-left last:border-b-0 hover:bg-sidebar-accent ${
                 item.read ? "opacity-60" : ""
               }`}
             >

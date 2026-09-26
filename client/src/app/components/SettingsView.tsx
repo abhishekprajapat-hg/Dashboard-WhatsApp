@@ -257,7 +257,7 @@ const providerProfiles = {
   },
 } as const;
 
-const cardClass = "rounded-lg border-border bg-card/90 shadow-xl shadow-black/5";
+const cardClass = "rounded-lg border-border bg-card shadow-float";
 const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
 
 function statusBadgeClass(status = "") {
@@ -772,7 +772,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
-      <div className="shrink-0 border-b border-border bg-card/70 py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
+      <div className="shrink-0 border-b border-border bg-card py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
         <div className="hidden px-4 mb-3 md:block">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Settings</p>
           <p className="mt-1 text-[11px] text-muted-foreground">Workspace, WhatsApp, integrations, and security controls.</p>
@@ -803,7 +803,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
         )}
         {activeTab === "workspace" && (
           <div className="max-w-2xl space-y-6">
-            <div className="rounded-lg border border-border bg-card/80 p-4">
+            <div className="rounded-lg border border-border bg-card p-4">
               <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Workspace</Badge>
               <h2 className="mt-2 text-foreground">Workspace Settings</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Manage organization profile and operating defaults.</p>
@@ -828,7 +828,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
         {activeTab === "whatsapp" && (
           <div className="max-w-5xl space-y-6">
-            <div className="flex flex-col gap-4 rounded-lg border border-border bg-card/80 p-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <Badge variant="outline" className={statusBadgeClass(whatsappConsole.health.status)}>{whatsappConsole.health.status}</Badge>
                 <h2 className="text-foreground">WhatsApp Console</h2>
@@ -1488,7 +1488,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
         {activeTab === "integrations" && (
           <div className="max-w-4xl space-y-6">
-            <div className="rounded-lg border border-border bg-card/80 p-4">
+            <div className="rounded-lg border border-border bg-card p-4">
               <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Integrations</Badge>
               <h2 className="text-foreground">Integrations</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Connect outbound webhooks, Zapier-style automations, and lead sync destinations.</p>
@@ -1619,7 +1619,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                 </div>
                 <div className="space-y-3">
                   {aiProviderMeta.map((provider) => (
-                    <div key={provider.id} className="space-y-2 rounded-md border border-border/70 bg-background/60 p-3">
+                    <div key={provider.id} className="space-y-2 rounded-md border border-border bg-background/60 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-xs font-medium text-foreground">{provider.label}</span>
                         <label className="flex items-center gap-2 text-xs text-muted-foreground">

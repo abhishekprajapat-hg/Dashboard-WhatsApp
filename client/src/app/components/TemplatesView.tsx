@@ -394,21 +394,18 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
 
   return (
     <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible">
-      <div className="shrink-0 border-b border-border bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.12),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.78),rgba(2,6,23,0.22))] px-3 py-4 sm:px-6">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Template Library</Badge>
-              <span className="text-[11px] text-muted-foreground">{counts.active} active - {counts.whatsapp} WhatsApp - {counts.archived} archived</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] text-muted-foreground tabular-nums">{counts.total} templates · {counts.active} active · {counts.whatsapp} WhatsApp · {counts.archived} archived</span>
             </div>
-            <h1 className="text-foreground">Template Library</h1>
-            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">Manage approved WhatsApp templates, quick replies, automation copy, campaign content, follow-ups, and lead-stage messages.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={loadTemplates} disabled={loading}>
+            <Button size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={loadTemplates} disabled={loading}>
               <RefreshCcw size={13} className="mr-1.5" /> {loading ? "Refreshing" : "Refresh"}
             </Button>
-            {canWrite && <Button size="sm" variant="outline" className="h-8 border-border bg-card/60 text-xs" onClick={syncWhatsApp} disabled={saving}>
+            {canWrite && <Button size="sm" variant="outline" className="h-8 border-border bg-card text-xs" onClick={syncWhatsApp} disabled={saving}>
               <Sparkles size={13} className="mr-1.5" /> Sync WhatsApp
             </Button>}
             {canWrite && <Button size="sm" className="h-8 bg-primary text-xs text-primary-foreground" onClick={openCreate}>
@@ -418,41 +415,23 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
         </div>
       </div>
 
-      <div className="grid shrink-0 grid-cols-1 gap-3 border-b border-border bg-background/35 px-3 py-3 min-[380px]:grid-cols-2 md:grid-cols-4 sm:px-6">
-        {[
-          ["Total", counts.total, <FileText size={14} />, "from-primary/20 to-success/5"],
-          ["WhatsApp", counts.whatsapp, <MessageSquareText size={14} />, "from-info/15 to-primary/5"],
-          ["Active", counts.active, <Sparkles size={14} />, "from-chart-3/15 to-chart-3/5"],
-          ["Archived", counts.archived, <Archive size={14} />, "from-destructive/15 to-warning/5"],
-        ].map(([label, value, icon, accent]) => (
-          <Card key={String(label)} className={`overflow-hidden border-border bg-gradient-to-br ${String(accent)} p-3`}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold text-foreground">{String(value)}</div>
-                <div className="text-[11px] text-muted-foreground">{String(label)}</div>
-              </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/70 text-primary">{icon}</div>
-            </div>
-          </Card>
-        ))}
-      </div>
 
-      <div className="shrink-0 border-b border-border bg-card/35 px-3 py-3 sm:px-6">
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto_auto]">
           <div className="relative">
             <Search size={14} className="absolute left-2 top-2.5 text-muted-foreground" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => event.key === "Enter" && loadTemplates()} placeholder="Search templates" className={`${fieldClass} pl-8`} />
           </div>
           <select value={status} onChange={(event) => setStatus(event.target.value)} className={fieldClass}>
-            {statuses.map((item) => <option key={item} value={item}>{item.replace("_", " ")}</option>)}
+            {statuses.map((item) => <option key={item} value={item}>{item === "all" ? "Any status" : item.replace("_", " ")}</option>)}
           </select>
           <select value={category} onChange={(event) => setCategory(event.target.value)} className={fieldClass}>
-            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+            {categories.map((item) => <option key={item} value={item}>{item === "all" ? "Any category" : item}</option>)}
           </select>
           <select value={language} onChange={(event) => setLanguage(event.target.value)} className={fieldClass}>
-            {languages.map((item) => <option key={item} value={item}>{item}</option>)}
+            {languages.map((item) => <option key={item} value={item}>{item === "all" ? "Any language" : item}</option>)}
           </select>
-          <Button size="sm" variant="outline" className="h-9 border-border bg-background/60 text-xs" onClick={loadTemplates}>Apply</Button>
+          <Button size="sm" variant="outline" className="h-9" onClick={loadTemplates}>Apply</Button>
         </div>
         {notice && (
           <div className={`mt-2 rounded-md border px-3 py-2 text-xs ${notice.toLowerCase().includes("failed") || notice.toLowerCase().includes("could not") ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/25 bg-primary/10 text-primary"}`}>
@@ -461,9 +440,9 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
         )}
       </div>
 
-      <div className="no-scrollbar flex w-full min-w-0 shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-border bg-background/20 px-3 pt-3 sm:px-6">
+      <div className="no-scrollbar flex w-full min-w-0 shrink-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-border px-4 pt-2 sm:px-6">
         {tabs.map((tab) => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`-mb-px shrink-0 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-xs transition-colors ${activeTab === tab.id ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${activeTab === tab.id ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
             {tab.label}
           </button>
         ))}
@@ -488,7 +467,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
             </div>
           )}
           {!loading && templates.length === 0 && (
-            <Card className="border-dashed border-border bg-card/70 p-8 text-center">
+            <Card className="border-dashed border-border bg-card p-8 text-center">
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
                 <FileText size={18} />
               </div>
@@ -498,12 +477,11 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
           )}
           <div className="grid gap-3 xl:grid-cols-2">
             {!loading && templates.map((template) => (
-              <Card key={template.id} className={`cursor-pointer overflow-hidden border-border bg-card transition hover:border-primary/25 hover:shadow-xl hover:shadow-black/10 ${selected?.id === template.id ? "ring-1 ring-primary" : ""}`} onClick={() => setSelectedId(template.id)}>
-                <div className="h-1 bg-gradient-to-r from-primary/70 via-chart-2/55 to-chart-3/55" />
+              <Card key={template.id} className={`cursor-pointer overflow-hidden border-border bg-card transition shadow-card hover:border-primary/30 ${selected?.id === template.id ? "border-primary/50 ring-1 ring-primary/30" : ""}`} onClick={() => setSelectedId(template.id)}>
                 <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-jewel-soft text-primary">
                       {typeIcon(template.type)}
                     </div>
                     <div className="min-w-0">
@@ -535,7 +513,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
         </div>
 
         <aside className="max-h-[46dvh] shrink-0 overflow-y-auto border-t border-border bg-card xl:max-h-none xl:w-[410px] xl:border-l xl:border-t-0">
-          <div className="sticky top-0 z-10 border-b border-border bg-card/95 px-4 py-3 backdrop-blur">
+          <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3 backdrop-blur">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Live Preview</h2>
@@ -547,7 +525,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
           {selected ? (
             <div className="space-y-4 p-4">
               <Card className="overflow-hidden border-border bg-background">
-                <div className="border-b border-border bg-card/70 px-3 py-2">
+                <div className="border-b border-border bg-card px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
                       <Send size={13} /> Message Preview
@@ -566,10 +544,10 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                   <FileText size={13} /> Template Details
                 </div>
                 <div className="grid grid-cols-1 gap-2 text-[11px] text-muted-foreground min-[380px]:grid-cols-2">
-                  <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.category}</span>Category</div>
-                  <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.language}</span>Language</div>
-                  <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{selected.usageCount}</span>Usage</div>
-                  <div className="rounded-md border border-border bg-card/60 p-2"><span className="block text-foreground">{formatDate(selected.updatedAt)}</span>Updated</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{selected.category}</span>Category</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{selected.language}</span>Language</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{selected.usageCount}</span>Usage</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{formatDate(selected.updatedAt)}</span>Updated</div>
                 </div>
               </Card>
               {selected.variables.length > 0 && (
@@ -735,7 +713,7 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                         </Button>
                       </div>
                       {editing.buttons.map((button, index) => (
-                        <div key={index} className="grid grid-cols-1 items-center gap-2 rounded-md border border-border bg-card/60 p-2 sm:grid-cols-[140px_1fr_1fr_auto]">
+                        <div key={index} className="grid grid-cols-1 items-center gap-2 rounded-md border border-border bg-card p-2 sm:grid-cols-[140px_1fr_1fr_auto]">
                           <select value={button.type} onChange={(event) => updateButton(index, { type: event.target.value as ButtonType })} className={fieldClass}>
                             {buttonTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                           </select>
@@ -770,10 +748,10 @@ export function TemplatesView({ canWrite = false }: TemplatesViewProps) {
                   </p>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2 text-[11px] text-muted-foreground min-[380px]:grid-cols-2">
-                  <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{typeLabel(editing.type)}</span>Type</div>
-                  <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{editing.language || "-"}</span>Language</div>
-                  <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{editing.category}</span>Category</div>
-                  <div className="rounded-md border border-border bg-card/70 p-2"><span className="block text-foreground">{editing.variables.split(",").filter((item) => item.trim()).length}</span>Variables</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{typeLabel(editing.type)}</span>Type</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{editing.language || "-"}</span>Language</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{editing.category}</span>Category</div>
+                  <div className="rounded-md border border-border bg-card p-2"><span className="block text-foreground">{editing.variables.split(",").filter((item) => item.trim()).length}</span>Variables</div>
                 </div>
               </aside>
             </div>

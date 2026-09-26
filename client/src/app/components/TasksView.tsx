@@ -112,26 +112,17 @@ export function TasksView({ canWrite = false }: TasksViewProps) {
 
   return (
     <div className="relative flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(11,116,128,0.08),transparent_26rem),radial-gradient(circle_at_88%_12%,rgba(47,111,176,0.08),transparent_24rem)]" />
 
-      <div className="relative z-10 flex flex-col gap-4 border-b border-border/80 bg-surface/70 px-3 py-4 backdrop-blur-xl sm:px-6">
-        <div className="min-w-0">
-          <Badge variant="success" className="mb-2">
-            <ListChecks size={12} />
-            Team workspace
-          </Badge>
-          <h1 className="text-2xl font-semibold text-foreground">Tasks &amp; Calendar</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Follow-ups and events created by your team or by automation flows.</p>
-        </div>
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-6">
 
-        <div className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-subtle/70 p-1">
+        <div className="no-scrollbar flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/70 p-0.5">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setTab(item.id)}
-              className={`flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
-                tab === item.id ? "bg-primary/12 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors ${
+                tab === item.id ? "bg-card text-foreground shadow-card" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {item.icon}
@@ -244,29 +235,22 @@ function TasksTab({ canWrite, members, contacts }: { canWrite: boolean; members:
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <dl className="grid grid-cols-3 overflow-hidden rounded-xl border border-border bg-card shadow-card">
         {[
           { label: "Open", value: openCount, tone: "text-primary" },
           { label: "Completed", value: completedCount, tone: "text-info" },
           { label: "Overdue", value: overdueCount, tone: "text-destructive" },
-        ].map((item) => (
-          <Card key={item.label} className="bg-card/75">
-            <CardContent className="flex items-center justify-between p-3">
-              <div>
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-                <p className="mt-1 text-xl font-semibold text-foreground">{item.value}</p>
-              </div>
-              <div className={`flex size-9 items-center justify-center rounded-lg bg-secondary/70 ${item.tone}`}>
-                <ListChecks size={16} />
-              </div>
-            </CardContent>
-          </Card>
+        ].map((item, index) => (
+          <div key={item.label} className={`px-4 py-3 sm:px-5 ${index > 0 ? "border-l border-border" : ""}`}>
+            <dt className="text-[12px] text-muted-foreground">{item.label}</dt>
+            <dd className={`mt-0.5 text-[22px] font-semibold tracking-[-0.02em] tabular-nums ${item.tone === "text-destructive" && Number(item.value) > 0 ? "text-destructive" : "text-foreground"}`}>{item.value}</dd>
+          </div>
         ))}
-      </div>
+      </dl>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15">
-        <div className="flex flex-col gap-3 border-b border-border/80 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="no-scrollbar flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-surface-subtle/70 p-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="no-scrollbar flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/70 p-0.5">
             {[
               { id: "", label: "All" },
               { id: "open", label: "Open" },
@@ -339,11 +323,11 @@ function TasksTab({ canWrite, members, contacts }: { canWrite: boolean; members:
             </div>
 
             <div className="hidden flex-1 overflow-x-auto overflow-y-auto sm:block">
-              <table className="w-full min-w-[760px] text-xs">
-                <thead className="sticky top-0 z-10 border-b border-border bg-surface-subtle/95 backdrop-blur">
+              <table className="w-full min-w-[760px] text-[13px]">
+                <thead className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
                   <tr>
                     {["", "Title", "Due date", "Assignee", "Contact", "Actions"].map((column, index) => (
-                      <th key={index} className="px-3 py-3 text-left font-medium text-muted-foreground">
+                      <th key={index} className="whitespace-nowrap px-3 py-2.5 text-left text-[11.5px] font-medium text-muted-foreground">
                         {index === 0 || column === "Actions" ? "" : column}
                       </th>
                     ))}
@@ -353,7 +337,7 @@ function TasksTab({ canWrite, members, contacts }: { canWrite: boolean; members:
                   {tasks.map((task) => {
                     const overdue = task.status === "open" && task.dueAt && new Date(task.dueAt) < new Date();
                     return (
-                      <tr key={task.id} className="group border-b border-border/70 transition-colors hover:bg-secondary/35">
+                      <tr key={task.id} className="group border-b border-border transition-colors hover:bg-secondary/35">
                         <td className="py-3 pl-4 pr-1">
                           {canWrite ? (
                             <button type="button" onClick={() => handleToggleStatus(task)} className="text-muted-foreground">
@@ -363,17 +347,17 @@ function TasksTab({ canWrite, members, contacts }: { canWrite: boolean; members:
                             <Badge variant={task.status === "completed" ? "success" : "outline"}>{task.status}</Badge>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           <span className={task.status === "completed" ? "text-muted-foreground line-through" : "text-foreground"}>{task.title}</span>
                         </td>
                         <td className={`px-3 py-3 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
                           {task.dueAt ? format(new Date(task.dueAt), "MMM d, yyyy · h:mm a") : "—"}
                         </td>
-                        <td className="px-3 py-3 text-muted-foreground">{task.assignedToUserId?.name || "Unassigned"}</td>
-                        <td className="px-3 py-3 text-muted-foreground">{task.contactId ? contactName.get(task.contactId) || "—" : "—"}</td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5 text-muted-foreground">{task.assignedToUserId?.name || "Unassigned"}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{task.contactId ? contactName.get(task.contactId) || "—" : "—"}</td>
+                        <td className="px-3 py-2.5">
                           {canWrite && (
-                            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <div className="flex items-center gap-1 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
                               <button className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => openEditForm(task)}>
                                 <Pencil size={13} />
                               </button>
@@ -394,8 +378,8 @@ function TasksTab({ canWrite, members, contacts }: { canWrite: boolean; members:
       </div>
 
       {showForm && canWrite && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-          <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+          <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
             <div className="mb-5 flex items-start justify-between gap-3">
               <h2 className="text-lg font-semibold text-foreground">{editing ? "Edit task" : "New task"}</h2>
               <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setShowForm(false)}>
@@ -562,7 +546,7 @@ function CalendarTab({ canWrite, members, contacts }: { canWrite: boolean; membe
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-card/72 p-3">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon-sm" onClick={() => setMonthCursor((current) => subMonths(current, 1))}>
             <ChevronLeft size={15} />
@@ -581,12 +565,12 @@ function CalendarTab({ canWrite, members, contacts }: { canWrite: boolean; membe
       </div>
 
       {loading ? (
-        <div className="rounded-xl border border-border/80 bg-card/72 p-4">
+        <div className="rounded-xl border border-border bg-card p-4">
           <LoadingSkeleton rows={6} />
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/72 shadow-2xl shadow-black/15">
-          <div className="grid grid-cols-7 border-b border-border/80 text-center text-[11px] font-medium text-muted-foreground">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card">
+          <div className="grid grid-cols-7 border-b border-border text-center text-[11px] font-medium text-muted-foreground">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
               <div key={label} className="py-2">{label}</div>
             ))}
@@ -601,7 +585,7 @@ function CalendarTab({ canWrite, members, contacts }: { canWrite: boolean; membe
                 <div
                   key={key}
                   onClick={() => canWrite && openCreateForm(day)}
-                  className={`min-h-24 border-b border-r border-border/60 p-1.5 ${canWrite ? "cursor-pointer hover:bg-secondary/30" : ""} ${inCurrentMonth ? "" : "bg-surface-subtle/40"}`}
+                  className={`min-h-24 border-b border-r border-border p-1.5 ${canWrite ? "cursor-pointer hover:bg-secondary/30" : ""} ${inCurrentMonth ? "" : "bg-surface-subtle"}`}
                 >
                   <span className={`inline-flex size-5 items-center justify-center rounded-full text-[11px] ${isToday ? "bg-primary text-primary-foreground" : inCurrentMonth ? "text-foreground" : "text-muted-foreground/60"}`}>
                     {format(day, "d")}
@@ -632,8 +616,8 @@ function CalendarTab({ canWrite, members, contacts }: { canWrite: boolean; membe
       )}
 
       {showForm && canWrite && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/65 p-3 backdrop-blur-sm sm:p-4">
-          <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border/90 bg-card p-4 shadow-2xl shadow-black/45 sm:p-5">
+        <div className="fixed inset-0 z-30 flex items-center justify-center overflow-y-auto bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+          <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-float sm:p-5">
             <div className="mb-5 flex items-start justify-between gap-3">
               <h2 className="text-lg font-semibold text-foreground">{editing ? "Edit event" : "New event"}</h2>
               <button type="button" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setShowForm(false)}>
