@@ -177,21 +177,27 @@ interface WhatsAppConsolePayload {
   }[];
 }
 
-const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-  { id: "workspace", label: "Workspace", icon: <Building2 size={14} /> },
-  { id: "whatsapp", label: "WhatsApp", icon: <MessageCircle size={14} /> },
-  { id: "flows", label: "Flows", icon: <Workflow size={14} /> },
-  { id: "instagram", label: "Instagram", icon: <Instagram size={14} /> },
-  { id: "facebook", label: "Facebook", icon: <Facebook size={14} /> },
-  { id: "ads", label: "Ads", icon: <Megaphone size={14} /> },
-  { id: "marketing", label: "Marketing", icon: <TrendingUp size={14} /> },
-  { id: "crm", label: "CRM", icon: <Target size={14} /> },
-  { id: "api", label: "API Keys", icon: <Key size={14} /> },
-  { id: "integrations", label: "Integrations", icon: <Plug size={14} /> },
-  { id: "billing", label: "Billing", icon: <CreditCard size={14} /> },
-  { id: "notifications", label: "Notifications", icon: <Bell size={14} /> },
-  { id: "security", label: "Security", icon: <Shield size={14} /> },
+const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; group: string }[] = [
+  { id: "workspace", label: "Workspace", icon: <Building2 size={14} />, group: "Workspace" },
+  { id: "whatsapp", label: "WhatsApp", icon: <MessageCircle size={14} />, group: "Channels" },
+  { id: "flows", label: "WhatsApp Flows", icon: <Workflow size={14} />, group: "Channels" },
+  { id: "instagram", label: "Instagram", icon: <Instagram size={14} />, group: "Channels" },
+  { id: "facebook", label: "Facebook", icon: <Facebook size={14} />, group: "Channels" },
+  { id: "ads", label: "Ads", icon: <Megaphone size={14} />, group: "Growth" },
+  { id: "marketing", label: "Marketing", icon: <TrendingUp size={14} />, group: "Growth" },
+  { id: "crm", label: "CRM & pipeline", icon: <Target size={14} />, group: "Workspace" },
+  { id: "api", label: "API keys", icon: <Key size={14} />, group: "Developers" },
+  { id: "integrations", label: "Integrations", icon: <Plug size={14} />, group: "Developers" },
+  { id: "billing", label: "Plan & billing", icon: <CreditCard size={14} />, group: "Workspace" },
+  { id: "notifications", label: "Notifications", icon: <Bell size={14} />, group: "Workspace" },
+  { id: "security", label: "Security", icon: <Shield size={14} />, group: "Workspace" },
 ];
+
+const TAB_GROUPS = ["Workspace", "Channels", "Growth", "Developers"];
+
+function isSettingsTab(value?: string | null): value is SettingsTab {
+  return tabs.some((tab) => tab.id === value);
+}
 
 const initialSettings: SettingsPayload = {
   whatsappAccounts: [],
@@ -257,8 +263,8 @@ const providerProfiles = {
   },
 } as const;
 
-const cardClass = "rounded-lg border-border bg-card shadow-float";
-const fieldClass = "bg-background/80 border-border shadow-inner shadow-black/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20";
+const cardClass = "rounded-xl border-border bg-card shadow-card";
+const fieldClass = "bg-input-background border-input focus:border-ring focus:ring-2 focus:ring-ring/20";
 
 function statusBadgeClass(status = "") {
   if (status === "connected" || status === "healthy" || status === "processed" || status === "synced") return "border-primary/30 bg-primary/10 text-primary";
@@ -286,10 +292,23 @@ const aiProviderMeta: { id: "openai" | "claude" | "gemini"; label: string; place
 interface SettingsViewProps {
   canWrite?: boolean;
   isPlatformOwner?: boolean;
+  /** From a "#settings/<section>" link. */
+  initialTab?: string | null;
 }
 
-export function SettingsView({ canWrite = false, isPlatformOwner = false }: SettingsViewProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("workspace");
+export function SettingsView({ canWrite = false, isPlatformOwner = false, initialTab }: SettingsViewProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => (isSettingsTab(initialTab) ? initialTab : "workspace"));
+
+  useEffect(() => {
+    if (isSettingsTab(initialTab)) setActiveTab(initialTab);
+  }, [initialTab]);
+
+  // Keep "#settings/<section>" in the address bar so a section can be linked to directly.
+  useEffect(() => {
+    if (!/^#\/?settings(\/|$)/.test(window.location.hash)) return;
+    const next = `#settings/${activeTab}`;
+    if (window.location.hash !== next) window.history.replaceState(null, "", next);
+  }, [activeTab]);
   const [settings, setSettings] = useState<SettingsPayload>(initialSettings);
   const [whatsappConsole, setWhatsappConsole] = useState<WhatsAppConsolePayload>(initialConsole);
   const [showAccountForm, setShowAccountForm] = useState(false);
@@ -771,26 +790,29 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
   ];
 
   return (
-    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible bg-[radial-gradient(circle_at_top_left,rgba(31,138,91,0.08),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.45),rgba(2,6,23,0.1))] md:flex-row">
-      <div className="shrink-0 border-b border-border bg-card py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
-        <div className="hidden px-4 mb-3 md:block">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Settings</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Workspace, WhatsApp, integrations, and security controls.</p>
-        </div>
-        <nav className="no-scrollbar flex gap-1 overflow-x-auto px-2 md:block md:space-y-0.5">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-2.5 px-2.5 py-2 rounded-md text-xs transition-colors text-left md:w-full ${
-                activeTab === tab.id
-                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_rgba(31,138,91,0.16)]"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
+    <div className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-visible md:flex-row">
+      <div className="shrink-0 border-b border-border bg-card py-2 md:w-60 md:border-b-0 md:border-r md:py-5">
+        <nav aria-label="Settings sections" className="no-scrollbar flex gap-1 overflow-x-auto px-2 md:block md:space-y-4 md:px-3">
+          {TAB_GROUPS.map((group) => (
+            <div key={group} className="flex shrink-0 gap-1 md:block md:space-y-0.5">
+              <p className="hidden px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:block">{group}</p>
+              {tabs
+                .filter((tab) => tab.group === group)
+                .map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-current={activeTab === tab.id ? "page" : undefined}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors md:w-full ${
+                      activeTab === tab.id ? "bg-accent font-medium text-foreground [&_svg]:text-primary" : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                    }`}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+            </div>
           ))}
         </nav>
       </div>
@@ -803,10 +825,9 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
         )}
         {activeTab === "workspace" && (
           <div className="max-w-2xl space-y-6">
-            <div className="rounded-lg border border-border bg-card p-4">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Workspace</Badge>
-              <h2 className="mt-2 text-foreground">Workspace Settings</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Manage organization profile and operating defaults.</p>
+            <div>
+              <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-foreground">Workspace Settings</h2>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">Manage organization profile and operating defaults.</p>
             </div>
             <form onSubmit={handleWorkspaceSave}>
             <Card className={`p-4 ${cardClass} space-y-4`}>
@@ -818,7 +839,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
                 <Label>Timezone</Label>
                 <Input value={workspaceForm.timezone} onChange={(e) => setWorkspaceForm((current) => ({ ...current, timezone: e.target.value }))} className={fieldClass} />
               </div>
-              {canWrite && <Button type="submit" size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" disabled={workspaceSaving}>
+              {canWrite && <Button type="submit" size="sm" className="self-start" disabled={workspaceSaving}>
                 {workspaceSaving ? "Saving..." : "Save changes"}
               </Button>}
             </Card>
@@ -831,8 +852,8 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
             <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <Badge variant="outline" className={statusBadgeClass(whatsappConsole.health.status)}>{whatsappConsole.health.status}</Badge>
-                <h2 className="text-foreground">WhatsApp Console</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Monitor account health, delivery, templates, and webhook traffic.</p>
+                <h2 className="mt-2 text-[18px] font-semibold tracking-[-0.01em] text-foreground">WhatsApp</h2>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">Monitor account health, delivery, templates, and webhook traffic.</p>
               </div>
               {canWrite && <Button
                 size="sm"
@@ -1488,10 +1509,9 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
 
         {activeTab === "integrations" && (
           <div className="max-w-4xl space-y-6">
-            <div className="rounded-lg border border-border bg-card p-4">
-              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">Integrations</Badge>
-              <h2 className="text-foreground">Integrations</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Connect outbound webhooks, Zapier-style automations, and lead sync destinations.</p>
+            <div>
+              <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-foreground">Integrations</h2>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">Connect outbound webhooks, Zapier-style automations, and lead sync destinations.</p>
             </div>
 
             <div className="space-y-4">
@@ -1954,7 +1974,7 @@ export function SettingsView({ canWrite = false, isPlatformOwner = false }: Sett
           </div>
         )}
 
-        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "facebook" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "crm" && activeTab !== "billing" && activeTab !== "api" && activeTab !== "notifications" && activeTab !== "security" && (
+        {activeTab !== "workspace" && activeTab !== "whatsapp" && activeTab !== "flows" && activeTab !== "instagram" && activeTab !== "facebook" && activeTab !== "integrations" && activeTab !== "ads" && activeTab !== "crm" && activeTab !== "billing" && activeTab !== "api" && activeTab !== "notifications" && activeTab !== "security" && activeTab !== "marketing" && (
           <div className="max-w-xl space-y-4">
             <div>
               <h2 className="text-foreground capitalize">{activeTab}</h2>

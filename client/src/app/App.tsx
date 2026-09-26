@@ -93,6 +93,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewId>(getInitialView);
   const [contactChatTarget, setContactChatTarget] = useState<string | null>(() => initialHashParam("inbox"));
   const [leadTarget, setLeadTarget] = useState<string | null>(() => initialHashParam("leads"));
+  const [settingsTarget, setSettingsTarget] = useState<string | null>(() => initialHashParam("settings"));
   const [unreadCount, setUnreadCount] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -211,6 +212,7 @@ export default function App() {
       setActiveView(nextView);
       if (param && nextView === "inbox") setContactChatTarget(param);
       if (param && nextView === "leads") setLeadTarget(param);
+      if (param && nextView === "settings") setSettingsTarget(param);
     }
 
     window.addEventListener("hashchange", handleHashChange);
@@ -330,7 +332,7 @@ export default function App() {
           {canAccessView(session, activeView) && activeView === "tasks" && <TasksView canWrite={canWriteTasks} />}
           {canAccessView(session, activeView) && activeView === "assistant" && <AssistantView />}
           {canAccessView(session, activeView) && activeView === "admin" && <AdminView isPlatformOwner={isPlatformOwnerSession} />}
-          {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} />}
+          {canAccessView(session, activeView) && activeView === "settings" && <SettingsView canWrite={canWriteSettings} isPlatformOwner={isPlatformOwnerSession} initialTab={settingsTarget} />}
         </div>
       </main>
 

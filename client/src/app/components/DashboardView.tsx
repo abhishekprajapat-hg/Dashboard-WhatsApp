@@ -167,7 +167,9 @@ export function DashboardView({ userName, workspaceName, visibleViews, unreadCou
       icon: <AlertTriangle size={17} />,
       title: offline ? "WhatsApp isn't connected" : "A WhatsApp number needs attention",
       detail: offline ? "Customers can't reach you on WhatsApp until a number is connected." : "Messages may not send until it's fixed in Settings.",
-      action: () => onNavigate("settings"),
+      action: () => {
+        window.location.hash = "#settings/whatsapp";
+      },
       actionLabel: offline ? "Connect" : "Fix",
     });
   }
